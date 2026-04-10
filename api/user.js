@@ -280,6 +280,11 @@ function getPvpSide(state, tgId) {
   return String(state?.player1_tg_user_id) === String(tgId) ? "p1" : "p2";
 }
 
+function isPvpRoomParticipant(room, tgId) {
+  return String(room?.player1_tg_user_id || "") === String(tgId || "") ||
+    String(room?.player2_tg_user_id || "") === String(tgId || "");
+}
+
 function pvpDefaultState(player1Id, player2Id) {
   const firstFrog = Math.random() < 0.5 ? "p1" : "p2";
   const firstHunter = firstFrog === "p1" ? "p2" : "p1";
@@ -600,7 +605,7 @@ function pvpAdvanceByTime(room) {
 
 function pvpApplyMove(room, tgId, move) {
   const s = asObj(room?.state_json);
-  if (s.phase !== "turn_input") throw new Error("Turn is locked");
+  if (s.phase !== "turn_input") return s;
   const side = getPvpSide(room, tgId);
   const role = s?.roles?.[side];
   if (!role) throw new Error("Invalid room side");
@@ -610,10 +615,23 @@ function pvpApplyMove(room, tgId, move) {
   const next = { ...s, pending: { ...(s.pending || {}) } };
 
   if (role === "frog") {
+    const alreadyChosen =
+      next?.pending?.frogCell !== null &&
+      next?.pending?.frogCell !== undefined &&
+      Number.isInteger(Number(next.pending.frogCell));
+    if (alreadyChosen) {
+      next.updatedAt = new Date().toISOString();
+      return next;
+    }
     const frogCell = Number(move?.frogCell);
     if (!Number.isInteger(frogCell) || frogCell < 0 || frogCell >= totalCells) throw new Error("Invalid frog cell");
     next.pending.frogCell = frogCell;
   } else {
+    const alreadyChosen = Array.isArray(next?.pending?.hunterCells) && next.pending.hunterCells.length === hunterShots;
+    if (alreadyChosen) {
+      next.updatedAt = new Date().toISOString();
+      return next;
+    }
     const arr = Array.isArray(move?.hunterCells) ? move.hunterCells : [];
     const cells = [];
     for (const c of arr) {
@@ -732,7 +750,7 @@ async function pvpGetRoomState(initData, roomId) {
   );
   const room = rows?.[0];
   if (!room) throw new Error("Room not found");
-  if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
+  if (!isPvpRoomParticipant(room, tgId)) {
     throw new Error("Forbidden");
   }
 
@@ -757,25 +775,30 @@ async function pvpSubmitMove(initData, roomId, move) {
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
 
-  const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
-  const room = rows?.[0];
-  if (!room) throw new Error("Room not found");
-  if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
-    throw new Error("Forbidden");
+  // Optimistic retries protect from concurrent writes from both clients.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
+    const room = rows?.[0];
+    if (!room) throw new Error("Room not found");
+    if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
+    if (room.status !== "active") return room;
+
+    const nowState = pvpAdvanceByTime(room).state;
+    const withHeartbeat = pvpHeartbeat(nowState, tgId).state;
+    const nextState = pvpApplyMove({ ...room, state_json: withHeartbeat }, tgId, asObj(move));
+    const patched = await sb(
+      `pvp_rooms?id=eq.${id}&updated_at=eq.${encodeURIComponent(room.updated_at)}&status=eq.active`,
+      {
+        method: "PATCH",
+        body: { state_json: nextState, updated_at: new Date().toISOString() },
+        prefer: "return=representation",
+      }
+    );
+    if (patched?.length) {
+      return finalizePvpRoomIfNeeded(patched[0]);
+    }
   }
-  if (room.status !== "active") throw new Error("Room is not active");
-
-  const nowState = pvpAdvanceByTime(room).state;
-  const withHeartbeat = pvpHeartbeat(nowState, tgId).state;
-  const nextState = pvpApplyMove({ ...room, state_json: withHeartbeat }, tgId, asObj(move));
-  const patched = await sb(`pvp_rooms?id=eq.${id}`, {
-    method: "PATCH",
-    body: { state_json: nextState, updated_at: new Date().toISOString() },
-    prefer: "return=representation",
-  });
-  const updated = patched?.[0] || { ...room, state_json: nextState };
-
-  return finalizePvpRoomIfNeeded(updated);
+  throw new Error("Room update conflict");
 }
 
 async function finalizePvpRoomIfNeeded(room) {
@@ -788,7 +811,7 @@ async function finalizePvpRoomIfNeeded(room) {
   const winner = p1 === p2 ? null : (p1 > p2 ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id));
   const nextState = { ...s, matchSavedAt: new Date().toISOString() };
 
-  const patched = await sb(`pvp_rooms?id=eq.${room.id}`, {
+  const patched = await sb(`pvp_rooms?id=eq.${room.id}&status=eq.active`, {
     method: "PATCH",
     body: {
       status: "finished",
@@ -798,7 +821,8 @@ async function finalizePvpRoomIfNeeded(room) {
     },
     prefer: "return=representation",
   });
-  const finalized = patched?.[0] || { ...room, status: "finished", winner_tg_user_id: winner, state_json: nextState };
+  if (!patched?.length) return room;
+  const finalized = patched[0];
 
   await persistMatchFromPayload({
     gameKey: "frog_hunt",
@@ -834,19 +858,14 @@ async function pvpLeaveRoom(initData, roomId) {
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) return { left: false };
   const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
-  const room = rows?.[0];
+  let room = rows?.[0];
   if (!room) return { left: false };
-  if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
+  if (!isPvpRoomParticipant(room, tgId)) {
     throw new Error("Forbidden");
   }
   if (room.status === "waiting") {
-    await sb(`pvp_rooms?id=eq.${id}`, {
-      method: "PATCH",
-      body: {
-        status: "cancelled",
-        state_json: { ...asObj(room.state_json), leftBy: tgId, leftAt: new Date().toISOString() },
-        updated_at: new Date().toISOString(),
-      },
+    await sb(`pvp_rooms?id=eq.${id}&status=eq.waiting`, {
+      method: "DELETE",
       prefer: "return=minimal",
     });
     return { left: true };
@@ -867,7 +886,7 @@ async function pvpLeaveRoom(initData, roomId) {
       matchSavedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await sb(`pvp_rooms?id=eq.${id}`, {
+    const patched = await sb(`pvp_rooms?id=eq.${id}&status=eq.active`, {
       method: "PATCH",
       body: {
         status: "finished",
@@ -875,9 +894,10 @@ async function pvpLeaveRoom(initData, roomId) {
         state_json: nextState,
         updated_at: new Date().toISOString(),
       },
-      prefer: "return=minimal",
+      prefer: "return=representation",
     });
-    if (winner) {
+    if (patched?.length) room = patched[0];
+    if (patched?.length && winner) {
       await persistMatchFromPayload({
         gameKey: "frog_hunt",
         mode: "pvp",
@@ -1091,10 +1111,14 @@ module.exports = async (req, res) => {
         ? 401
         : msg === "User not found"
           ? 404
+          : msg === "Room not found"
+            ? 404
           : msg === "Invalid nickname format" || msg.includes("Rules must be accepted")
             ? 400
             : msg === "Forbidden"
               ? 403
+              : msg === "Room update conflict"
+                ? 409
             : 500;
     return res.status(code).json({ ok: false, error: msg });
   }
