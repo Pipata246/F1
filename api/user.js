@@ -334,6 +334,15 @@ async function pvpCancelRooms(ids) {
   });
 }
 
+async function pvpPruneUserNonActiveRooms(tgId, gameKey) {
+  const rows = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=in.(finished,cancelled)&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id&order=updated_at.desc&limit=100`
+  );
+  const ids = (rows || []).map((r) => Number(r.id)).filter((x) => Number.isInteger(x) && x > 0);
+  if (!ids.length) return;
+  await sb(`pvp_rooms?id=in.(${ids.join(",")})`, { method: "DELETE" });
+}
+
 function pvpRoomHasSamePair(room, a, b) {
   const p1 = String(room?.player1_tg_user_id || "");
   const p2 = String(room?.player2_tg_user_id || "");
@@ -429,6 +438,69 @@ function pvpAdvanceByTime(room) {
   if (!phaseAt) return { changed: false, state: s };
   const elapsed = now - phaseAt;
   const next = { ...s };
+  const roles = asObj(s.roles);
+  const frogSide = roles.p1 === "frog" ? "p1" : "p2";
+  const hunterSide = frogSide === "p1" ? "p2" : "p1";
+  const totalCells = Number(s.totalCells || 8);
+  const safeCell = Number.isInteger(Number(s.frogCell)) ? Number(s.frogCell) : 0;
+  const presence = asObj(s.presence);
+  const p1Beat = Number(presence.p1 || 0);
+  const p2Beat = Number(presence.p2 || 0);
+
+  // If one side stopped polling for long enough, end match by forfeit.
+  if ((s.phase === "turn_input" || s.phase === "round_result" || s.phase === "game_over") && p1Beat > 0 && p2Beat > 0) {
+    const staleMs = 25000;
+    const p1Stale = now - p1Beat > staleMs;
+    const p2Stale = now - p2Beat > staleMs;
+    if (p1Stale !== p2Stale) {
+      const leftSide = p1Stale ? "p1" : "p2";
+      const winnerSide = leftSide === "p1" ? "p2" : "p1";
+      next.phase = "match_over";
+      next.phaseAtMs = now;
+      next.endedByLeave = true;
+      next.leftBy = String(next?.players?.[leftSide] || "");
+      next.leftAt = new Date().toISOString();
+      next.matchScores = { ...(s.matchScores || { p1: 0, p2: 0 }) };
+      if (Number(next.matchScores.p1 || 0) === Number(next.matchScores.p2 || 0)) {
+        next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;
+      }
+      next.markers = { ...(s.markers || {}), match: Number(s?.markers?.match || 0) + 1 };
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+  }
+
+  // Turn timeout: side that did not submit in time loses the round.
+  if (s.phase === "turn_input" && elapsed >= 16000) {
+    const pending = asObj(s.pending);
+    const frogChosen = Number.isInteger(Number(pending.frogCell));
+    const hunterChosen = Array.isArray(pending.hunterCells) && pending.hunterCells.length === Number(s.hunterShots || 1);
+    if (!frogChosen || !hunterChosen) {
+      const timedOutSide = !frogChosen ? frogSide : hunterSide;
+      const winnerSide = timedOutSide === frogSide ? hunterSide : frogSide;
+      next.matchScores = { ...(s.matchScores || { p1: 0, p2: 0 }) };
+      next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;
+      next.phase = "game_over";
+      next.phaseAtMs = now;
+      next.roundHit = timedOutSide === frogSide;
+      next.nextFrogCell = frogChosen ? Number(pending.frogCell) : safeCell;
+      next.markers = { ...(s.markers || {}), round: Number(s?.markers?.round || 0) + 1, game: Number(s?.markers?.game || 0) + 1 };
+      next.lastRoundResult = {
+        marker: next.markers.round,
+        hit: timedOutSide === frogSide,
+        frogCell: frogChosen ? Number(pending.frogCell) : safeCell,
+        hunterCells: hunterChosen ? pending.hunterCells.map(Number) : [],
+        round: s.currentRound,
+        totalRounds: s.totalRounds,
+        isFinal: true,
+        timedOutSide,
+        winnerRole: timedOutSide === frogSide ? "hunter" : "frog",
+      };
+      next.pending = { frogCell: null, hunterCells: [] };
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+  }
 
   if (s.phase === "round_result" && elapsed >= 2600) {
     if (s.roundHit) {
@@ -564,6 +636,7 @@ function pvpApplyMove(room, tgId, move) {
     round: next.currentRound,
     totalRounds: next.totalRounds,
     isFinal: Number(next.currentRound) === Number(next.totalRounds),
+    winnerRole: hit ? "hunter" : (Number(next.currentRound) === Number(next.totalRounds) ? "frog" : null),
   };
   next.pending = { frogCell: null, hunterCells: [] };
   next.updatedAt = new Date().toISOString();
@@ -577,6 +650,7 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const safeName = String(playerName || verified.user.first_name || "Игрок").slice(0, 64);
   const key = normalizeGameKey(gameKey);
   if (key !== "frog_hunt") throw new Error("PvP is enabled only for frog_hunt now");
+  await pvpPruneUserNonActiveRooms(tgId, key);
 
   const existing = await pvpCleanupUserRooms(tgId, key);
   if (existing) return existing;
@@ -624,6 +698,7 @@ async function pvpGetRoomState(initData, roomId) {
   const tgId = String(verified.user.id);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
+  await pvpPruneUserNonActiveRooms(tgId, "frog_hunt");
 
   const rows = await sb(
     `pvp_rooms?id=eq.${id}&select=*`

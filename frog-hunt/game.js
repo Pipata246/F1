@@ -322,7 +322,7 @@ function applyPvpRoomState(room) {
 
   if (s.phase === 'game_over' && Number((s.markers || {}).game || 0) > pvpLastGameMarker) {
     pvpLastGameMarker = Number((s.markers || {}).game || 0);
-    var winnerRole = s.roundHit ? (myRole === 'hunter' ? 'hunter' : 'frog') : 'frog';
+    var winnerRole = (s.lastRoundResult && s.lastRoundResult.winnerRole) || (s.roundHit ? 'hunter' : 'frog');
     var youWon = (myRole === winnerRole);
     onGameOver({
       youWon: youWon,
@@ -348,6 +348,14 @@ function applyPvpRoomState(room) {
   if (s.phase === 'match_over' && Number((s.markers || {}).match || 0) > pvpLastMatchMarker) {
     pvpLastMatchMarker = Number((s.markers || {}).match || 0);
     stopPvpPolling();
+    if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(tgUserId)) {
+      onOpponentLeftVictory(room);
+      return;
+    }
+    if (s.endedByLeave && s.leftBy && String(s.leftBy) === String(tgUserId)) {
+      showScreen('start');
+      return;
+    }
     onMatchResult({
       youWon: myScore > oppScore,
       matchScores: [myScore, oppScore]
