@@ -1176,15 +1176,21 @@
         `Код: ${code || "—"}\n\n` +
         `Погнали?`;
       try{
-        // Native Telegram share flow (same behavior as before).
+        // Strict rule: show success animation only on confirmed "sent".
         if(typeof tg?.shareText === "function"){
           const result = await tg.shareText(text);
-          if(result === true || result?.status === "sent" || result?.sent === true){
+          const sent =
+            result === true ||
+            result?.status === "sent" ||
+            result?.sent === true;
+          if(sent){
             showShareNotice("Приглашение отправлено", "Сообщение успешно отправлено");
           }
+          // If user closed/cancelled, do nothing.
           return;
         }
-        // In-app fallback: open Telegram share picker without external browser.
+        // Fallbacks cannot reliably report "sent" vs "cancelled",
+        // so we open share UI but do not show any success animation.
         if(typeof tg?.openTelegramLink === "function"){
           const shareUrl = `https://t.me/share/url?url=${encodeURIComponent("https://t.me/Fffasdq_bot")}&text=${encodeURIComponent(text)}`;
           tg.openTelegramLink(shareUrl);
@@ -1194,13 +1200,11 @@
         if(typeof tg?.switchInlineQuery === "function"){
           const inlineText = text.length > 240 ? `${text.slice(0, 237)}...` : text;
           tg.switchInlineQuery(inlineText, ["users", "groups", "channels"]);
-          toast("Выбери чат и отправь сообщение");
           return;
         }
         throw new Error("share_unavailable");
       }catch(e){
-        navigator.clipboard?.writeText(text);
-        toast("Шаринг недоступен, текст скопирован");
+        // Silent fail: no success/cancel notifications when status is unknown.
       }
     };
     if(hasTgAuth){
