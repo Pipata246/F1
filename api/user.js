@@ -737,7 +737,7 @@ async function pvpLeaveRoom(initData, roomId) {
   if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
     throw new Error("Forbidden");
   }
-  if (room.status === "waiting" || room.status === "active") {
+  if (room.status === "waiting") {
     await sb(`pvp_rooms?id=eq.${id}`, {
       method: "PATCH",
       body: {
@@ -747,6 +747,59 @@ async function pvpLeaveRoom(initData, roomId) {
       },
       prefer: "return=minimal",
     });
+    return { left: true };
+  }
+  if (room.status === "active") {
+    const s = asObj(room.state_json);
+    const p1 = Number(s?.matchScores?.p1 || 0);
+    const p2 = Number(s?.matchScores?.p2 || 0);
+    const winner = String(room.player1_tg_user_id) === tgId
+      ? String(room.player2_tg_user_id || "")
+      : String(room.player1_tg_user_id || "");
+    const nextState = {
+      ...s,
+      phase: "match_over",
+      leftBy: tgId,
+      leftAt: new Date().toISOString(),
+      endedByLeave: true,
+      matchSavedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await sb(`pvp_rooms?id=eq.${id}`, {
+      method: "PATCH",
+      body: {
+        status: "finished",
+        winner_tg_user_id: winner || null,
+        state_json: nextState,
+        updated_at: new Date().toISOString(),
+      },
+      prefer: "return=minimal",
+    });
+    if (winner) {
+      await persistMatchFromPayload({
+        gameKey: "frog_hunt",
+        mode: "pvp",
+        winnerTgUserId: winner,
+        score: { left: p1, right: p2 },
+        details: { roomId: id, endedByLeave: true, leftBy: tgId },
+        players: [
+          {
+            tgUserId: room.player1_tg_user_id,
+            name: room.player1_name || "Игрок 1",
+            score: p1,
+            isWinner: String(winner) === String(room.player1_tg_user_id),
+            isBot: false,
+          },
+          {
+            tgUserId: room.player2_tg_user_id,
+            name: room.player2_name || "Игрок 2",
+            score: p2,
+            isWinner: String(winner) === String(room.player2_tg_user_id),
+            isBot: false,
+          },
+        ],
+      });
+    }
     return { left: true };
   }
   return { left: false };

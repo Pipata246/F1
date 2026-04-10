@@ -225,11 +225,32 @@ function pvpPollState() {
 
 function applyPvpRoomState(room) {
   if (!room) return;
+  var s = room.state_json || {};
+  if (String(room.status) === 'cancelled' || String(room.status) === 'finished') {
+    stopPvpPolling();
+    if (s.leftBy && String(s.leftBy) !== String(tgUserId)) {
+      onOpponentLeftVictory(room);
+    } else if (String(room.winner_tg_user_id || '') === String(tgUserId) && !!s.endedByLeave) {
+      onOpponentLeftVictory(room);
+    } else if (!s.endedByLeave) {
+      var meIsP1Done = String(room.player1_tg_user_id) === String(tgUserId);
+      var myDoneSide = meIsP1Done ? 'p1' : 'p2';
+      var oppDoneSide = meIsP1Done ? 'p2' : 'p1';
+      var myDoneScore = Number((s.matchScores || {})[myDoneSide] || 0);
+      var oppDoneScore = Number((s.matchScores || {})[oppDoneSide] || 0);
+      onMatchResult({
+        youWon: myDoneScore > oppDoneScore,
+        matchScores: [myDoneScore, oppDoneScore]
+      });
+    } else {
+      showScreen('start');
+    }
+    return;
+  }
   if (String(room.status) === 'waiting') {
     showScreen('waiting');
     return;
   }
-  var s = room.state_json || {};
   var meIsP1 = String(room.player1_tg_user_id) === String(tgUserId);
   var mySide = meIsP1 ? 'p1' : 'p2';
   var oppSide = meIsP1 ? 'p2' : 'p1';
@@ -332,6 +353,27 @@ function applyPvpRoomState(room) {
       matchScores: [myScore, oppScore]
     });
   }
+}
+
+function onOpponentLeftVictory(room) {
+  hideAllOverlays();
+  hideAllFrogs();
+  stopTimer();
+  showScreen('result');
+  var icon = $('final-icon');
+  var title = $('final-title');
+  var score = $('final-score');
+  icon.textContent = '🏆';
+  title.textContent = 'Пользователь покинул игру, вы победили';
+  title.className = 'final-title won';
+  var s = (room && room.state_json) || {};
+  var meIsP1 = String(room && room.player1_tg_user_id || '') === String(tgUserId);
+  var mySide = meIsP1 ? 'p1' : 'p2';
+  var oppSide = meIsP1 ? 'p2' : 'p1';
+  var myScore = Number((s.matchScores || {})[mySide] || 0);
+  var oppScore = Number((s.matchScores || {})[oppSide] || 0);
+  score.textContent = myScore + ' : ' + oppScore;
+  playSound('win');
 }
 
 function generateLilypads(count) {
