@@ -1892,6 +1892,19 @@ async function presenceHeartbeat(initData) {
   return true;
 }
 
+/** User left the app: drop their solo matchmaking row (waiting, no opponent yet). */
+async function pvpDeleteSoloWaitingRoomsForUser(tgId) {
+  const rows = await sb(
+    `pvp_rooms?status=eq.waiting&player1_tg_user_id=eq.${encodeURIComponent(tgId)}&player2_tg_user_id=is.null&select=id`
+  );
+  const ids = (rows || []).map((r) => Number(r.id)).filter((x) => Number.isInteger(x) && x > 0);
+  if (!ids.length) return;
+  await sb(`pvp_rooms?id=in.(${ids.join(",")})&status=eq.waiting`, {
+    method: "DELETE",
+    prefer: "return=minimal",
+  });
+}
+
 async function presenceLeave(initData) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -1900,6 +1913,11 @@ async function presenceLeave(initData) {
     method: "DELETE",
     prefer: "return=minimal",
   });
+  try {
+    await pvpDeleteSoloWaitingRoomsForUser(tgId);
+  } catch {
+    /* non-fatal: client may also send pvpCancelQueue */
+  }
   return true;
 }
 

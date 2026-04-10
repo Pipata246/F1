@@ -158,10 +158,50 @@ const GamePage = () => {
       leave();
     };
   }, []);
+  useEffect(() => {
+    const postPvp = (action) => {
+      if (playModeRef.current !== 'pvp') return;
+      const init = tgInitDataRef.current;
+      const rid = pvpRoomIdRef.current;
+      if (!init || !rid) return;
+      const payload = JSON.stringify({ action, initData: init, roomId: rid });
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+      } catch {}
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') postPvp('pvpCancelQueue');
+    };
+    const onPageHidePvp = () => postPvp('pvpLeaveRoom');
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pagehide', onPageHidePvp);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pagehide', onPageHidePvp);
+    };
+  }, []);
   useEffect(() => () => {
-    if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current && navigator?.sendBeacon) {
+    if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
       const payload = JSON.stringify({ action: 'pvpLeaveRoom', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current });
-      navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+      } catch {}
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
     }
     wsRef.current?.close();
     clearInterval(timerRef.current);

@@ -727,7 +727,6 @@
           <div class="row" style="align-items:center; justify-content:space-between;">
             <div>
               <div class="titleXL" id="profNick">—</div>
-              <div class="subtitle" id="profId">—</div>
             </div>
             <button class="btn ghost" style="width:auto; padding:10px 12px; font-size:13px" id="editNickBtn">Edit</button>
           </div>
@@ -735,7 +734,6 @@
           <div class="divider"></div>
 
           <h2 style="margin:0 0 10px 0; font-size:16px">Статистика</h2>
-          <p class="muted small" style="margin:0 0 10px 0">Кратко по всем играм (с сервера)</p>
           <div class="profileStatsGrid">
             <div class="profileStatTile">
               <div class="profileStatHead">🐸 Охота на жабу</div>
@@ -928,17 +926,9 @@
     }catch(e){}
   }
 
-  function randCode(len=6){
-    const a="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let s=""; for(let i=0;i<len;i++) s+=a[Math.floor(Math.random()*a.length)];
-    return s;
-  }
-  function shortId(){ return randCode(4); }
-
   const defaultState = {
     onboarding: { rulesAccepted:false, nicknameSet:false, referralAsked:false },
     profile: {
-      publicId: shortId(),
       tgUserId: "",
       nickname: "",
       rulesAcceptedAt: 0,
@@ -1013,7 +1003,6 @@
       const data = await apiJson("/api/user", { action:"authSession", initData: tgInitData });
       const tgId = data.user?.tg_user_id ? String(data.user.tg_user_id) : "";
       state.profile.tgUserId = tgId;
-      state.profile.publicId = tgId ? tgId.slice(-4) : state.profile.publicId;
       applyBalanceFromUserPayload(data.user);
       if(data.user?.rules_accepted_at){
         state.profile.rulesAcceptedAt = new Date(data.user.rules_accepted_at).getTime();
@@ -1109,7 +1098,7 @@
   const headerBalanceWrap = document.getElementById("headerBalanceWrap");
   const headerBalanceVal = document.getElementById("headerBalanceVal");
   const displayNick = ()=> (state.profile.nickname || "Player");
-  function displayMe(){ return `${displayNick()} #${state.profile.publicId}`; }
+  function displayMe(){ return displayNick(); }
 
   function renderTopbar(){
     userChip.textContent = displayMe();
@@ -1401,7 +1390,6 @@
   };
 
   const profNick = document.getElementById("profNick");
-  const profId = document.getElementById("profId");
   const rulesAcceptedLine = document.getElementById("rulesAcceptedLine");
   const myRefCode = document.getElementById("myRefCode");
   const copyRefBtn = document.getElementById("copyRefBtn");
@@ -1579,7 +1567,6 @@
 
   function renderProfile(){
     profNick.textContent = displayNick();
-    profId.textContent = `#${state.profile.publicId}`;
     rulesAcceptedLine.textContent = state.profile.rulesAcceptedAt ? `Приняты: ${formatDate(state.profile.rulesAcceptedAt)}` : "—";
     myRefCode.textContent = state.profile.myRefCode;
 

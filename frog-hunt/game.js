@@ -116,7 +116,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }).catch(function() {});
   }
   document.addEventListener('visibilitychange', function() {
-    if (document.visibilityState === 'visible') presencePing();
+    if (document.visibilityState === 'visible') {
+      presencePing();
+      return;
+    }
+    if (!isBotMode && pvpRoomId && tgInitData) {
+      beaconPvpCancelQueue(pvpRoomId);
+    }
   });
   window.addEventListener('focus', presencePing);
 
@@ -165,6 +171,23 @@ function apiPost(body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {})
   }).then(function(r) { return r.json(); });
+}
+
+/** Only removes queue row if still waiting (server no-ops for active matches). */
+function beaconPvpCancelQueue(roomId) {
+  if (!roomId || !tgInitData) return;
+  var payload = JSON.stringify({ action: 'pvpCancelQueue', initData: tgInitData, roomId: roomId });
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+    }
+  } catch (e) {}
+  fetch('/api/user', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
+    keepalive: true
+  }).catch(function() {});
 }
 
 function stopPvpPolling() {

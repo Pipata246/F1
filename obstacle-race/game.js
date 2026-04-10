@@ -121,7 +121,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(function() {});
     }
     document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible') presencePing();
+        if (document.visibilityState === 'visible') {
+            presencePing();
+            return;
+        }
+        if (!isBotMode && pvpRoomId && tgInitData) {
+            beaconPvpCancelQueue(pvpRoomId);
+        }
     });
     window.addEventListener('focus', presencePing);
     startPresenceLoop();
@@ -137,23 +143,15 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-ability').onclick = toggleAbility;
     window.addEventListener('pagehide', function() {
         presenceLeaveNet();
-        if (isBotMode || !pvpRoomId || !tgInitData || !navigator.sendBeacon) return;
-        var payload = JSON.stringify({
-            action: 'pvpLeaveRoom',
-            initData: tgInitData,
-            roomId: pvpRoomId
-        });
-        navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        if (!isBotMode && pvpRoomId && tgInitData) {
+            beaconPvpLeaveRoom(pvpRoomId);
+        }
     });
     window.addEventListener('beforeunload', function() {
         presenceLeaveNet();
-        if (isBotMode || !pvpRoomId || !tgInitData || !navigator.sendBeacon) return;
-        var payload = JSON.stringify({
-            action: 'pvpLeaveRoom',
-            initData: tgInitData,
-            roomId: pvpRoomId
-        });
-        navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        if (!isBotMode && pvpRoomId && tgInitData) {
+            beaconPvpLeaveRoom(pvpRoomId);
+        }
     });
 
     generateTrapTrack();
@@ -170,6 +168,38 @@ function apiPost(payload) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {})
     }).then(function(r) { return r.json(); });
+}
+
+function beaconPvpCancelQueue(roomId) {
+    if (!roomId || !tgInitData) return;
+    var payload = JSON.stringify({ action: 'pvpCancelQueue', initData: tgInitData, roomId: roomId });
+    try {
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+    } catch (e) {}
+    fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true
+    }).catch(function() {});
+}
+
+function beaconPvpLeaveRoom(roomId) {
+    if (!roomId || !tgInitData) return;
+    var payload = JSON.stringify({ action: 'pvpLeaveRoom', initData: tgInitData, roomId: roomId });
+    try {
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+    } catch (e) {}
+    fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true
+    }).catch(function() {});
 }
 
 function stopPvpPolling() {
