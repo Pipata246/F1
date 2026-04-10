@@ -473,7 +473,10 @@ function pvpAdvanceByTime(room) {
   // Turn timeout: side that did not submit in time loses the round.
   if (s.phase === "turn_input" && elapsed >= 16000) {
     const pending = asObj(s.pending);
-    const frogChosen = Number.isInteger(Number(pending.frogCell));
+    const frogChosen =
+      pending.frogCell !== null &&
+      pending.frogCell !== undefined &&
+      Number.isInteger(Number(pending.frogCell));
     const hunterChosen = Array.isArray(pending.hunterCells) && pending.hunterCells.length === Number(s.hunterShots || 1);
     if (!frogChosen || !hunterChosen) {
       const timedOutSide = !frogChosen ? frogSide : hunterSide;
@@ -605,7 +608,10 @@ function pvpApplyMove(room, tgId, move) {
     next.pending.hunterCells = cells;
   }
 
-  const hasFrog = Number.isInteger(Number(next?.pending?.frogCell));
+  const hasFrog =
+    next?.pending?.frogCell !== null &&
+    next?.pending?.frogCell !== undefined &&
+    Number.isInteger(Number(next.pending.frogCell));
   const hasHunter = Array.isArray(next?.pending?.hunterCells) && next.pending.hunterCells.length === hunterShots;
   if (!hasFrog || !hasHunter) {
     next.updatedAt = new Date().toISOString();
