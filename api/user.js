@@ -122,36 +122,7 @@ async function authSession(initData) {
   return { exists: true, user: rows[0] };
 }
 
-async function acceptRules(initData) {
-  const verified = verifyTelegramInitData(initData, BOT_TOKEN);
-  if (!verified.ok) throw new Error(verified.error);
-  const tg = verified.user;
-  const tgId = String(tg.id);
-  const nowIso = new Date().toISOString();
-
-  const existing = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=rules_accepted_at&limit=1`
-  );
-  const rulesAcceptedAt = existing[0]?.rules_accepted_at || nowIso;
-
-  const payload = {
-    tg_user_id: tgId,
-    first_name: tg.first_name || "",
-    last_name: tg.last_name || "",
-    username: tg.username || "",
-    rules_accepted_at: rulesAcceptedAt,
-    updated_at: nowIso,
-  };
-
-  const rows = await sb("users", {
-    method: "POST",
-    body: payload,
-    prefer: "resolution=merge-duplicates,return=representation",
-  });
-  return rows?.[0] || payload;
-}
-
-async function upsertUser(initData, nickname, referredBy) {
+async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tg = verified.user;
@@ -166,6 +137,11 @@ async function upsertUser(initData, nickname, referredBy) {
   const prevRef = existing[0]?.referred_by || null;
   const prevAskedAt = existing[0]?.referral_asked_at || null;
 
+  const parsedRulesMs = Number(rulesAcceptedAtMs || 0);
+  const rulesAcceptedAt = existing[0]?.rules_accepted_at ||
+    (parsedRulesMs > 0 ? new Date(parsedRulesMs).toISOString() : null);
+  if (!rulesAcceptedAt) throw new Error("Rules must be accepted before registration");
+
   const payload = {
     tg_user_id: tgId,
     first_name: tg.first_name || "",
@@ -174,7 +150,7 @@ async function upsertUser(initData, nickname, referredBy) {
     nickname: cleanNick,
     referred_by: prevAskedAt ? prevRef : (cleanRef || null),
     referral_asked_at: prevAskedAt || new Date().toISOString(),
-    rules_accepted_at: existing[0]?.rules_accepted_at || new Date().toISOString(),
+    rules_accepted_at: rulesAcceptedAt,
     updated_at: new Date().toISOString(),
   };
 
@@ -231,12 +207,13 @@ module.exports = async (req, res) => {
       const data = await authSession(req.body?.initData || "");
       return res.status(200).json({ ok: true, ...data });
     }
-    if (action === "acceptRules") {
-      const user = await acceptRules(req.body?.initData || "");
-      return res.status(200).json({ ok: true, user });
-    }
     if (action === "upsertUser") {
-      const user = await upsertUser(req.body?.initData || "", req.body?.nickname || "", req.body?.referredBy || "");
+      const user = await upsertUser(
+        req.body?.initData || "",
+        req.body?.nickname || "",
+        req.body?.referredBy || "",
+        req.body?.rulesAcceptedAt || 0
+      );
       return res.status(200).json({ ok: true, user });
     }
     if (action === "markReferralAsked") {
@@ -252,7 +229,7 @@ module.exports = async (req, res) => {
         ? 401
         : msg === "User not found"
           ? 404
-          : msg === "Invalid nickname format"
+          : msg === "Invalid nickname format" || msg.includes("Rules must be accepted")
             ? 400
             : 500;
     return res.status(code).json({ ok: false, error: msg });

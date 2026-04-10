@@ -859,18 +859,10 @@
       go("onb-nick");
       return;
     }
-    apiJson("/api/user", { action:"acceptRules", initData: tgInitData })
-      .then((data)=>{
-        state.onboarding.rulesAccepted = true;
-        if(data.user?.rules_accepted_at){
-          state.profile.rulesAcceptedAt = new Date(data.user.rules_accepted_at).getTime();
-        } else {
-          state.profile.rulesAcceptedAt = now();
-        }
-        save();
-        go("onb-nick");
-      })
-      .catch(()=> toast("Ошибка сохранения правил"));
+    state.onboarding.rulesAccepted = true;
+    state.profile.rulesAcceptedAt = now();
+    save();
+    go("onb-nick");
   };
 
   const nickInput = document.getElementById("nickInput");
@@ -920,6 +912,7 @@
         initData: tgInitData,
         nickname: state.profile.nickname,
         referredBy: state.profile.referredBy || "",
+        rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
@@ -943,6 +936,7 @@
         initData: tgInitData,
         nickname: state.profile.nickname,
         referredBy: "",
+        rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
