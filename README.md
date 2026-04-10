@@ -30,4 +30,33 @@ If everything is correct, response includes `telegram.ok: true`.
 ### 4) Test
 
 In Telegram, send `/start` to the bot.
-The bot replies with a welcome message and an inline button that opens the WebApp.
+The bot replies with a welcome message and short game description.
+
+## Supabase User Storage
+
+This project now stores first-login user data in Supabase with server-side validation.
+
+### Security model
+
+- Telegram `initData` is verified on the server (`api/_lib/telegram.js`)
+- Supabase write/read is done only from serverless API with `SUPABASE_SERVICE_ROLE_KEY`
+- Direct anon access to `users` table is blocked by RLS policies
+
+### SQL migration (full portable schema)
+
+Run:
+
+- `db/supabase_full_schema.sql`
+
+This file contains full SQL for table, indexes, trigger, and RLS policies so you can move DB to another Supabase account.
+
+### Required environment variables
+
+See `.env.example`.
+
+At minimum:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `TELEGRAM_BOT_TOKEN`
+- `WEBAPP_URL`

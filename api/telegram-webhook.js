@@ -1,5 +1,4 @@
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const WEBAPP_URL = process.env.WEBAPP_URL || "https://f1-three-iota.vercel.app";
 const SECRET_TOKEN = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
 const GAMES = [

@@ -685,6 +685,8 @@
   envChip.textContent = tg ? "Telegram WebApp" : "Browser";
 
   const KEY="f1duel_state_v2_games";
+  const tgInitData = tg?.initData || "";
+  const hasTgAuth = !!tgInitData;
   const now = ()=>Date.now();
 
   function randCode(len=6){
@@ -721,8 +723,6 @@
       return {
         ...defaultState,
         ...s,
-        onboarding:{...defaultState.onboarding, ...(s.onboarding||{})},
-        profile:{...defaultState.profile, ...(s.profile||{})},
         wallet:{...defaultState.wallet, ...(s.wallet||{})},
         settings:{...defaultState.settings, ...(s.settings||{})},
         reaction:{...defaultState.reaction, ...(s.reaction||{})},
@@ -734,7 +734,52 @@
     }
   })();
 
-  function save(){ localStorage.setItem(KEY, JSON.stringify(state)); renderAll(); }
+  function save(){
+    const persist = {
+      wallet: state.wallet,
+      settings: state.settings,
+      tx: state.tx,
+      reaction: state.reaction,
+      pong: state.pong,
+    };
+    localStorage.setItem(KEY, JSON.stringify(persist));
+    renderAll();
+  }
+
+  async function apiJson(url, payload){
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(()=>({ ok:false, error:"Invalid JSON response" }));
+    if(!res.ok || !data.ok) throw new Error(data.error || "API error");
+    return data;
+  }
+
+  async function hydrateUserFromServer(){
+    if(!hasTgAuth) return;
+    try{
+      const data = await apiJson("/api/auth-session", { initData: tgInitData });
+      const tgId = data.user?.tg_user_id ? String(data.user.tg_user_id) : "";
+      state.profile.publicId = tgId ? tgId.slice(-4) : state.profile.publicId;
+      if(data.exists){
+        state.profile.nickname = data.user.nickname || "Player";
+        state.profile.referredBy = data.user.referred_by || "";
+        state.onboarding.rulesAccepted = true;
+        state.onboarding.nicknameSet = true;
+        state.onboarding.referralAsked = true;
+      } else {
+        state.onboarding.rulesAccepted = false;
+        state.onboarding.nicknameSet = false;
+        state.onboarding.referralAsked = false;
+        state.profile.nickname = "";
+      }
+    }catch(e){
+      console.error("hydrateUserFromServer:", e);
+      toast("Не удалось загрузить профиль");
+    }
+  }
 
   function hImpact(type="light"){ if(!state.settings.haptic) return; try{ tg?.HapticFeedback?.impactOccurred(type);}catch(e){} }
   function hNote(type="success"){ if(!state.settings.haptic) return; try{ tg?.HapticFeedback?.notificationOccurred(type);}catch(e){} }
@@ -814,22 +859,18 @@
   function setNick(nick){
     nickError.style.display="none";
     const n = (nick||"").trim();
-    if(!n){
-      state.profile.nickname = "Player_"+randCode(3);
-    } else {
-      if(!/^[A-Za-z0-9_]{3,16}$/.test(n)){
-        nickError.textContent="Неверный формат. Только латиница/цифры/_ (3–16)";
-        nickError.style.display="block";
-        return false;
-      }
-      state.profile.nickname = n;
+    if(!n || !/^[A-Za-z0-9_]{3,16}$/.test(n)){
+      nickError.textContent="Неверный формат. Только латиница/цифры/_ (3–16)";
+      nickError.style.display="block";
+      return false;
     }
+    state.profile.nickname = n;
     state.onboarding.nicknameSet = true;
     state.profile.nicknameChangedAt = now();
     return true;
   }
   nickSave.onclick = ()=>{ if(setNick(nickInput.value)){ save(); go("onb-ref"); } };
-  nickSkip.onclick = ()=>{ if(setNick("")){ save(); go("onb-ref"); } };
+  nickSkip.onclick = ()=>{ toast("Ник обязателен"); };
 
   const refInput = document.getElementById("refInput");
   const refApply = document.getElementById("refApply");
@@ -838,27 +879,58 @@
 
   function normalizeRef(code){ return (code||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,""); }
 
-  refApply.onclick = ()=>{
+  refApply.onclick = async ()=>{
     refError.style.display="none";
     const code = normalizeRef(refInput.value);
-    if(code && code === normalizeRef(state.profile.myRefCode)){
-      refError.textContent="Нельзя использовать свой код";
-      refError.style.display="block";
-      return;
-    }
     if(code){
       state.profile.referredBy = code;
       state.profile.refStatus = "pending";
       toast("Код применён");
     }
-    state.onboarding.referralAsked = true;
-    save();
-    go("games");
+    if(!hasTgAuth){
+      state.onboarding.referralAsked = true;
+      save();
+      go("games");
+      return;
+    }
+    try{
+      await apiJson("/api/users-upsert", {
+        initData: tgInitData,
+        nickname: state.profile.nickname,
+        referredBy: state.profile.referredBy || "",
+      });
+      state.onboarding.referralAsked = true;
+      state.onboarding.rulesAccepted = true;
+      state.onboarding.nicknameSet = true;
+      save();
+      go("games");
+    }catch(e){
+      refError.textContent = e.message || "Ошибка сохранения";
+      refError.style.display="block";
+    }
   };
-  refSkip.onclick = ()=>{
-    state.onboarding.referralAsked = true;
-    save();
-    go("games");
+  refSkip.onclick = async ()=>{
+    if(!hasTgAuth){
+      state.onboarding.referralAsked = true;
+      save();
+      go("games");
+      return;
+    }
+    try{
+      await apiJson("/api/users-upsert", {
+        initData: tgInitData,
+        nickname: state.profile.nickname,
+        referredBy: "",
+      });
+      state.onboarding.referralAsked = true;
+      state.onboarding.rulesAccepted = true;
+      state.onboarding.nicknameSet = true;
+      save();
+      go("games");
+    }catch(e){
+      refError.textContent = e.message || "Ошибка сохранения";
+      refError.style.display="block";
+    }
   };
 
   document.getElementById("openReaction").onclick = ()=>{ hImpact("light"); go("reaction"); reactionResetUI(); };
@@ -1006,11 +1078,23 @@
         toast("Неверный формат ника");
         return;
       }
-      state.profile.nickname = n;
-      state.profile.nicknameChangedAt = now();
-      addTx("Ник обновлён");
-      save();
-      toast("Ник обновлён");
+      if(!hasTgAuth){
+        state.profile.nickname = n;
+        state.profile.nicknameChangedAt = now();
+        addTx("Ник обновлён");
+        save();
+        toast("Ник обновлён");
+        return;
+      }
+      apiJson("/api/users-upsert", { initData: tgInitData, nickname: n, referredBy: "" })
+        .then(()=>{
+          state.profile.nickname = n;
+          state.profile.nicknameChangedAt = now();
+          addTx("Ник обновлён");
+          save();
+          toast("Ник обновлён");
+        })
+        .catch(()=> toast("Ошибка сохранения ника"));
     });
   };
 
@@ -1429,9 +1513,12 @@
     else go("games");
   }
 
-  reactionResetUI();
-  renderAll();
-  initNav();
+  (async ()=>{
+    await hydrateUserFromServer();
+    reactionResetUI();
+    renderAll();
+    initNav();
+  })();
 </script>
 </body>
 </html>
