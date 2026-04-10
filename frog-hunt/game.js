@@ -29,6 +29,7 @@ var waitingProgressTimer = null;
 var waitingProgress = 10;
 var pvpPollInFlight = false;
 var PVP_POLL_MS = 350;
+var pvpRecovering = false;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -197,6 +198,7 @@ function pvpFindMatch() {
   }
   stopPvpPolling();
   resetPvpMarkers();
+  pvpRecovering = false;
   pvpRoomId = null;
   apiPost({
     action: 'pvpFindMatch',
@@ -261,7 +263,14 @@ function applyPvpRoomState(room) {
         matchScores: [myDoneScore, oppDoneScore]
       });
     } else {
-      showScreen('start');
+      if (!pvpRecovering) {
+        pvpRecovering = true;
+        showScreen('waiting');
+        setTimeout(function() {
+          pvpRecovering = false;
+          pvpFindMatch();
+        }, 200);
+      }
     }
     return;
   }

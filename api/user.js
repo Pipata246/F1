@@ -466,10 +466,11 @@ function pvpAdvanceByTime(room) {
 
   // If one side stopped polling for long enough, end match by forfeit.
   if ((s.phase === "turn_input" || s.phase === "round_result" || s.phase === "game_over") && p1Beat > 0 && p2Beat > 0) {
-    const staleMs = 7000;
+    const staleMs = 15000;
     const p1Stale = now - p1Beat > staleMs;
     const p2Stale = now - p2Beat > staleMs;
-    if (p1Stale !== p2Stale) {
+    // Protect from false positives during brief network hiccups.
+    if (p1Stale !== p2Stale && elapsed >= 4000) {
       const leftSide = p1Stale ? "p1" : "p2";
       const winnerSide = leftSide === "p1" ? "p2" : "p1";
       next.phase = "match_over";
