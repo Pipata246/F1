@@ -17,7 +17,7 @@
   --pad-bg: #1a4a2a;
   --pad-border: #2d6a3d;
   --radius: 14px;
-  --tg-safe-top: calc(env(safe-area-inset-top, 0px) + 88px);
+  --tg-safe-top: calc(env(safe-area-inset-top, 0px) + 124px);
   --tg-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
 }
 
@@ -42,7 +42,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
+  padding: var(--tg-safe-top) 16px var(--tg-safe-bottom);
 }
 .screen.active {
   display: flex;

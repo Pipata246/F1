@@ -17,7 +17,7 @@
     --text: #f5f5f5;
     --text2: #8faabe;
     --radius: 14px;
-    --tg-safe-top: calc(env(safe-area-inset-top, 0px) + 88px);
+    --tg-safe-top: calc(env(safe-area-inset-top, 0px) + 124px);
     --tg-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
 }
 

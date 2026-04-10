@@ -116,7 +116,7 @@ const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color }) => 
 
 const GamePage = () => {
   const safeFrameStyle = {
-    paddingTop: 'calc(env(safe-area-inset-top, 0px) + 88px)',
+    paddingTop: 'calc(env(safe-area-inset-top, 0px) + 124px)',
     paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
     boxSizing: 'border-box',
   };
