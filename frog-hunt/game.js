@@ -1,6 +1,5 @@
-var ws = null;
-var playerIndex = -1;
-var opponentName = '';
+var playerIndex = 0;
+var opponentName = 'Бот 🤖';
 var myName = '';
 var myRole = '';
 var gameNum = 1;
@@ -14,6 +13,11 @@ var timerInterval = null;
 var matchScores = [0, 0];
 var myFrogCell = null;
 var tgUserId = null;
+var tgInitData = '';
+var gameState = {
+  inMatch: false,
+  botFrogCell: null,
+};
 
 var $ = function(id) { return document.getElementById(id); };
 
@@ -58,17 +62,18 @@ document.addEventListener('DOMContentLoaded', function() {
       if (user.first_name) $('name-input').value = user.first_name;
       tgUserId = String(user.id);
     }
+    tgInitData = tg.initData || '';
   }
   // Also check URL param (passed from F1 Duel)
   var urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('userId')) tgUserId = urlParams.get('userId');
 
   initSounds();
-  $('btn-find').onclick = function() { startSearch(false); };
+  $('btn-find').onclick = function() { startSearch(true); };
   $('btn-bot').onclick = function() { startSearch(true); };
-  $('btn-cancel').onclick = function() { wsSend({ type: 'cancel_wait' }); showScreen('start'); };
+  $('btn-cancel').onclick = function() { showScreen('start'); };
   $('btn-confirm').onclick = confirmChoice;
-  $('btn-again').onclick = function() { startSearch(false); };
+  $('btn-again').onclick = function() { startSearch(true); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
 });
 
@@ -85,56 +90,15 @@ function hideAllOverlays() {
   for (var i = 0; i < ols.length; i++) ols[i].classList.remove('active');
 }
 
-function connect(cb) {
-  if (ws && ws.readyState === 1) { if (cb) cb(); return; }
-  var WS_URL = 'wss://natural-creation-production.up.railway.app';
-  ws = new WebSocket(WS_URL);
-  ws.onopen = function() { console.log('WS connected'); if (cb) cb(); };
-  ws.onmessage = function(e) {
-    try {
-      var msg = JSON.parse(e.data);
-      console.log('WS recv:', msg.type);
-      handleMessage(msg);
-    } catch(err) { console.error('WS handler error:', err); }
-  };
-  ws.onclose = function() {
-    console.log('WS disconnected');
-    // Show disconnect and return to start
-    var gameScreen = $('screen-game');
-    if (gameScreen && gameScreen.classList.contains('active')) {
-      stopTimer();
-      $('hint-text').textContent = 'Соединение потеряно...';
-      setTimeout(function() { showScreen('start'); }, 2000);
-    }
-  };
-}
-
-function wsSend(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
-
 function startSearch(vsBot) {
-  myName = ($('name-input').value || '').trim() || 'Игрок';
-  connect(function() {
-    wsSend({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId: tgUserId });
-    if (!vsBot) showScreen('waiting');
-  });
-}
-
-function handleMessage(msg) {
-  switch (msg.type) {
-    case 'waiting':        showScreen('waiting'); break;
-    case 'game_found':     onGameFound(msg); break;
-    case 'role_assign':    onRoleAssign(msg); break;
-    case 'frog_turn':      onFrogTurn(msg); break;
-    case 'wait_for_frog':  onWaitForFrog(msg); break;
-    case 'frog_hidden':    onFrogHidden(msg); break;
-    case 'hunter_turn':    onHunterTurn(msg); break;
-    case 'round_result':   onRoundResult(msg); break;
-    case 'game_over':      onGameOver(msg); break;
-    case 'switch_roles':   onSwitchRoles(); break;
-    case 'tiebreak_start': onTiebreakStart(); break;
-    case 'match_result':   onMatchResult(msg); break;
-    case 'opponent_left':  onOpponentLeft(); break;
+  if (!vsBot) {
+    $('hint-text').textContent = 'Сейчас доступен режим против бота';
   }
+  myName = ($('name-input').value || '').trim() || 'Игрок';
+  showScreen('waiting');
+  setTimeout(function() {
+    localStartMatch();
+  }, 650);
 }
 
 function generateLilypads(count) {
@@ -259,15 +223,9 @@ function confirmChoice() {
   pond.classList.remove('choosing-frog', 'choosing-hunter');
 
   if (myRole === 'frog') {
-    wsSend({ type: 'frog_hide', cell: selectedCells[0] });
-    $('hint-text').textContent = 'Прячешься...';
+    localResolveFrogTurn(selectedCells[0]);
   } else {
-    if (hunterShots === 1) {
-      wsSend({ type: 'hunter_shoot', cell: selectedCells[0] });
-    } else {
-      wsSend({ type: 'hunter_shoot', cells: selectedCells });
-    }
-    $('hint-text').textContent = 'Выстрел!';
+    localResolveHunterTurn(selectedCells.slice());
   }
 }
 
@@ -368,40 +326,6 @@ function onFrogTurn(msg) {
     : 'Выбери кувшинку!';
 
   startTimer(15000);
-}
-
-function onWaitForFrog(msg) {
-  currentRound = msg.round;
-  totalRounds = msg.totalRounds;
-  updateHeader();
-  clearPadStates();
-  hideAllFrogs();
-  setFinalRound(msg.isFinal);
-  $('hint-text').textContent = '🐸 Жаба прячется...';
-  $('btn-confirm').disabled = true;
-  stopTimer();
-}
-
-function onFrogHidden(msg) {
-  var oldCell = myFrogCell;
-  myFrogCell = msg.cell;
-  moveChosen = true;
-  stopTimer();
-  $('btn-confirm').disabled = true;
-
-  var pond = document.querySelector('.pond');
-  pond.classList.remove('choosing-frog');
-
-  // Clear selection
-  var pads = document.querySelectorAll('.lilypad.selected-frog');
-  for (var i = 0; i < pads.length; i++) pads[i].classList.remove('selected-frog');
-
-  // Show frog on new position for frog player
-  hideAllFrogs();
-  showFrog(msg.cell);
-  playSound('hide');
-
-  $('hint-text').textContent = '🏹 Охотник целится...';
 }
 
 function animateFrogJump(fromCell, toCell, onDone) {
@@ -584,6 +508,7 @@ function onMatchResult(msg) {
   }
 
   score.textContent = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
+  saveMatchToBackend(msg.youWon);
 }
 
 function onOpponentLeft() {
@@ -591,6 +516,215 @@ function onOpponentLeft() {
   hideAllOverlays();
   $('hint-text').textContent = 'Соперник отключился';
   setTimeout(function() { showScreen('start'); }, 2000);
+}
+
+function localStartMatch() {
+  gameState.inMatch = true;
+  matchScores = [0, 0];
+  gameNum = 1;
+  var frogFirst = Math.random() < 0.5;
+  myRole = frogFirst ? 'frog' : 'hunter';
+  onGameFound({ playerIndex: 0, opponent: opponentName });
+  localBeginGame();
+}
+
+function localBeginGame() {
+  if (gameNum === 3) {
+    totalRounds = 1;
+    totalCells = 4;
+    hunterShots = 2;
+  } else {
+    totalRounds = 5;
+    totalCells = 8;
+    hunterShots = 1;
+  }
+  currentRound = 1;
+  gameState.botFrogCell = null;
+  onRoleAssign({
+    role: myRole,
+    gameNum: gameNum,
+    totalRounds: totalRounds,
+    totalCells: totalCells,
+    hunterShots: hunterShots,
+    matchScores: matchScores.slice(),
+  });
+  setTimeout(localStartRound, 900);
+}
+
+function localStartRound() {
+  if (myRole === 'frog') {
+    onFrogTurn({
+      round: currentRound,
+      totalRounds: totalRounds,
+      currentCell: myFrogCell,
+      isFinal: currentRound === totalRounds,
+    });
+  } else {
+    onHunterTurn({
+      round: currentRound,
+      totalRounds: totalRounds,
+      hunterShots: hunterShots,
+      isFinal: currentRound === totalRounds,
+    });
+  }
+}
+
+function pickRandomCell(max, exclude) {
+  var cell = Math.floor(Math.random() * max);
+  if (typeof exclude === 'number' && max > 1) {
+    while (cell === exclude) cell = Math.floor(Math.random() * max);
+  }
+  return cell;
+}
+
+function pickRandomCells(max, count) {
+  var set = {};
+  while (Object.keys(set).length < count) {
+    set[pickRandomCell(max)] = true;
+  }
+  return Object.keys(set).map(function(k) { return Number(k); });
+}
+
+function localResolveFrogTurn(cell) {
+  var oldCell = myFrogCell;
+  myFrogCell = cell;
+  hideAllFrogs();
+  showFrog(cell);
+  playSound('hide');
+  $('hint-text').textContent = '🏹 Охотник целится...';
+
+  setTimeout(function() {
+    var shots = pickRandomCells(totalCells, hunterShots);
+    var moved = oldCell != null && oldCell !== cell;
+    var afterShoot = function() {
+      onRoundResult({
+        hit: shots.indexOf(cell) >= 0,
+        frogCell: cell,
+        hunterCells: shots,
+        round: currentRound,
+        totalRounds: totalRounds,
+        frogMoved: moved,
+        previousCell: oldCell,
+        isFinal: currentRound === totalRounds,
+      });
+      setTimeout(function() {
+        localAfterRound(shots.indexOf(cell) >= 0);
+      }, 2600);
+    };
+    if (moved && oldCell != null) animateFrogJump(oldCell, cell, afterShoot);
+    else afterShoot();
+  }, 700);
+}
+
+function localResolveHunterTurn(cells) {
+  var oldCell = gameState.botFrogCell;
+  var botCell;
+  if (oldCell == null) botCell = pickRandomCell(totalCells);
+  else botCell = Math.random() < 0.35 ? oldCell : pickRandomCell(totalCells, oldCell);
+  gameState.botFrogCell = botCell;
+  $('hint-text').textContent = 'Выстрел!';
+  var moved = oldCell != null && oldCell !== botCell;
+
+  var resolveFn = function() {
+    onRoundResult({
+      hit: cells.indexOf(botCell) >= 0,
+      frogCell: botCell,
+      hunterCells: cells,
+      round: currentRound,
+      totalRounds: totalRounds,
+      frogMoved: moved,
+      previousCell: oldCell,
+      isFinal: currentRound === totalRounds,
+    });
+    setTimeout(function() {
+      localAfterRound(cells.indexOf(botCell) >= 0);
+    }, 2600);
+  };
+  if (moved && oldCell != null) animateFrogJump(oldCell, botCell, resolveFn);
+  else resolveFn();
+}
+
+function localAfterRound(hit) {
+  if (hit) {
+    localEndGame('hunter');
+    return;
+  }
+  if (currentRound >= totalRounds) {
+    localEndGame('frog');
+    return;
+  }
+  currentRound += 1;
+  setTimeout(localStartRound, 900);
+}
+
+function localEndGame(winnerRole) {
+  var myWon = myRole === winnerRole;
+  var winnerIdx = myWon ? 0 : 1;
+  matchScores[winnerIdx] += 1;
+  onGameOver({
+    winner: winnerRole,
+    youWon: myWon,
+    gameNum: gameNum,
+    matchScores: matchScores.slice(),
+    yourRole: myRole,
+  });
+
+  setTimeout(function() {
+    if (gameNum === 1) {
+      onSwitchRoles();
+      myRole = myRole === 'frog' ? 'hunter' : 'frog';
+      gameNum = 2;
+      setTimeout(localBeginGame, 1100);
+      return;
+    }
+    if (gameNum === 2 && matchScores[0] === matchScores[1]) {
+      onTiebreakStart();
+      myRole = Math.random() < 0.5 ? 'frog' : 'hunter';
+      gameNum = 3;
+      setTimeout(localBeginGame, 1100);
+      return;
+    }
+    onMatchResult({
+      youWon: matchScores[0] > matchScores[1],
+      matchScores: matchScores.slice(),
+      playerIndex: 0,
+    });
+  }, 1300);
+}
+
+function saveMatchToBackend(youWon) {
+  if (!tgInitData || !tgUserId || !window.fetch) return;
+  fetch('/api/user', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'recordMatch',
+      initData: tgInitData,
+      payload: {
+        gameKey: 'frog_hunt',
+        mode: 'bot',
+        winnerTgUserId: youWon ? String(tgUserId) : null,
+        players: [
+          {
+            tgUserId: String(tgUserId),
+            name: myName || 'Игрок',
+            score: matchScores[0] || 0,
+            isWinner: !!youWon,
+            isBot: false
+          },
+          {
+            tgUserId: null,
+            name: 'Бот 🤖',
+            score: matchScores[1] || 0,
+            isWinner: !youWon,
+            isBot: true
+          }
+        ],
+        score: { left: matchScores[0] || 0, right: matchScores[1] || 0 },
+        details: { totalCells: totalCells, totalRounds: totalRounds, gameNum: gameNum }
+      }
+    })
+  }).catch(function() {});
 }
 
 function updateHeader() {

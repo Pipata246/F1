@@ -274,6 +274,10 @@ function asObj(value) {
 async function recordMatchInternal(req) {
   assertInternalApiKey(req);
   const b = req.body || {};
+  return persistMatchFromPayload(b);
+}
+
+async function persistMatchFromPayload(b) {
   const gameKey = normalizeGameKey(b.gameKey);
   const playersRaw = Array.isArray(b.players) ? b.players : [];
   if (playersRaw.length < 1) throw new Error("Missing players");
@@ -342,6 +346,17 @@ async function recordMatchInternal(req) {
   return { gameKey, serverMatchId, savedPlayers: nonBotPlayers.length };
 }
 
+async function recordMatchClient(initData, payload) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const safePayload = asObj(payload);
+  const players = Array.isArray(safePayload.players) ? safePayload.players : [];
+  const includesCurrentUser = players.some((p) => String(p?.tgUserId || "") === tgId);
+  if (!includesCurrentUser) throw new Error("Current user is not in match payload");
+  return persistMatchFromPayload(safePayload);
+}
+
 async function getGameStats(initData) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -382,6 +397,10 @@ module.exports = async (req, res) => {
     }
     if (action === "recordMatchInternal") {
       const result = await recordMatchInternal(req);
+      return res.status(200).json({ ok: true, result });
+    }
+    if (action === "recordMatch") {
+      const result = await recordMatchClient(req.body?.initData || "", req.body?.payload || {});
       return res.status(200).json({ ok: true, result });
     }
     if (action === "getGameStats") {

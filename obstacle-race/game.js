@@ -89,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function connect(cb) {
-    const WS_URL = 'wss://calm-gentleness-production-48ed.up.railway.app';
+    const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
     ws = new WebSocket(WS_URL);
     ws.onopen = () => { if (cb) cb(); };
     ws.onmessage = (e) => {
