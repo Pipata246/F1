@@ -97,8 +97,32 @@ async function sb(path, { method = "GET", body, prefer, onConflict } = {}) {
   return data;
 }
 
-function validNickname(value) {
-  return /^[A-Za-z0-9_]{3,16}$/.test(value || "");
+/** Публичное имя из полей Telegram (как в профиле TG). */
+function displayNameFromProfile(first_name, last_name, username) {
+  const fn = String(first_name || "").trim();
+  const ln = String(last_name || "").trim();
+  const un = String(username || "").trim();
+  const full = [fn, ln].filter(Boolean).join(" ").trim();
+  if (full) return full.slice(0, 64);
+  if (un) return `@${un}`.slice(0, 64);
+  return "Player";
+}
+
+function displayNameFromTg(tg) {
+  return displayNameFromProfile(tg?.first_name, tg?.last_name, tg?.username);
+}
+
+async function patchUserTelegramNames(tgId, tg) {
+  await sb(`users?tg_user_id=eq.${encodeURIComponent(tgId)}`, {
+    method: "PATCH",
+    body: {
+      first_name: tg.first_name || "",
+      last_name: tg.last_name || "",
+      username: tg.username || "",
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=minimal",
+  });
 }
 
 function generateReferralCode() {
@@ -129,7 +153,6 @@ async function ensureReferralCode(tg, row) {
     first_name: tg.first_name || "",
     last_name: tg.last_name || "",
     username: tg.username || "",
-    nickname: row?.nickname || null,
     referred_by: row?.referred_by || null,
     referral_asked_at: row?.referral_asked_at || null,
     referral_code: referralCode,
@@ -168,7 +191,7 @@ async function authSession(initData) {
   touchPresenceTgId(tgId);
 
   const rows = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at,balance,created_at,updated_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,referred_by,referral_asked_at,referral_code,rules_accepted_at,balance,created_at,updated_at&limit=1`
   );
 
   if (!rows.length) {
@@ -179,23 +202,30 @@ async function authSession(initData) {
         first_name: tg.first_name || "",
         last_name: tg.last_name || "",
         username: tg.username || "",
+        display_name: displayNameFromTg(tg),
         balance: 0,
       },
     };
   }
+  await patchUserTelegramNames(tgId, tg).catch(() => {});
   const user = rows[0];
   const referralCode = await ensureReferralCode(tg, user);
-  return { exists: true, user: { ...user, referral_code: referralCode } };
+  const merged = {
+    ...user,
+    first_name: tg.first_name || user.first_name || "",
+    last_name: tg.last_name || user.last_name || "",
+    username: tg.username || user.username || "",
+  };
+  const display_name = displayNameFromProfile(merged.first_name, merged.last_name, merged.username);
+  return { exists: true, user: { ...merged, referral_code: referralCode, display_name } };
 }
 
-async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
+async function upsertUser(initData, referredBy, rulesAcceptedAtMs) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tg = verified.user;
   const tgId = String(tg.id);
-  const cleanNick = String(nickname || "").trim();
   const cleanRef = String(referredBy || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
-  if (!validNickname(cleanNick)) throw new Error("Invalid nickname format");
   touchPresenceTgId(tgId);
 
   const existing = await sb(
@@ -214,7 +244,6 @@ async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
     first_name: tg.first_name || "",
     last_name: tg.last_name || "",
     username: tg.username || "",
-    nickname: cleanNick,
     referred_by: prevAskedAt ? prevRef : (cleanRef || null),
     referral_asked_at: prevAskedAt || new Date().toISOString(),
     referral_code: existing[0]?.referral_code || (await getUniqueReferralCode()),
@@ -228,7 +257,11 @@ async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
     onConflict: "tg_user_id",
     prefer: "resolution=merge-duplicates,return=representation",
   });
-  return rows?.[0] || payload;
+  const row = rows?.[0] || payload;
+  return {
+    ...row,
+    display_name: displayNameFromProfile(row.first_name, row.last_name, row.username),
+  };
 }
 
 async function markReferralAsked(initData) {
@@ -239,7 +272,7 @@ async function markReferralAsked(initData) {
   touchPresenceTgId(tgId);
 
   const existing = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,referred_by,referral_asked_at,referral_code,rules_accepted_at&limit=1`
   );
   if (!existing.length) throw new Error("User not found");
 
@@ -249,7 +282,6 @@ async function markReferralAsked(initData) {
     first_name: tg.first_name || "",
     last_name: tg.last_name || "",
     username: tg.username || "",
-    nickname: row.nickname || null,
     referred_by: row.referred_by || null,
     referral_asked_at: row.referral_asked_at || new Date().toISOString(),
     referral_code: row.referral_code || (await getUniqueReferralCode()),
@@ -263,7 +295,11 @@ async function markReferralAsked(initData) {
     onConflict: "tg_user_id",
     prefer: "resolution=merge-duplicates,return=representation",
   });
-  return rows?.[0] || payload;
+  const out = rows?.[0] || payload;
+  return {
+    ...out,
+    display_name: displayNameFromProfile(out.first_name, out.last_name, out.username),
+  };
 }
 
 function assertInternalApiKey(req) {
@@ -1395,7 +1431,7 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
-  const safeName = String(playerName || verified.user.first_name || "Игрок").slice(0, 64);
+  const safeName = displayNameFromTg(verified.user).slice(0, 64);
   const key = normalizeGameKey(gameKey);
   if (key !== "frog_hunt" && key !== "obstacle_race" && key !== "super_penalty" && key !== "basketball") {
     throw new Error("PvP is enabled only for frog_hunt, obstacle_race, super_penalty and basketball");
@@ -1971,7 +2007,6 @@ module.exports = async (req, res) => {
     if (action === "upsertUser") {
       const user = await upsertUser(
         req.body?.initData || "",
-        req.body?.nickname || "",
         req.body?.referredBy || "",
         req.body?.rulesAcceptedAt || 0
       );
@@ -2048,7 +2083,7 @@ module.exports = async (req, res) => {
           ? 404
           : msg === "Room not found"
             ? 404
-          : msg === "Invalid nickname format" || msg.includes("Rules must be accepted")
+          : msg.includes("Rules must be accepted")
             ? 400
             : msg.includes("Too many bot match records")
               ? 429

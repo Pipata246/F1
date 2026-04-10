@@ -77,7 +77,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.body.classList.add('tg-theme');
     var user = tg.initDataUnsafe && tg.initDataUnsafe.user;
     if (user) {
-      if (user.first_name) $('name-input').value = user.first_name;
       tgUserId = String(user.id);
     }
     tgInitData = tg.initData || '';
@@ -154,15 +153,17 @@ function hideAllOverlays() {
 
 function startSearch(vsBot) {
   isBotMode = !!vsBot;
-  myName = ($('name-input').value || '').trim() || 'Игрок';
-  showScreen('waiting');
-  if (isBotMode) {
-    setTimeout(function() {
-      localStartMatch();
-    }, 650);
-    return;
+  function proceed() {
+    showScreen('waiting');
+    if (isBotMode) {
+      setTimeout(function() {
+        localStartMatch();
+      }, 650);
+      return;
+    }
+    pvpFindMatch();
   }
-  pvpFindMatch();
+  syncMyNameFromServer(proceed);
 }
 
 function apiPost(body) {
@@ -171,6 +172,26 @@ function apiPost(body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {})
   }).then(function(r) { return r.json(); });
+}
+
+function syncMyNameFromServer(done) {
+  function fallback() {
+    var u = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
+    myName = (u && u.first_name) ? String(u.first_name).slice(0, 64) : 'Игрок';
+    if (done) done();
+  }
+  if (!tgInitData) {
+    fallback();
+    return;
+  }
+  apiPost({ action: 'authSession', initData: tgInitData })
+    .then(function(data) {
+      if (data && data.ok && data.user && data.user.display_name) {
+        myName = String(data.user.display_name).slice(0, 64);
+      } else fallback();
+      if (done) done();
+    })
+    .catch(function() { fallback(); });
 }
 
 /** Only removes queue row if still waiting (server no-ops for active matches). */

@@ -121,7 +121,8 @@ const GamePage = () => {
     boxSizing: 'border-box',
   };
   const [screen, setScreen] = useState('menu');
-  const [playerName, setPlayerName] = useState('');
+  /** Имя с бэка (authSession.display_name), из Telegram */
+  const [displayName, setDisplayName] = useState('Player');
   const [opponent, setOpponent] = useState('');
   const [playerIndex, setPlayerIndex] = useState(0);
 
@@ -171,12 +172,29 @@ const GamePage = () => {
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    if (tg?.initDataUnsafe?.user) {
-      setPlayerName(tg.initDataUnsafe.user.first_name || 'Player');
-    }
     tgInitDataRef.current = tg?.initData || '';
-    // Do not use Telegram BackButton in this game.
     if (tg?.BackButton) tg.BackButton.hide();
+    const u = tg?.initDataUnsafe?.user;
+    const fallback = u?.first_name || 'Player';
+    const init = tgInitDataRef.current;
+    if (!init) {
+      setDisplayName(fallback);
+      return;
+    }
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'authSession', initData: init }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.ok && data.user?.display_name) {
+          setDisplayName(String(data.user.display_name).slice(0, 64));
+        } else {
+          setDisplayName(fallback);
+        }
+      })
+      .catch(() => setDisplayName(fallback));
   }, []);
 
   useEffect(() => {
@@ -599,8 +617,7 @@ const GamePage = () => {
 
   /** Как startSearch(vsBot) в frog-hunt: онлайн — только pvpFindMatch + poll; бот — только локальный матч после таймаута. */
   const startSearch = (vsBot) => {
-    const name = playerName.trim() || 'Player';
-    setPlayerName(name);
+    const name = displayName.trim() || 'Player';
     matchSavedRef.current = false;
     pvpLastRoundMarkerRef.current = 0;
     pvpLastStartKeyRef.current = '';
@@ -823,7 +840,7 @@ const GamePage = () => {
           mode: 'bot',
           winnerTgUserId: youWon ? tgUserId : null,
           players: [
-            { tgUserId, name: playerName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
+            { tgUserId, name: displayName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
             { tgUserId: null, name: opponent || 'Бот 🤖', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
           ],
           score: { left: finalScores?.[0] || 0, right: finalScores?.[1] || 0 },
@@ -850,14 +867,9 @@ const GamePage = () => {
           </h1>
           <p className="text-gray-500 text-sm -mt-4">PvP Penalty Shootout</p>
 
-          <input
-            type="text"
-            value={playerName}
-            onChange={(e) => setPlayerName(e.target.value)}
-            placeholder="Твоё имя"
-            maxLength={20}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-center text-lg outline-none focus:border-yellow-400/50 transition-colors"
-          />
+          <p className="text-gray-400 text-sm text-center w-full truncate px-2" title={displayName}>
+            Играешь как: <span className="text-white font-semibold">{displayName}</span>
+          </p>
           <button onClick={() => startSearch(false)} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
             Онлайн
           </button>
@@ -911,7 +923,7 @@ const GamePage = () => {
 
           <div className="flex items-center gap-8 mt-4">
             <div className="text-center">
-              <p className="text-blue-400 text-sm font-bold">{playerName || 'Ты'}</p>
+              <p className="text-blue-400 text-sm font-bold">{displayName || 'Ты'}</p>
               <p className="text-4xl font-black text-blue-400">{matchResult.scores[playerIndex]}</p>
             </div>
             <p className="text-2xl text-gray-600 font-bold">:</p>
@@ -922,7 +934,7 @@ const GamePage = () => {
           </div>
 
           <div className="flex flex-col items-center gap-2 mt-4 bg-white/5 p-3 rounded-xl border border-white/10">
-            <KickDots history={history} playerIdx={playerIndex} totalKicks={5} label={playerName || 'Ты'} color="text-blue-400" />
+            <KickDots history={history} playerIdx={playerIndex} totalKicks={5} label={displayName || 'Ты'} color="text-blue-400" />
             <KickDots history={history} playerIdx={1 - playerIndex} totalKicks={5} label={opponent} color="text-red-400" />
           </div>
 
@@ -953,7 +965,7 @@ const GamePage = () => {
           {/* Scores row */}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
-              <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest truncate">{playerName || 'Ты'}</p>
+              <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest truncate">{displayName || 'Ты'}</p>
               <p className="text-3xl font-black text-blue-400">{myScore}</p>
             </div>
             <div className="flex flex-col items-center px-3">
@@ -970,7 +982,7 @@ const GamePage = () => {
 
           {/* Centered kick dots */}
           <div className="mt-2 flex flex-col items-center gap-1">
-            <KickDots history={history} playerIdx={playerIndex} totalKicks={5} label={playerName || 'Ты'} color="text-blue-400" />
+            <KickDots history={history} playerIdx={playerIndex} totalKicks={5} label={displayName || 'Ты'} color="text-blue-400" />
             <KickDots history={history} playerIdx={1 - playerIndex} totalKicks={5} label={opponent} color="text-red-400" />
           </div>
 

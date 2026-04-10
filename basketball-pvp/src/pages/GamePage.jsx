@@ -64,7 +64,7 @@ const GamePage = () => {
     boxSizing: 'border-box',
   };
   const [screen, setScreen] = useState('menu');
-  const [playerName, setPlayerName] = useState('');
+  const [displayName, setDisplayName] = useState('Player');
   const [opponent, setOpponent] = useState('');
   const [playerIndex, setPlayerIndex] = useState(0);
   const [gamePhase, setGamePhase] = useState(null);
@@ -105,14 +105,32 @@ const GamePage = () => {
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { scoresRef.current = scores; }, [scores]);
-  useEffect(() => { nameRef.current = playerName; }, [playerName]);
+  useEffect(() => { nameRef.current = displayName; }, [displayName]);
   useEffect(() => { oppRef.current = opponent; }, [opponent]);
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    if (tg?.initDataUnsafe?.user) setPlayerName(tg.initDataUnsafe.user.first_name || 'Player');
     tgInitDataRef.current = tg?.initData || '';
     if (tg?.BackButton) tg.BackButton.hide();
     preloadSounds();
+    const u = tg?.initDataUnsafe?.user;
+    const fallback = u?.first_name || 'Player';
+    const init = tgInitDataRef.current;
+    if (!init) {
+      setDisplayName(fallback);
+      return;
+    }
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'authSession', initData: init }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.ok && data.user?.display_name) {
+          setDisplayName(String(data.user.display_name).slice(0, 64));
+        } else setDisplayName(fallback);
+      })
+      .catch(() => setDisplayName(fallback));
   }, []);
   useEffect(() => {
     const ping = () => {
@@ -512,8 +530,7 @@ const GamePage = () => {
   }
   const findGame = (bot) => {
     sfx('click');
-    const n = playerName.trim() || 'Player';
-    setPlayerName(n);
+    const n = displayName.trim() || 'Player';
     matchSavedRef.current = false;
     clearPending();
     pvpLastRoundMarkerRef.current = 0;
@@ -619,7 +636,7 @@ const GamePage = () => {
           mode: 'bot',
           winnerTgUserId: youWon ? tgUserId : null,
           players: [
-            { tgUserId, name: playerName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
+            { tgUserId, name: displayName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
             { tgUserId: null, name: opponent || 'Бот 🤖', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
           ],
           score: { left: finalScores?.[0] || 0, right: finalScores?.[1] || 0 },
@@ -630,7 +647,7 @@ const GamePage = () => {
   }
 
   // ============ RENDER ============
-  const myName=playerName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
+  const myName=displayName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
 
   if(screen==='menu') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
@@ -639,8 +656,9 @@ const GamePage = () => {
         <div className="text-8xl">🏀</div>
         <h1 className="text-5xl text-white tracking-widest uppercase">STREET<span className="text-amber-400">BALL</span></h1>
         <p className="text-gray-600 text-xs uppercase tracking-[0.4em] -mt-2">1 VS 1</p>
-        <input type="text" value={playerName} onChange={e=>setPlayerName(e.target.value)} placeholder="ТВОЁ ИМЯ" maxLength={16}
-          className="w-full bg-white/5 border-2 border-amber-500/30 rounded-xl px-4 py-4 text-white text-center text-xl uppercase outline-none focus:border-amber-400 tracking-wider" />
+        <p className="text-gray-500 text-sm text-center w-full truncate px-2 uppercase tracking-wider" title={displayName}>
+          {displayName}
+        </p>
         <button onClick={()=>findGame(false)} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
         <button onClick={()=>findGame(true)} className="w-full bg-white/5 border-2 border-white/15 text-white py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">С БОТОМ</button>
       </div>

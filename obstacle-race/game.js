@@ -82,7 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.add('tg-theme');
         const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
         if (user) {
-            if (user.first_name) $('player-name').value = user.first_name;
             window._tgUserId = String(user.id);
         }
         tgInitData = tg.initData || '';
@@ -168,6 +167,26 @@ function apiPost(payload) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {})
     }).then(function(r) { return r.json(); });
+}
+
+function syncMyNameFromServer(done) {
+    function fallback() {
+        var u = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
+        myName = (u && u.first_name) ? String(u.first_name).slice(0, 64) : '\u0418\u0433\u0440\u043E\u043A';
+        if (done) done();
+    }
+    if (!tgInitData) {
+        fallback();
+        return;
+    }
+    apiPost({ action: 'authSession', initData: tgInitData })
+        .then(function(data) {
+            if (data && data.ok && data.user && data.user.display_name) {
+                myName = String(data.user.display_name).slice(0, 64);
+            } else fallback();
+            if (done) done();
+        })
+        .catch(function() { fallback(); });
 }
 
 function beaconPvpCancelQueue(roomId) {
@@ -419,7 +438,6 @@ function showScreen(name) {
 }
 
 function startGame(vsBot) {
-    myName = $('player-name').value.trim() || '\u0418\u0433\u0440\u043E\u043A';
     selectedTraps = []; scores = [0, 0]; currentStep = 0;
     moveChosen = false; isOvertime = false; trackDots = 7;
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
@@ -429,17 +447,19 @@ function startGame(vsBot) {
     isBotMode = !!vsBot;
     stopPvpPolling();
     pvpRoomId = null;
-    connect(() => {
-        if (isBotMode) {
-            sendMsg({
-                type: 'find_bot',
-                name: myName,
-                tgUserId: window._tgUserId || null
-            });
-            showScreen('waiting');
-            return;
-        }
-        pvpFindMatch();
+    syncMyNameFromServer(function() {
+        connect(function() {
+            if (isBotMode) {
+                sendMsg({
+                    type: 'find_bot',
+                    name: myName,
+                    tgUserId: window._tgUserId || null
+                });
+                showScreen('waiting');
+                return;
+            }
+            pvpFindMatch();
+        });
     });
 }
 

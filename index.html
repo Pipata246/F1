@@ -494,27 +494,6 @@
         </div>
       </section>
 
-      <!-- ONBOARDING: Nickname -->
-      <section id="page-onb-nick" class="hidden">
-        <div class="glass card">
-          <h2 class="titleXL">Выбери ник</h2>
-          <p class="subtitle">Его будут видеть другие игроки (не Telegram username)</p>
-          <div class="divider"></div>
-
-          <input id="nickInput" class="field" placeholder="Например: NightFox" maxlength="16" />
-
-          <div class="small" style="margin-top:10px">
-            3–16 символов • латиница/цифры/_ • без пробелов
-          </div>
-
-          <div style="margin-top:14px" class="row">
-            <button id="nickSave" class="btn primary">Сохранить</button>
-          </div>
-
-          <div class="note small" id="nickError" style="margin-top:10px; color: var(--danger); display:none"></div>
-        </div>
-      </section>
-
       <!-- ONBOARDING: Referral -->
       <section id="page-onb-ref" class="hidden">
         <div class="glass card">
@@ -724,11 +703,9 @@
       <!-- PROFILE -->
       <section id="page-profile" class="hidden">
         <div class="glass card">
-          <div class="row" style="align-items:center; justify-content:space-between;">
-            <div>
-              <div class="titleXL" id="profNick">—</div>
-            </div>
-            <button class="btn ghost" style="width:auto; padding:10px 12px; font-size:13px" id="editNickBtn">Edit</button>
+          <div>
+            <div class="titleXL" id="profNick">—</div>
+            <div class="muted small" style="margin-top:4px">Имя из Telegram</div>
           </div>
 
           <div class="divider"></div>
@@ -864,21 +841,6 @@
     </div>
   </div>
 
-  <div id="nickModalWrap" class="modalWrap">
-    <div class="modal">
-      <h3>Изменить ник</h3>
-      <div class="muted">Ник: 3-16 символов (латиница/цифры/_)</div>
-      <div style="margin-top:10px">
-        <input id="nickModalInput" class="field" maxlength="16" placeholder="Новый ник" />
-      </div>
-      <div id="nickModalError" class="small" style="margin-top:10px; color: var(--danger); display:none"></div>
-      <div class="row" style="margin-top:14px">
-        <button id="nickModalSave" class="btn primary">Сохранить</button>
-        <button id="nickModalCancel" class="btn ghost">Отмена</button>
-      </div>
-    </div>
-  </div>
-
 <script>
   const tg = window.Telegram?.WebApp;
   function applyViewport(){
@@ -927,12 +889,11 @@
   }
 
   const defaultState = {
-    onboarding: { rulesAccepted:false, nicknameSet:false, referralAsked:false },
+    onboarding: { rulesAccepted:false, referralAsked:false },
     profile: {
       tgUserId: "",
-      nickname: "",
+      displayName: "",
       rulesAcceptedAt: 0,
-      nicknameChangedAt: 0,
       myRefCode: "",
       referredBy: "",
       refStatus: "none",
@@ -1008,21 +969,18 @@
         state.profile.rulesAcceptedAt = new Date(data.user.rules_accepted_at).getTime();
       }
       if(data.exists){
-        state.profile.nickname = data.user.nickname || "Player";
+        state.profile.displayName = data.user.display_name || "Player";
         state.profile.referredBy = data.user.referred_by || "";
         state.profile.myRefCode = data.user.referral_code || "";
         state.onboarding.rulesAccepted = !!data.user.rules_accepted_at;
-        state.onboarding.nicknameSet = !!data.user.nickname;
-        // Existing user should not see referral step again.
         state.onboarding.referralAsked = true;
         if(!data.user.referral_asked_at){
           apiJson("/api/user", { action:"markReferralAsked", initData: tgInitData }).catch(()=>{});
         }
       } else {
         state.onboarding.rulesAccepted = false;
-        state.onboarding.nicknameSet = false;
         state.onboarding.referralAsked = false;
-        state.profile.nickname = "";
+        state.profile.displayName = data.user.display_name || "Player";
         state.profile.myRefCode = "";
       }
     }catch(e){
@@ -1065,7 +1023,7 @@
     modalCancel.onclick = ()=> modalWrap.classList.remove("show");
   }
 
-  const pages = ["onb-rules","onb-nick","onb-ref","games","wallet","matches","profile"];
+  const pages = ["onb-rules","onb-ref","games","wallet","matches","profile"];
   function go(page){
     pages.forEach(p=>{
       const el = document.getElementById("page-"+p);
@@ -1089,7 +1047,6 @@
 
   function needsOnboarding(){
     if(!state.onboarding.rulesAccepted) return "onb-rules";
-    if(!state.onboarding.nicknameSet) return "onb-nick";
     if(!state.onboarding.referralAsked) return "onb-ref";
     return null;
   }
@@ -1097,7 +1054,7 @@
   const userChip = document.getElementById("userChip");
   const headerBalanceWrap = document.getElementById("headerBalanceWrap");
   const headerBalanceVal = document.getElementById("headerBalanceVal");
-  const displayNick = ()=> (state.profile.nickname || "Player");
+  const displayNick = ()=> (state.profile.displayName || "Player");
   function displayMe(){ return displayNick(); }
 
   function renderTopbar(){
@@ -1158,37 +1115,11 @@
   const rulesContinue = document.getElementById("rulesContinue");
   rulesCheck.onchange = ()=>{ rulesContinue.disabled = !rulesCheck.checked; };
   rulesContinue.onclick = ()=>{
-    if(!hasTgAuth){
-      state.onboarding.rulesAccepted = true;
-      state.profile.rulesAcceptedAt = now();
-      save();
-      go("onb-nick");
-      return;
-    }
     state.onboarding.rulesAccepted = true;
     state.profile.rulesAcceptedAt = now();
     save();
-    go("onb-nick");
+    go("onb-ref");
   };
-
-  const nickInput = document.getElementById("nickInput");
-  const nickSave = document.getElementById("nickSave");
-  const nickError = document.getElementById("nickError");
-
-  function setNick(nick){
-    nickError.style.display="none";
-    const n = (nick||"").trim();
-    if(!n || !/^[A-Za-z0-9_]{3,16}$/.test(n)){
-      nickError.textContent="Неверный формат. Только латиница/цифры/_ (3–16)";
-      nickError.style.display="block";
-      return false;
-    }
-    state.profile.nickname = n;
-    state.onboarding.nicknameSet = true;
-    state.profile.nicknameChangedAt = now();
-    return true;
-  }
-  nickSave.onclick = ()=>{ if(setNick(nickInput.value)){ save(); go("onb-ref"); } };
 
   const refInput = document.getElementById("refInput");
   const refApply = document.getElementById("refApply");
@@ -1215,14 +1146,12 @@
       document.body.classList.add("booting");
       await apiJson("/api/user", { action:"upsertUser",
         initData: tgInitData,
-        nickname: state.profile.nickname,
         referredBy: state.profile.referredBy || "",
         rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
       await hydrateUserFromServer();
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
-      state.onboarding.nicknameSet = true;
       save();
       go("games");
       document.body.classList.remove("booting");
@@ -1243,14 +1172,12 @@
       document.body.classList.add("booting");
       await apiJson("/api/user", { action:"upsertUser",
         initData: tgInitData,
-        nickname: state.profile.nickname,
         referredBy: "",
         rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
       await hydrateUserFromServer();
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
-      state.onboarding.nicknameSet = true;
       save();
       go("games");
       document.body.classList.remove("booting");
@@ -1394,12 +1321,6 @@
   const myRefCode = document.getElementById("myRefCode");
   const copyRefBtn = document.getElementById("copyRefBtn");
   const shareRefBtn = document.getElementById("shareRefBtn");
-  const editNickBtn = document.getElementById("editNickBtn");
-  const nickModalWrap = document.getElementById("nickModalWrap");
-  const nickModalInput = document.getElementById("nickModalInput");
-  const nickModalError = document.getElementById("nickModalError");
-  const nickModalSave = document.getElementById("nickModalSave");
-  const nickModalCancel = document.getElementById("nickModalCancel");
   const setSound = document.getElementById("setSound");
   const setHaptic = document.getElementById("setHaptic");
 
@@ -1443,52 +1364,6 @@
       renderMatches();
     }catch(e){}
   }
-
-  function closeNickModal(){ nickModalWrap.classList.remove("show"); }
-  function openNickModal(){
-    nickModalError.style.display = "none";
-    nickModalInput.value = state.profile.nickname || "";
-    nickModalWrap.classList.add("show");
-    setTimeout(()=> nickModalInput.focus(), 20);
-  }
-  editNickBtn.onclick = ()=> openNickModal();
-  nickModalCancel.onclick = ()=> closeNickModal();
-  nickModalSave.onclick = ()=>{
-    const n = (nickModalInput.value || "").trim();
-    if(!/^[A-Za-z0-9_]{3,16}$/.test(n)){
-      nickModalError.textContent = "Неверный формат. Только латиница/цифры/_ (3-16)";
-      nickModalError.style.display = "block";
-      return;
-    }
-    if(!hasTgAuth){
-      state.profile.nickname = n;
-      state.profile.nicknameChangedAt = now();
-      addTx("Ник обновлён");
-      save();
-      closeNickModal();
-      toast("Ник обновлён");
-      return;
-    }
-    document.body.classList.add("booting");
-    apiJson("/api/user", { action:"upsertUser", initData: tgInitData, nickname: n, referredBy: "", rulesAcceptedAt: state.profile.rulesAcceptedAt || 0 })
-      .then((data)=>{
-        document.body.classList.remove("booting");
-        state.profile.nickname = data.user?.nickname || n;
-        state.profile.nicknameChangedAt = now();
-        applyBalanceFromUserPayload(data.user);
-        addTx("Ник обновлён");
-        save();
-        renderTopbar();
-        renderWallet();
-        closeNickModal();
-        toast("Ник обновлён");
-      })
-      .catch((e)=>{
-        document.body.classList.remove("booting");
-        nickModalError.textContent = e.message || "Ошибка сохранения";
-        nickModalError.style.display = "block";
-      });
-  };
 
   copyRefBtn.onclick = async ()=>{
     try{
