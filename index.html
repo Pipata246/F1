@@ -1184,13 +1184,21 @@
           }
           return;
         }
-        // Fallback only when Telegram native share is unavailable.
-        const shareUrl = `https://t.me/share/url?text=${encodeURIComponent(text)}`;
-        if(tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
-        else window.open(shareUrl, "_blank");
+        // In-app fallback: open Telegram share picker, never leave to browser.
+        if(typeof tg?.switchInlineQuery === "function"){
+          tg.switchInlineQuery(text, ["users", "groups", "channels"]);
+          toast("Выбери чат и отправь сообщение");
+          return;
+        }
+        if(typeof tg?.openTelegramLink === "function"){
+          const shareUrl = `https://t.me/share/url?url=${encodeURIComponent("https://t.me/Fffasdq_bot")}&text=${encodeURIComponent(text)}`;
+          tg.openTelegramLink(shareUrl);
+          return;
+        }
+        throw new Error("share_unavailable");
       }catch(e){
         navigator.clipboard?.writeText(text);
-        toast("Текст приглашения скопирован");
+        toast("Шаринг недоступен, текст скопирован");
       }
     };
     if(hasTgAuth){
