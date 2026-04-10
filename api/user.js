@@ -1753,14 +1753,100 @@ async function persistMatchFromPayload(b) {
   return { gameKey, serverMatchId, savedPlayers: nonBotPlayers.length };
 }
 
+/** Max numeric score per player for client-recorded bot matches (anti-abuse). */
+const RECORD_MATCH_BOT_MAX_SCORE = Math.max(
+  10,
+  Math.min(100000, Number(process.env.RECORD_MATCH_BOT_MAX_SCORE) || 500)
+);
+
+/** Max bot-match rows per user per hour via public recordMatch (rate limit). */
+const RECORD_MATCH_BOT_MAX_PER_HOUR = Math.max(
+  1,
+  Math.min(500, Number(process.env.RECORD_MATCH_BOT_MAX_PER_HOUR) || 80)
+);
+
+async function countRecentBotMatchesForUser(tgId) {
+  const since = new Date(Date.now() - 3600 * 1000).toISOString();
+  const rows = await sb(
+    `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&mode=eq.bot&finished_at=gte.${encodeURIComponent(since)}&select=id`
+  );
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+/**
+ * Public recordMatch: only bot games against a single local bot opponent.
+ * PvP must be written by the server (finalizePvpRoomIfNeeded / pvpLeaveRoom).
+ */
 async function recordMatchClient(initData, payload) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   const safePayload = asObj(payload);
-  const players = Array.isArray(safePayload.players) ? safePayload.players : [];
-  const includesCurrentUser = players.some((p) => String(p?.tgUserId || "") === tgId);
-  if (!includesCurrentUser) throw new Error("Current user is not in match payload");
+
+  const mode = String(safePayload.mode || "").trim().toLowerCase();
+  if (mode !== "bot") {
+    throw new Error("Client may only record bot matches; PvP is recorded by the server");
+  }
+
+  const playersRaw = Array.isArray(safePayload.players) ? safePayload.players : [];
+  if (playersRaw.length !== 2) {
+    throw new Error("Bot match must have exactly 2 players");
+  }
+
+  const players = playersRaw.map((p) => ({
+    tgUserId: p?.tgUserId ? String(p.tgUserId) : null,
+    name: String(p?.name || "Player").slice(0, 64),
+    score: Number(p?.score || 0),
+    isWinner: !!p?.isWinner,
+    isBot: !!p?.isBot,
+  }));
+
+  for (const p of players) {
+    if (!Number.isFinite(p.score) || p.score < 0 || p.score > RECORD_MATCH_BOT_MAX_SCORE) {
+      throw new Error("Invalid score");
+    }
+  }
+
+  const humans = players.filter((p) => !p.isBot);
+  const bots = players.filter((p) => p.isBot);
+  if (humans.length !== 1 || bots.length !== 1) {
+    throw new Error("Bot match must include exactly one human and one bot");
+  }
+
+  const human = humans[0];
+  const bot = bots[0];
+  if (human.tgUserId !== tgId) {
+    throw new Error("Current user must be the human player");
+  }
+  if (bot.tgUserId != null && String(bot.tgUserId).trim() !== "") {
+    throw new Error("Bot player must not have a Telegram user id");
+  }
+
+  const winnerRaw = safePayload.winnerTgUserId;
+  const winnerTgUserId = winnerRaw != null && winnerRaw !== "" ? String(winnerRaw) : null;
+  if (winnerTgUserId !== null && winnerTgUserId !== tgId) {
+    throw new Error("Invalid winner for bot match");
+  }
+  if ((winnerTgUserId === tgId) !== human.isWinner) {
+    throw new Error("Winner does not match player flags");
+  }
+  if (bot.isWinner === human.isWinner) {
+    throw new Error("Human and bot winner flags must differ");
+  }
+
+  const recent = await countRecentBotMatchesForUser(tgId);
+  if (recent >= RECORD_MATCH_BOT_MAX_PER_HOUR) {
+    throw new Error("Too many bot match records; try again later");
+  }
+
+  normalizeGameKey(safePayload.gameKey);
+
+  safePayload.mode = "bot";
+  safePayload.players = players;
+  safePayload.winnerTgUserId = winnerTgUserId;
+  delete safePayload.finishedAt;
+  safePayload.serverMatchId = `cli_bot_${tgId}_${Date.now()}_${crypto.randomBytes(10).toString("hex")}`;
+
   touchPresenceTgId(tgId);
   return persistMatchFromPayload(safePayload);
 }
@@ -1946,6 +2032,17 @@ module.exports = async (req, res) => {
             ? 404
           : msg === "Invalid nickname format" || msg.includes("Rules must be accepted")
             ? 400
+            : msg.includes("Too many bot match records")
+              ? 429
+            : msg.includes("Client may only record bot matches") ||
+                msg.includes("Bot match must") ||
+                msg.includes("Current user must be the human") ||
+                msg.includes("Bot player must not") ||
+                msg.includes("Invalid winner for bot match") ||
+                msg.includes("Winner does not match") ||
+                msg.includes("Human and bot winner") ||
+                msg === "Invalid score"
+              ? 400
             : msg === "Forbidden"
               ? 403
               : msg === "Room update conflict"
