@@ -132,6 +132,30 @@
     }
     .icon{font-size:18px; line-height:1}
     .hidden{display:none!important}
+    body.booting .app, body.booting .nav{display:none!important}
+
+    .bootScreen{
+      position:fixed; inset:0; z-index:200;
+      display:none; align-items:center; justify-content:center;
+      background: linear-gradient(180deg, var(--bg1), var(--bg2));
+    }
+    body.booting .bootScreen{display:flex}
+    .bootCard{
+      width:min(420px, 92vw);
+      padding:22px;
+      border-radius:20px;
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.12);
+      text-align:center;
+    }
+    .spinner{
+      width:34px; height:34px; margin:0 auto 12px auto;
+      border-radius:50%;
+      border:3px solid rgba(255,255,255,.2);
+      border-top-color: var(--accent);
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
 
     .toast{
       position:fixed; left:50%; bottom:86px; transform:translateX(-50%);
@@ -286,7 +310,6 @@
 
           <div style="margin-top:14px" class="row">
             <button id="nickSave" class="btn primary">Сохранить</button>
-            <button id="nickSkip" class="btn ghost">Пропустить</button>
           </div>
 
           <div class="note small" id="nickError" style="margin-top:10px; color: var(--danger); display:none"></div>
@@ -667,6 +690,14 @@
 
   <div id="toast" class="toast"></div>
 
+  <div class="bootScreen" id="bootScreen">
+    <div class="bootCard">
+      <div class="spinner"></div>
+      <div style="font-weight:900; font-size:18px">Загрузка профиля...</div>
+      <div class="small" style="margin-top:6px">Подтягиваем данные пользователя с сервера</div>
+    </div>
+  </div>
+
   <div id="modalWrap" class="modalWrap">
     <div class="modal">
       <h3 id="modalTitle">Подтвердить</h3>
@@ -678,7 +709,23 @@
     </div>
   </div>
 
+  <div id="nickModalWrap" class="modalWrap">
+    <div class="modal">
+      <h3>Изменить ник</h3>
+      <div class="muted">Ник: 3-16 символов (латиница/цифры/_)</div>
+      <div style="margin-top:10px">
+        <input id="nickModalInput" class="field" maxlength="16" placeholder="Новый ник" />
+      </div>
+      <div id="nickModalError" class="small" style="margin-top:10px; color: var(--danger); display:none"></div>
+      <div class="row" style="margin-top:14px">
+        <button id="nickModalSave" class="btn primary">Сохранить</button>
+        <button id="nickModalCancel" class="btn ghost">Отмена</button>
+      </div>
+    </div>
+  </div>
+
 <script>
+  document.body.classList.add("booting");
   const tg = window.Telegram?.WebApp;
   try{ tg?.ready(); tg?.expand(); }catch(e){}
   const envChip = document.getElementById("envChip");
@@ -867,7 +914,6 @@
 
   const nickInput = document.getElementById("nickInput");
   const nickSave = document.getElementById("nickSave");
-  const nickSkip = document.getElementById("nickSkip");
   const nickError = document.getElementById("nickError");
 
   function setNick(nick){
@@ -884,7 +930,6 @@
     return true;
   }
   nickSave.onclick = ()=>{ if(setNick(nickInput.value)){ save(); go("onb-ref"); } };
-  nickSkip.onclick = ()=>{ toast("Ник обязателен"); };
 
   const refInput = document.getElementById("refInput");
   const refApply = document.getElementById("refApply");
@@ -914,12 +959,16 @@
         referredBy: state.profile.referredBy || "",
         rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
+      document.body.classList.add("booting");
+      await hydrateUserFromServer();
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
       state.onboarding.nicknameSet = true;
       save();
       go("games");
+      document.body.classList.remove("booting");
     }catch(e){
+      document.body.classList.remove("booting");
       refError.textContent = e.message || "Ошибка сохранения";
       refError.style.display="block";
     }
@@ -938,12 +987,16 @@
         referredBy: "",
         rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
+      document.body.classList.add("booting");
+      await hydrateUserFromServer();
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
       state.onboarding.nicknameSet = true;
       save();
       go("games");
+      document.body.classList.remove("booting");
     }catch(e){
+      document.body.classList.remove("booting");
       refError.textContent = e.message || "Ошибка сохранения";
       refError.style.display="block";
     }
@@ -1073,6 +1126,11 @@
   const copyRefBtn = document.getElementById("copyRefBtn");
   const shareRefBtn = document.getElementById("shareRefBtn");
   const editNickBtn = document.getElementById("editNickBtn");
+  const nickModalWrap = document.getElementById("nickModalWrap");
+  const nickModalInput = document.getElementById("nickModalInput");
+  const nickModalError = document.getElementById("nickModalError");
+  const nickModalSave = document.getElementById("nickModalSave");
+  const nickModalCancel = document.getElementById("nickModalCancel");
   const setSound = document.getElementById("setSound");
   const setHaptic = document.getElementById("setHaptic");
   const profReactBest = document.getElementById("profReactBest");
@@ -1085,33 +1143,44 @@
     }catch(e){ return "—"; }
   }
 
-  editNickBtn.onclick = ()=>{
-    openModal("Изменить ник", "Ник: 3–16 символов (латиница/цифры/_)", ()=>{
-      const next = prompt("Новый ник:", state.profile.nickname || "");
-      if(next===null) return;
-      const n = next.trim();
-      if(!/^[A-Za-z0-9_]{3,16}$/.test(n)){
-        toast("Неверный формат ника");
-        return;
-      }
-      if(!hasTgAuth){
-        state.profile.nickname = n;
+  function closeNickModal(){ nickModalWrap.classList.remove("show"); }
+  function openNickModal(){
+    nickModalError.style.display = "none";
+    nickModalInput.value = state.profile.nickname || "";
+    nickModalWrap.classList.add("show");
+    setTimeout(()=> nickModalInput.focus(), 20);
+  }
+  editNickBtn.onclick = ()=> openNickModal();
+  nickModalCancel.onclick = ()=> closeNickModal();
+  nickModalSave.onclick = ()=>{
+    const n = (nickModalInput.value || "").trim();
+    if(!/^[A-Za-z0-9_]{3,16}$/.test(n)){
+      nickModalError.textContent = "Неверный формат. Только латиница/цифры/_ (3-16)";
+      nickModalError.style.display = "block";
+      return;
+    }
+    if(!hasTgAuth){
+      state.profile.nickname = n;
+      state.profile.nicknameChangedAt = now();
+      addTx("Ник обновлён");
+      save();
+      closeNickModal();
+      toast("Ник обновлён");
+      return;
+    }
+    apiJson("/api/user", { action:"upsertUser", initData: tgInitData, nickname: n, referredBy: "", rulesAcceptedAt: state.profile.rulesAcceptedAt || 0 })
+      .then((data)=>{
+        state.profile.nickname = data.user?.nickname || n;
         state.profile.nicknameChangedAt = now();
         addTx("Ник обновлён");
         save();
+        closeNickModal();
         toast("Ник обновлён");
-        return;
-      }
-      apiJson("/api/user", { action:"upsertUser", initData: tgInitData, nickname: n, referredBy: "" })
-        .then(()=>{
-          state.profile.nickname = n;
-          state.profile.nicknameChangedAt = now();
-          addTx("Ник обновлён");
-          save();
-          toast("Ник обновлён");
-        })
-        .catch(()=> toast("Ошибка сохранения ника"));
-    });
+      })
+      .catch((e)=>{
+        nickModalError.textContent = e.message || "Ошибка сохранения";
+        nickModalError.style.display = "block";
+      });
   };
 
   copyRefBtn.onclick = async ()=>{
@@ -1530,10 +1599,14 @@
   }
 
   (async ()=>{
-    await hydrateUserFromServer();
-    reactionResetUI();
-    renderAll();
-    initNav();
+    try{
+      await hydrateUserFromServer();
+    }finally{
+      reactionResetUI();
+      renderAll();
+      initNav();
+      document.body.classList.remove("booting");
+    }
   })();
 </script>
 </body>
