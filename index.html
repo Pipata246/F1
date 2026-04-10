@@ -1273,9 +1273,12 @@
   shareRefBtn.onclick = ()=>{
     const appUrl = location.origin;
     const text =
-      `Привет! Приглашаю тебя в F1 Duel 🏁\n` +
-      `Заходи в игру и используй мой код: ${state.profile.myRefCode}\n\n` +
-      `Играть: ${appUrl}`;
+      `✨Тебя пригласили в битву!\n\n` +
+      `🔥 Жми сюда, чтобы войти в игру:\n` +
+      `👉 @Fffasdq_bot\n\n` +
+      `🔐 А вот твой личный ключ доступа (он волшебный, так что не теряй):\n` +
+      `Код: ${state.profile.myRefCode}\n\n` +
+      `Погнали?`;
     try{
       const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(text)}`;
       if(tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
