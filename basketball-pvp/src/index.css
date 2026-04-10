@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    background-color: #121214;
+    color: white;
+    overflow: hidden;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* GPU-accelerated ambient effects — no JS overhead */
+@keyframes leaf-fall {
+    0% { transform: translate(0, -5vh) rotate(0deg); opacity: 0; }
+    10% { opacity: 0.3; }
+    90% { opacity: 0.3; }
+    100% { transform: translate(var(--drift), 105vh) rotate(var(--spin)); opacity: 0; }
+}
+@keyframes dust-rise {
+    0% { transform: translate(0, 0); opacity: 0; }
+    20% { opacity: var(--dust-op); }
+    80% { opacity: var(--dust-op); }
+    100% { transform: translate(var(--sway), -105vh); opacity: 0; }
+}
+@keyframes ray-pulse {
+    0%, 100% { opacity: 0; }
+    30% { opacity: 0.5; }
+    60% { opacity: 0.8; }
+}
+.leaf {
+    position: absolute; top: -5%; pointer-events: none;
+    border-radius: 50% 0 50% 0;
+    animation: leaf-fall var(--dur) var(--delay) linear infinite;
+    will-change: transform, opacity;
+}
+.dust {
+    position: absolute; bottom: 0; border-radius: 50%; pointer-events: none;
+    background: rgba(255,255,220,0.5);
+    animation: dust-rise var(--dur) var(--delay) linear infinite;
+    will-change: transform, opacity;
+}
+.ray {
+    position: absolute; top: 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,200,0.06) 0%, transparent 100%);
+    filter: blur(8px);
+    animation: ray-pulse var(--dur) var(--delay) ease-in-out infinite;
+    will-change: opacity;
+}

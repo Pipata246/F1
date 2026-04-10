@@ -1,0 +1,410 @@
+import express from 'express';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+
+const PORT = process.env.PORT || 3001;
+
+// --- Stats storage (in-memory, resets on restart) ---
+const stats = new Map(); // tgUserId -> { wins, losses, goals, saves }
+
+function getStats(userId) {
+  if (!stats.has(userId)) {
+    stats.set(userId, { wins: 0, losses: 0, goals: 0, saves: 0 });
+  }
+  return stats.get(userId);
+}
+
+// --- API ---
+app.use(express.json());
+
+app.get('/api/stats/:userId', (req, res) => {
+  const s = getStats(req.params.userId);
+  res.json(s);
+});
+
+// --- Serve static in production ---
+app.use(express.static(join(__dirname, 'dist')));
+app.get('*', (req, res) => {
+  res.sendFile(join(__dirname, 'dist', 'index.html'));
+});
+
+// --- Game logic ---
+const rooms = new Map();
+let waitingPlayer = null;
+let roomIdCounter = 1;
+
+const ZONES = [0, 1, 2, 3];
+const ROUND_TIMEOUT = 10000; // 10 seconds
+const BOT_DELAY_MIN = 800;
+const BOT_DELAY_MAX = 2000;
+
+function send(ws, type, data = {}) {
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({ type, ...data }));
+  }
+}
+
+function createRoom(p1, p2) {
+  const roomId = roomIdCounter++;
+  const room = {
+    id: roomId,
+    players: [p1, p2],
+    scores: [0, 0],
+    round: 0,
+    maxRounds: 10, // 5 kicks per player (alternating)
+    suddenDeath: false,
+    choices: [null, null],
+    timer: null,
+    finished: false,
+    history: [], // [{kickerIndex, kickerZone, keeperZone, isGoal}]
+    kickerOverride: null,
+    sdStart: 0, // round when sudden death started
+  };
+  rooms.set(roomId, room);
+  p1.roomId = roomId;
+  p2.roomId = roomId;
+  p1.playerIndex = 0;
+  p2.playerIndex = 1;
+
+  send(p1.ws, 'game_found', { opponent: p2.name, playerIndex: 0 });
+  send(p2.ws, 'game_found', { opponent: p1.name, playerIndex: 1 });
+
+  setTimeout(() => startRound(room), 500);
+  return room;
+}
+
+function getKickerIndex(room) {
+  if (room.suddenDeath && room.kickerOverride !== null) {
+    return room.kickerOverride;
+  }
+  // Rounds 0,2,4,6,8 -> player 0 kicks; rounds 1,3,5,7,9 -> player 1 kicks
+  return room.round % 2 === 0 ? 0 : 1;
+}
+
+function startRound(room) {
+  if (room.finished) return;
+
+  room.choices = [null, null];
+
+  // In sudden death: strict alternation in pairs
+  if (room.suddenDeath) {
+    const sdRound = room.round - room.sdStart;
+    const pairNum = Math.floor(sdRound / 2);
+    const withinPair = sdRound % 2;
+    room.kickerOverride = (pairNum + withinPair) % 2;
+  }
+
+  const kickerIdx = getKickerIndex(room);
+
+  for (const p of room.players) {
+    if (!p.isBot) {
+      const role = p.playerIndex === kickerIdx ? 'kicker' : 'keeper';
+      send(p.ws, 'round_start', {
+        round: room.round + 1,
+        maxRounds: room.maxRounds,
+        role,
+        scores: room.scores,
+        suddenDeath: room.suddenDeath,
+        history: room.history,
+      });
+    }
+  }
+
+  // Bot auto-choose
+  for (const p of room.players) {
+    if (p.isBot) {
+      const role = p.playerIndex === kickerIdx ? 'kicker' : 'keeper';
+      const delay = BOT_DELAY_MIN + Math.random() * (BOT_DELAY_MAX - BOT_DELAY_MIN);
+      setTimeout(() => {
+        if (room.finished) return;
+        const zone = botChooseZone(role);
+        handleChoice(room, p.playerIndex, zone);
+      }, delay);
+    }
+  }
+
+  // Round timeout — auto-choose for players who haven't chosen
+  room.timer = setTimeout(() => {
+    for (let i = 0; i < 2; i++) {
+      if (room.choices[i] === null && !room.players[i].isBot) {
+        const zone = ZONES[Math.floor(Math.random() * ZONES.length)];
+        handleChoice(room, i, zone);
+      }
+    }
+  }, ROUND_TIMEOUT);
+}
+
+function botChooseZone(role) {
+  if (role === 'kicker') {
+    // 30/30/20/20 distribution
+    const r = Math.random();
+    if (r < 0.3) return 0;
+    if (r < 0.6) return 1;
+    if (r < 0.8) return 2;
+    return 3;
+  }
+  // Keeper: uniform random
+  return ZONES[Math.floor(Math.random() * ZONES.length)];
+}
+
+function handleChoice(room, playerIndex, zone) {
+  if (room.finished) return;
+  if (room.choices[playerIndex] !== null) return; // already chose
+
+  room.choices[playerIndex] = zone;
+
+  // Notify the player their choice is locked
+  const p = room.players[playerIndex];
+  if (!p.isBot) {
+    send(p.ws, 'zone_locked', { zone });
+  }
+
+  // Check if both have chosen
+  if (room.choices[0] !== null && room.choices[1] !== null) {
+    clearTimeout(room.timer);
+    resolveRound(room);
+  }
+}
+
+function resolveRound(room) {
+  const kickerIdx = getKickerIndex(room);
+  const keeperIdx = 1 - kickerIdx;
+  const kickerZone = room.choices[kickerIdx];
+  const keeperZone = room.choices[keeperIdx];
+  const isGoal = kickerZone !== keeperZone;
+
+  if (isGoal) {
+    room.scores[kickerIdx]++;
+  }
+
+  room.history.push({ kickerIndex: kickerIdx, kickerZone, keeperZone, isGoal });
+  room.round++;
+
+  // Send result to both players
+  for (const p of room.players) {
+    if (!p.isBot) {
+      send(p.ws, 'round_result', {
+        kickerZone,
+        keeperZone,
+        isGoal,
+        scores: room.scores,
+        round: room.round,
+        kickerIndex: kickerIdx,
+        history: room.history,
+      });
+    }
+  }
+
+  // Check if match should end
+  if (shouldEndMatch(room)) {
+    setTimeout(() => endMatch(room), 2500);
+  } else {
+    setTimeout(() => startRound(room), 2800);
+  }
+}
+
+function shouldEndMatch(room) {
+  const [s0, s1] = room.scores;
+  const roundsPlayed = room.round;
+
+  // Sudden death: end only after a complete pair (both players kicked)
+  if (room.suddenDeath) {
+    const sdRounds = roundsPlayed - room.sdStart;
+    if (sdRounds >= 2 && sdRounds % 2 === 0) {
+      return s0 !== s1;
+    }
+    return false;
+  }
+
+  const maxRounds = room.maxRounds;
+
+  // All rounds played
+  if (roundsPlayed >= maxRounds) {
+    if (s0 === s1) {
+      room.suddenDeath = true;
+      room.sdStart = roundsPlayed;
+      return false;
+    }
+    return true;
+  }
+
+  // Early win: only check after both have kicked equal times (even round count)
+  if (roundsPlayed % 2 !== 0) return false;
+
+  let p0KicksLeft = 0;
+  let p1KicksLeft = 0;
+  for (let r = roundsPlayed; r < maxRounds; r++) {
+    if (r % 2 === 0) p0KicksLeft++;
+    else p1KicksLeft++;
+  }
+
+  if (s0 > s1 + p1KicksLeft) return true;
+  if (s1 > s0 + p0KicksLeft) return true;
+
+  return false;
+}
+
+function endMatch(room) {
+  if (room.finished) return;
+  room.finished = true;
+  clearTimeout(room.timer);
+
+  const [s0, s1] = room.scores;
+
+  for (const p of room.players) {
+    const won = (p.playerIndex === 0 && s0 > s1) || (p.playerIndex === 1 && s1 > s0);
+
+    if (!p.isBot) {
+      send(p.ws, 'match_result', { youWon: won, scores: room.scores });
+    }
+
+    // Update stats
+    if (p.tgUserId) {
+      const st = getStats(p.tgUserId);
+      if (won) st.wins++;
+      else st.losses++;
+
+      // Count goals and saves from this match
+      // Player's goals = their score (as kicker)
+      st.goals += room.scores[p.playerIndex];
+      // Player's saves = opponent's missed goals = rounds opponent kicked - opponent's score
+      const oppIdx = 1 - p.playerIndex;
+      const oppKickRounds = Math.ceil(room.round / 2) - (p.playerIndex === 0 ? 0 : Math.floor((room.round + 1) / 2) - Math.floor(room.round / 2));
+      // Simpler: count how many rounds each player kicked
+      let myKicks = 0;
+      let oppKicks = 0;
+      for (let r = 0; r < room.round; r++) {
+        if (r % 2 === 0) {
+          if (p.playerIndex === 0) myKicks++;
+          else oppKicks++;
+        } else {
+          if (p.playerIndex === 1) myKicks++;
+          else oppKicks++;
+        }
+      }
+      st.saves += oppKicks - room.scores[oppIdx];
+    }
+  }
+
+  rooms.delete(room.id);
+}
+
+function cleanupPlayer(player) {
+  if (player.roomId) {
+    const room = rooms.get(player.roomId);
+    if (room && !room.finished) {
+      room.finished = true;
+      clearTimeout(room.timer);
+      const opponent = room.players.find(p => p !== player);
+      if (opponent && !opponent.isBot) {
+        send(opponent.ws, 'opponent_left');
+      }
+      rooms.delete(room.id);
+    }
+  }
+  if (waitingPlayer === player) {
+    waitingPlayer = null;
+  }
+}
+
+// --- WebSocket ---
+wss.on('connection', (ws) => {
+  const player = { ws, name: 'Player', tgUserId: null, roomId: null, playerIndex: -1, isBot: false };
+
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    switch (msg.type) {
+      case 'find_game': {
+        player.name = msg.name || 'Player';
+        player.tgUserId = msg.tgUserId || null;
+
+        if (waitingPlayer && waitingPlayer.ws.readyState === 1) {
+          const opponent = waitingPlayer;
+          waitingPlayer = null;
+          createRoom(opponent, player);
+        } else {
+          waitingPlayer = player;
+          send(ws, 'waiting');
+        }
+        break;
+      }
+
+      case 'find_bot': {
+        player.name = msg.name || 'Player';
+        player.tgUserId = msg.tgUserId || null;
+
+        const bot = {
+          ws: { readyState: 1, send: () => {} },
+          name: 'Bot 🤖',
+          tgUserId: null,
+          roomId: null,
+          playerIndex: -1,
+          isBot: true,
+        };
+
+        // Randomly decide who kicks first
+        if (Math.random() < 0.5) {
+          createRoom(player, bot);
+        } else {
+          createRoom(bot, player);
+        }
+        break;
+      }
+
+      case 'cancel_wait': {
+        if (waitingPlayer === player) {
+          waitingPlayer = null;
+        }
+        break;
+      }
+
+      case 'choose_zone': {
+        if (player.roomId === null) return;
+        const room = rooms.get(player.roomId);
+        if (!room || room.finished) return;
+        const zone = parseInt(msg.zone);
+        if (!ZONES.includes(zone)) return;
+        handleChoice(room, player.playerIndex, zone);
+        break;
+      }
+    }
+  });
+
+  ws.on('close', () => cleanupPlayer(player));
+  ws.on('error', () => cleanupPlayer(player));
+
+  // Heartbeat
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+});
+
+// Heartbeat interval
+const heartbeat = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => clearInterval(heartbeat));
+
+// --- Start ---
+server.listen(PORT, () => {
+  console.log(`SuperPenallity server running on port ${PORT}`);
+});

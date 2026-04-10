@@ -1,0 +1,13 @@
+{
+  "name": "frog-hunt-pvp",
+  "version": "1.0.0",
+  "description": "Frog Hunt - PvP Telegram Mini App",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  }
+}

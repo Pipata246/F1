@@ -1,0 +1,813 @@
+let ws = null;
+let playerIndex = -1;
+let opponentName = '';
+let myName = '';
+let selectedTraps = [];
+let scores = [0, 0];
+let currentStep = 0;
+let totalRounds = 7;
+let moveChosen = false;
+let timerInterval = null;
+let isOvertime = false;
+let trackDots = 7;
+
+// Abilities
+let myAbility = null;
+let oppAbility = null;
+let abilityUsed = false;
+let abilityActive = false;
+let revealedPoints = {};
+let xrayScanMode = false;
+let knownTrapsOnMyTrack = {};
+let overtimePlacing = false;
+
+const ABILITIES = {
+    xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
+    double:   { icon: '\u26A1', name: '\u0423\u0434\u0432\u043E\u0435\u043D\u0438\u0435', desc: '\u0423\u0441\u043F\u0435\u0445 = +2 \u043E\u0447\u043A\u0430. \u041F\u0440\u043E\u0432\u0430\u043B = -1 \u043E\u0447\u043A\u043E' },
+    sabotage: { icon: '\uD83D\uDC80', name: '\u0421\u0430\u0431\u043E\u0442\u0430\u0436', desc: '\u041E\u0442\u043C\u0435\u043D\u0438 \u043E\u0447\u043A\u043E \u0441\u043E\u043F\u0435\u0440\u043D\u0438\u043A\u0430. \u041F\u0440\u043E\u043C\u0430\u0445 \u2014 \u0431\u0435\u0437 \u0448\u0442\u0440\u0430\u0444\u0430' }
+};
+
+const $ = (id) => document.getElementById(id);
+
+const SFX = {};
+function initSounds() {
+    const files = {
+        click: 'Click Or Tap.mp3',
+        tap: 'Tap or Pop.mp3',
+        swoosh: 'Quick_Swoosh.mp3',
+        swooshBig: 'Normal_Swoosh.mp3',
+        ping: 'Pi-Link.mp3',
+        good: 'Positive_Reaction.mp3',
+        bad: 'Negative_Reaction.mp3',
+        win: 'You_Won.mp3',
+        lose: 'You_Lost.mp3'
+    };
+    for (const [key, file] of Object.entries(files)) {
+        SFX[key] = new Audio('sounds/' + file);
+        SFX[key].preload = 'auto';
+        SFX[key].volume = 0.5;
+    }
+    SFX.win.volume = 0.7;
+    SFX.lose.volume = 0.7;
+}
+
+function playSound(name) {
+    const s = SFX[name];
+    if (!s) return;
+    s.currentTime = 0;
+    s.play().catch(() => {});
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initSounds();
+    if (window.Telegram && window.Telegram.WebApp) {
+        const tg = window.Telegram.WebApp;
+        tg.ready(); tg.expand();
+        document.body.classList.add('tg-theme');
+        const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
+        if (user) {
+            if (user.first_name) $('player-name').value = user.first_name;
+            window._tgUserId = String(user.id);
+        }
+    }
+    // Also check URL param (passed from F1 Duel)
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('userId')) window._tgUserId = urlParams.get('userId');
+
+    $('btn-find').onclick = () => startGame(false);
+    $('btn-bot').onclick = () => startGame(true);
+    $('btn-cancel').onclick = cancelWait;
+    $('btn-traps-ok').onclick = confirmTraps;
+    $('btn-again').onclick = () => startGame(true);
+    $('btn-menu').onclick = () => window.location.href = '/';
+    $('btn-run').onclick = () => makeMove('run');
+    $('btn-jump').onclick = () => makeMove('jump');
+    $('btn-ability').onclick = toggleAbility;
+
+    generateTrapTrack();
+    generateGameTracks(7);
+});
+
+function connect(cb) {
+    const WS_URL = 'wss://calm-gentleness-production-48ed.up.railway.app';
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => { if (cb) cb(); };
+    ws.onmessage = (e) => {
+        try {
+            var result = handleMessage(JSON.parse(e.data));
+            if (result && result.catch) result.catch(function(err) { console.error('async error:', err); });
+        } catch (err) { console.error('msg error:', err); }
+    };
+    ws.onclose = () => {};
+}
+
+function sendMsg(m) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
+
+function handleMessage(msg) {
+    switch (msg.type) {
+        case 'waiting': showScreen('waiting'); break;
+        case 'game_found': onGameFound(msg); break;
+        case 'traps_placed': break;
+        case 'round_start': return onRoundStart(msg);
+        case 'round_result': return onRoundResult(msg);
+        case 'xray_result': onXrayResult(msg); break;
+        case 'opp_xray': onOppXray(msg); break;
+        case 'overtime_start': onOvertimeStart(); break;
+        case 'opponent_left': onOpponentLeft(); break;
+    }
+}
+
+function showScreen(name) {
+    document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
+    $('screen-' + name).classList.add('active');
+}
+
+function startGame(vsBot) {
+    myName = $('player-name').value.trim() || '\u0418\u0433\u0440\u043E\u043A';
+    selectedTraps = []; scores = [0, 0]; currentStep = 0;
+    moveChosen = false; isOvertime = false; trackDots = 7;
+    myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
+    revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
+    clearInterval(timerInterval);
+
+    if (ws && ws.readyState === 1) {
+        sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId: window._tgUserId || null });
+        if (!vsBot) showScreen('waiting');
+    } else {
+        connect(() => {
+            sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId: window._tgUserId || null });
+            if (!vsBot) showScreen('waiting');
+        });
+    }
+}
+
+function cancelWait() { sendMsg({ type: 'cancel_wait' }); showScreen('start'); }
+
+function onGameFound(msg) {
+    playSound('ping');
+    playerIndex = msg.playerIndex;
+    opponentName = msg.opponent;
+    $('opp-name-traps').textContent = '\u0414\u043E\u0440\u043E\u0436\u043A\u0430: ' + opponentName;
+    selectedTraps = [];
+    overtimePlacing = false;
+    updateTrapUI();
+    $('btn-traps-ok').classList.remove('hidden');
+    $('btn-traps-ok').disabled = true;
+    $('traps-wait').classList.add('hidden');
+    showScreen('traps');
+}
+
+function generateTrapTrack() {
+    const dots = overtimePlacing ? OT_ROUNDS : 7;
+    const c = $('trap-track'); c.innerHTML = '';
+    for (let i = 0; i < dots; i++) {
+        const p = document.createElement('div');
+        p.className = 'trap-point'; p.textContent = i + 1;
+        p.dataset.index = i; p.onclick = () => toggleTrap(i);
+        c.appendChild(p);
+    }
+    const maxTraps = overtimePlacing ? 1 : 3;
+    $('trap-count').parentElement.innerHTML = '\u041B\u043E\u0432\u0443\u0448\u0435\u043A: <span id="trap-count" class="count-num">0</span> / ' + maxTraps;
+}
+
+function toggleTrap(i) {
+    const maxTraps = overtimePlacing ? 1 : 3;
+    const idx = selectedTraps.indexOf(i);
+    if (idx >= 0) selectedTraps.splice(idx, 1);
+    else if (selectedTraps.length < maxTraps) selectedTraps.push(i);
+    playSound('tap');
+    updateTrapUI();
+}
+
+function updateTrapUI() {
+    const maxTraps = overtimePlacing ? 1 : 3;
+    document.querySelectorAll('.trap-point').forEach((p) => {
+        const idx = parseInt(p.dataset.index);
+        const isSelected = selectedTraps.includes(idx);
+        p.classList.toggle('selected', isSelected);
+        p.textContent = isSelected ? '\uD83D\uDEA7' : (idx + 1);
+    });
+    $('trap-count').textContent = selectedTraps.length;
+    $('btn-traps-ok').disabled = selectedTraps.length !== maxTraps;
+}
+
+function confirmTraps() {
+    playSound('click');
+    sendMsg({ type: 'place_traps', traps: selectedTraps });
+    $('btn-traps-ok').classList.add('hidden');
+    $('traps-wait').classList.remove('hidden');
+}
+
+function generateGameTracks(n) {
+    trackDots = n;
+    for (let t = 0; t < 2; t++) {
+        const c = $('tpoints-' + t); c.innerHTML = '';
+        for (let i = 0; i < n; i++) {
+            const d = document.createElement('div');
+            d.className = 'track-dot' + (n === 5 ? ' ot-dot' : '');
+            d.textContent = n === 5 ? '?' : (i + 1);
+            d.id = 'dot-' + t + '-' + i;
+            c.appendChild(d);
+        }
+        // Show player's mines on opponent's track
+        if (t === 1 && selectedTraps.length > 0) {
+            selectedTraps.forEach(function(trapIdx) {
+                var mineDot = $('dot-1-' + trapIdx);
+                if (mineDot) {
+                    mineDot.classList.add('mine-placed');
+                }
+            });
+        }
+        const av = $('tavatar-' + t);
+        av.style.left = '4px';
+        av.className = 'track-avatar ' + (t === 0 ? 'you-color' : 'opp-color');
+        av.innerHTML = '<svg viewBox="0 0 20 30" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;overflow:visible">' +
+            '<circle cx="10" cy="3" r="2.5" fill="none" stroke-width="2" stroke-linecap="round"/>' +
+            '<line x1="10" y1="7" x2="10" y2="19" stroke-width="2" stroke-linecap="round"/>' +
+            '<g><animateTransform attributeName="transform" type="rotate" values="-30,10,7;40,10,7;-30,10,7" dur="0.7s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/><polyline points="10,7 10,12 14,12" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>' +
+            '<g><animateTransform attributeName="transform" type="rotate" values="40,10,7;-30,10,7;40,10,7" dur="0.7s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/><polyline points="10,7 10,12 14,12" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>' +
+            '<g><animateTransform attributeName="transform" type="rotate" values="20,10,19;-45,10,19;20,10,19" dur="0.7s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/><polyline points="10,19 10,25 5,25" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>' +
+            '<g><animateTransform attributeName="transform" type="rotate" values="-45,10,19;20,10,19;-45,10,19" dur="0.7s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/><polyline points="10,19 10,25 5,25" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>' +
+            '</svg>';
+    }
+    applyRevealedPoints();
+}
+
+function applyRevealedPoints() {
+    for (var key in revealedPoints) {
+        var dot = $('dot-0-' + key);
+        if (dot) {
+            dot.classList.add(revealedPoints[key] ? 'xray-trap' : 'xray-safe');
+            if (!revealedPoints[key]) dot.textContent = '\u2713';
+        }
+    }
+}
+
+function highlightCurrentDot(step) {
+    document.querySelectorAll('.track-dot.current').forEach((d) => d.classList.remove('current'));
+    if (step < trackDots) {
+        for (let t = 0; t < 2; t++) {
+            const d = $('dot-' + t + '-' + step);
+            if (d) d.classList.add('current');
+        }
+    }
+}
+
+async function onRoundStart(msg) {
+    currentStep = msg.step;
+    moveChosen = false; abilityActive = false; isOvertime = false;
+
+    if (msg.ability) {
+        myAbility = msg.ability;
+        oppAbility = null;
+        abilityUsed = false;
+    }
+
+    showScreen('game');
+
+    $('sb-name-0').textContent = myName;
+    $('sb-name-1').textContent = opponentName;
+    $('sb-score-0').textContent = '0';
+    $('sb-score-1').textContent = '0';
+    $('tname-0').textContent = myName;
+    $('tname-1').textContent = opponentName;
+    $('round-val').textContent = '1/7';
+    $('round-num').textContent = '\u0420\u0430\u0443\u043D\u0434';
+
+    generateGameTracks(7);
+    highlightCurrentDot(0);
+    $('round-reveal').classList.add('hidden');
+    $('round-reveal').style.opacity = '';
+    var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
+    var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
+
+    if (myAbility) await showAbilityReveal();
+
+    showActionButtons();
+    startTimer();
+}
+
+async function showAbilityReveal() {
+    const info = ABILITIES[myAbility];
+    $('arev-icon').textContent = info.icon;
+    $('arev-name').textContent = info.name;
+    $('arev-desc').textContent = info.desc;
+    $('arev-opp').textContent = '\u2753 \u0421\u043F\u043E\u0441\u043E\u0431\u043D\u043E\u0441\u0442\u044C \u0441\u043E\u043F\u0435\u0440\u043D\u0438\u043A\u0430 \u0441\u043A\u0440\u044B\u0442\u0430';
+    const el = $('ability-reveal');
+    el.classList.remove('hidden');
+    return new Promise((resolve) => {
+        const dismiss = () => { el.classList.add('hidden'); resolve(); };
+        el.onclick = dismiss;
+        setTimeout(dismiss, 4000);
+    });
+}
+
+function enterXrayScanMode() {
+    xrayScanMode = true;
+    document.body.classList.add('xray-mode');
+    for (let i = currentStep; i < trackDots; i++) {
+        var dot = $('dot-0-' + i);
+        if (dot && !revealedPoints.hasOwnProperty(String(i))) {
+            dot.classList.add('xray-scannable');
+        }
+    }
+    var trackEl = $('tpoints-0');
+    if (trackEl) trackEl.addEventListener('click', onXrayTrackClick);
+}
+
+function exitXrayScanMode() {
+    xrayScanMode = false;
+    document.body.classList.remove('xray-mode');
+    for (let i = 0; i < trackDots; i++) {
+        var dot = $('dot-0-' + i);
+        if (dot) dot.classList.remove('xray-scannable');
+    }
+    var trackEl = $('tpoints-0');
+    if (trackEl) trackEl.removeEventListener('click', onXrayTrackClick);
+}
+
+function onXrayTrackClick(e) {
+    if (!xrayScanMode) return;
+    var dot = e.target.closest('.xray-scannable');
+    if (!dot) return;
+    var point = parseInt(dot.id.split('-')[2]);
+    if (isNaN(point)) return;
+    sendMsg({ type: 'xray_scan', point: point });
+    exitXrayScanMode();
+    $('prompt-text').textContent = '\uD83D\uDC41 \u0421\u043A\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435...';
+}
+
+function onXrayResult(msg) {
+    playSound('ping');
+    revealedPoints[String(msg.point)] = msg.hasTrap;
+    xrayScanMode = false;
+    abilityUsed = true;
+    abilityActive = false;
+    document.body.classList.remove('xray-mode');
+
+    // Scan sweep animation
+    var trackLine = $('tpoints-0') ? $('tpoints-0').parentElement : null;
+    if (trackLine) {
+        var scanLine = document.createElement('div');
+        scanLine.className = 'xray-scan-line';
+        trackLine.appendChild(scanLine);
+        setTimeout(function() { scanLine.remove(); }, 700);
+    }
+
+    // Delay reveal until after scan animation
+    setTimeout(function() {
+        var dot = $('dot-0-' + msg.point);
+        if (dot) {
+            dot.classList.add(msg.hasTrap ? 'xray-trap' : 'xray-safe');
+            if (!msg.hasTrap) dot.textContent = '\u2713';
+        }
+        $('action-btns').classList.remove('hidden');
+        $('ability-zone').classList.add('hidden');
+        updatePromptText();
+    }, 600);
+}
+
+function onOppXray(msg) {
+    // Reveal opponent ability
+    oppAbility = 'xray';
+
+    // Scan sweep animation on opponent track (track 1)
+    var trackLine = $('tpoints-1') ? $('tpoints-1').parentElement : null;
+    if (trackLine) {
+        var scanLine = document.createElement('div');
+        scanLine.className = 'xray-scan-line';
+        trackLine.appendChild(scanLine);
+        setTimeout(function() { scanLine.remove(); }, 700);
+    }
+
+    // Highlight the scanned dot on opponent's track
+    setTimeout(function() {
+        var dot = $('dot-1-' + msg.point);
+        if (dot) {
+            dot.classList.add('xray-scanned-opp');
+        }
+    }, 600);
+}
+
+function toggleAbility() {
+    if (abilityUsed) return;
+    playSound('click');
+    abilityActive = !abilityActive;
+    updateAbilityUI();
+}
+
+function updateAbilityUI() {
+    const btn = $('btn-ability');
+    const info = ABILITIES[myAbility];
+
+    if (abilityActive) {
+        btn.textContent = info.icon + ' ' + info.name + ' \u2714';
+        btn.classList.add('ability-active');
+        if (myAbility === 'xray') {
+            $('action-btns').classList.add('hidden');
+            enterXrayScanMode();
+            $('prompt-text').textContent = '\uD83D\uDC41 \u0412\u044B\u0431\u0435\u0440\u0438 \u0442\u043E\u0447\u043A\u0443 \u0434\u043B\u044F \u0441\u043A\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u044F';
+        }
+    } else {
+        btn.textContent = info.icon + ' ' + info.name;
+        btn.classList.remove('ability-active');
+        if (myAbility === 'xray') {
+            exitXrayScanMode();
+            $('action-btns').classList.remove('hidden');
+            updatePromptText();
+        }
+    }
+}
+
+function updatePromptText() {
+    if (isOvertime) {
+        $('prompt-text').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C! \u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0435\u0448\u044C?';
+    } else {
+        $('prompt-text').textContent = '\u0422\u043E\u0447\u043A\u0430 ' + (currentStep + 1) + ' \u2014 \u0447\u0442\u043E \u0434\u0435\u043B\u0430\u0435\u0448\u044C?';
+    }
+}
+
+function showActionButtons() {
+    $('action-btns').classList.remove('hidden');
+    $('move-wait').classList.add('hidden');
+    $('action-zone').classList.remove('hidden');
+    $('btn-run').disabled = false;
+    $('btn-jump').disabled = false;
+    abilityActive = false;
+    updatePromptText();
+
+    // Double is locked after round 5 (step >= 5)
+    const abilityLocked = myAbility === 'double' && currentStep >= 5;
+    if (!abilityUsed && myAbility && !abilityLocked) {
+        $('ability-zone').classList.remove('hidden');
+        const info = ABILITIES[myAbility];
+        $('btn-ability').textContent = info.icon + ' ' + info.name;
+        $('btn-ability').classList.remove('ability-active');
+        $('btn-ability').disabled = false;
+    } else if (!abilityUsed && myAbility && abilityLocked) {
+        $('ability-zone').classList.remove('hidden');
+        const info = ABILITIES[myAbility];
+        $('btn-ability').textContent = '🔒 ' + info.name;
+        $('btn-ability').classList.add('ability-active');
+        $('btn-ability').disabled = true;
+        const oppStatus = $('opp-ability-status');
+        if (oppAbility) {
+            const oInfo = ABILITIES[oppAbility];
+            oppStatus.textContent = oInfo.icon + ' ' + oInfo.name;
+        } else {
+            oppStatus.textContent = '\u2753 \u0421\u043A\u0440\u044B\u0442\u043E';
+        }
+    } else {
+        $('ability-zone').classList.add('hidden');
+    }
+}
+
+function makeMove(action) {
+    if (moveChosen) return;
+    moveChosen = true;
+    playSound('click');
+    clearInterval(timerInterval);
+    sendMsg({ type: 'make_move', action, useAbility: abilityActive });
+    if (abilityActive) abilityUsed = true;
+
+    $('btn-run').disabled = true;
+    $('btn-jump').disabled = true;
+    $('ability-zone').classList.add('hidden');
+
+    if (action === 'run') {
+        $('btn-run').style.outline = '3px solid #fff';
+        $('btn-jump').style.opacity = '0.3';
+    } else {
+        $('btn-jump').style.outline = '3px solid #fff';
+        $('btn-run').style.opacity = '0.3';
+    }
+    $('move-wait').classList.remove('hidden');
+}
+
+function startTimer() {
+    const fill = $('timer-fill');
+    fill.style.width = '100%';
+    fill.classList.remove('urgent');
+    clearInterval(timerInterval);
+    const start = Date.now();
+    const duration = 10000;
+    timerInterval = setInterval(() => {
+        const pct = Math.max(0, 100 - ((Date.now() - start) / duration) * 100);
+        fill.style.width = pct + '%';
+        if (pct < 30) fill.classList.add('urgent');
+        if (pct <= 0) {
+            clearInterval(timerInterval);
+            if (!moveChosen) {
+                if (xrayScanMode) exitXrayScanMode();
+                abilityActive = false;
+                makeMove('run');
+            }
+        }
+    }, 50);
+}
+
+async function onRoundResult(msg) {
+    clearInterval(timerInterval);
+    const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const my = msg.you;
+    const opp = msg.opponent;
+
+    // Reveal opponent ability when they use it
+    if (opp.usedAbility && !oppAbility) {
+        oppAbility = opp.usedAbility;
+    }
+
+    // Track traps discovered on my track
+    knownTrapsOnMyTrack[msg.step] = my.hasTrap;
+
+    // Hide action UI
+    $('action-btns').classList.add('hidden');
+    $('move-wait').classList.add('hidden');
+    $('ability-zone').classList.add('hidden');
+    $('btn-run').style.outline = '';
+    $('btn-run').style.opacity = '';
+    $('btn-jump').style.outline = '';
+    $('btn-jump').style.opacity = '';
+
+    // Show reveal
+    const reveal = $('round-reveal');
+    reveal.style.opacity = '';
+    reveal.classList.remove('hidden');
+    playSound('swoosh');
+
+    // Action text
+    function actionStr(r) {
+        let s = r.action === 'run' ? '\u25B6 \u0411\u0435\u0436\u0430\u0442\u044C' : '\u25B2 \u041F\u0440\u044B\u0433\u043D\u0443\u0442\u044C';
+        if (r.usedAbility === 'double') s = '\u26A1 ' + s;
+        if (r.usedAbility === 'sabotage') s = '\uD83D\uDC80 ' + s;
+        return s;
+    }
+
+    $('reveal-you-action').textContent = actionStr(my);
+    $('reveal-opp-action').textContent = actionStr(opp);
+    $('reveal-you-result').textContent = '';
+    $('reveal-opp-result').textContent = '';
+    $('reveal-you').querySelector('.reveal-label').textContent = myName;
+    $('reveal-opp').querySelector('.reveal-label').textContent = opponentName;
+
+    await delay(800);
+
+    // Reveal traps on dots with bomb icon
+    const myDot = $('dot-0-' + msg.step);
+    const oppDot = $('dot-1-' + msg.step);
+
+    if (myDot && my.hasTrap) { myDot.classList.add('trap-reveal'); }
+    if (oppDot && opp.hasTrap) { oppDot.classList.add('trap-reveal'); }
+
+    await delay(500);
+
+    // Result text
+    function resultStr(r) {
+        if (r.sabotaged) return '0 \u0421\u0430\u0431\u043E\u0442\u0430\u0436!';
+        if (r.usedAbility === 'double' && r.success) return '+2 \u0423\u0434\u0432\u043E\u0435\u043D\u0438\u0435!';
+        if (r.usedAbility === 'double' && !r.success) return '-1 \u041F\u0440\u043E\u0432\u0430\u043B!';
+        if (r.sabotageBackfire) return '\uD83D\uDC80 \u041F\u0440\u043E\u043C\u0430\u0445!';
+        if (r.sabotageHit) return '\uD83D\uDC80 \u041F\u043E\u043F\u0430\u043B!';
+        if (r.reason === 'clear_run') return '+1 \u0427\u0438\u0441\u0442\u043E!';
+        if (r.reason === 'hit_trap') return '\u041B\u043E\u0432\u0443\u0448\u043A\u0430!';
+        if (r.reason === 'dodged_trap') return '+1 \u041E\u0431\u043E\u0448\u0451\u043B!';
+        if (r.reason === 'wasted_jump') return '\u0417\u0440\u044F \u043F\u0440\u044B\u0433\u043D\u0443\u043B!';
+        return '';
+    }
+
+    function isGood(r) {
+        if (r.sabotaged) return false;
+        if (r.usedAbility === 'double' && !r.success) return false;
+        return r.success || r.sabotageHit;
+    }
+
+    $('reveal-you-result').textContent = resultStr(my);
+    $('reveal-you-result').className = 'reveal-result ' + (isGood(my) ? 'good' : 'bad');
+    $('reveal-opp-result').textContent = resultStr(opp);
+    $('reveal-opp-result').className = 'reveal-result ' + (isGood(opp) ? 'good' : 'bad');
+    playSound(isGood(my) ? 'good' : 'bad');
+
+    // Mark dots — enhanced with mine visuals
+    if (myDot) {
+        myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
+        if (my.hasTrap && my.reason === 'hit_trap') {
+            // Ran into a trap — fail indicator, bomb floats above
+            myDot.classList.add('fail', 'mine-hit');
+            myDot.textContent = '\u2717';
+        } else if (my.hasTrap && my.reason === 'dodged_trap') {
+            // Jumped over a trap — success indicator, bomb floats above
+            myDot.classList.add('success', 'mine-dodged');
+            myDot.textContent = '\u2713';
+        } else {
+            const myOk = my.points > 0 && !my.sabotaged;
+            myDot.classList.add(myOk ? 'success' : 'fail');
+            myDot.textContent = myOk ? '\u2713' : '\u2717';
+        }
+    }
+    if (oppDot) {
+        oppDot.classList.remove('current');
+        if (opp.hasTrap && opp.reason === 'hit_trap') {
+            // Opponent hit our mine — dot red, bomb becomes explosion above
+            oppDot.classList.remove('mine-placed');
+            oppDot.classList.add('fail', 'mine-exploded');
+            oppDot.textContent = '\u2717';
+        } else if (opp.hasTrap && opp.reason === 'dodged_trap') {
+            // Opponent dodged — dot green, dimmed bomb + checkmark above
+            oppDot.classList.remove('mine-placed');
+            oppDot.classList.add('mine-safe');
+            oppDot.textContent = '\u2713';
+        } else {
+            oppDot.classList.remove('mine-placed');
+            const oppOk = opp.points > 0 && !opp.sabotaged;
+            oppDot.classList.add(oppOk ? 'success' : 'fail');
+            oppDot.textContent = oppOk ? '\u2713' : '\u2717';
+        }
+    }
+
+    // Avatar animations
+    const myAv = $('tavatar-0');
+    const oppAv = $('tavatar-1');
+
+    if (my.success && !my.sabotaged) {
+        if (my.reason === 'dodged_trap') myAv.classList.add('jump-anim');
+    } else { myAv.classList.add('shake'); }
+    if (opp.success && !opp.sabotaged) {
+        if (opp.reason === 'dodged_trap') oppAv.classList.add('jump-anim');
+    } else { oppAv.classList.add('shake'); }
+
+    await delay(300);
+
+    moveAvatar(myAv, msg.step + 1);
+    moveAvatar(oppAv, msg.step + 1);
+
+    await delay(600);
+    myAv.classList.remove('shake', 'jump-anim');
+    oppAv.classList.remove('shake', 'jump-anim');
+
+    // Update scores
+    const mi = playerIndex;
+    scores = [msg.scores[mi], msg.scores[1 - mi]];
+    const s0 = $('sb-score-0'); const s1 = $('sb-score-1');
+    s0.textContent = scores[0]; s1.textContent = scores[1];
+
+    if (my.points > 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '+' + my.points, true); }
+    else if (my.points < 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '' + my.points, false); }
+    if (opp.points > 0) { s1.classList.add('score-pop'); showFloat($('gtrack-1'), '+' + opp.points, true); }
+    else if (opp.points < 0) { s1.classList.add('score-pop'); showFloat($('gtrack-1'), '' + opp.points, false); }
+
+    // Ability effects
+    if (my.usedAbility === 'double') {
+        s0.classList.add('lightning-flash');
+        setTimeout(function() { s0.classList.remove('lightning-flash'); }, 800);
+    }
+    if (opp.usedAbility === 'double') {
+        s1.classList.add('lightning-flash');
+        setTimeout(function() { s1.classList.remove('lightning-flash'); }, 800);
+    }
+    if (my.sabotaged || opp.sabotaged) {
+        showSabotageEffect();
+    }
+
+    await delay(800);
+    s0.classList.remove('score-pop'); s1.classList.remove('score-pop');
+
+    // Hide reveal with fade
+    reveal.style.opacity = '0';
+    await delay(300);
+    reveal.classList.add('hidden');
+    reveal.style.opacity = '';
+
+    // Update round counter
+    if (msg.overtime && !msg.startOvertime) {
+        $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
+        $('round-val').textContent = msg.round + '/' + OT_ROUNDS;
+    } else if (!msg.overtime) {
+        $('round-val').textContent = Math.min(msg.round + 1, totalRounds) + '/' + totalRounds;
+    }
+
+    if (msg.gameOver) {
+        await delay(300);
+        showGameOver(msg.winner, msg.scores);
+    } else if (msg.startOvertime) {
+        await showOvertimeAnnouncement();
+        isOvertime = true;
+        revealedPoints = {};
+        knownTrapsOnMyTrack = {};
+        myAbility = null;
+        oppAbility = null;
+        // Show trap placement for overtime (1 trap on 3-dot track)
+        selectedTraps = [];
+        overtimePlacing = true;
+        generateTrapTrack();
+        showScreen('traps');
+        $('opp-name-traps').textContent = '\u0414\u043E\u0440\u043E\u0436\u043A\u0430: ' + opponentName;
+        updateTrapUI();
+        $('btn-traps-ok').classList.remove('hidden');
+        $('btn-traps-ok').disabled = true;
+        $('traps-wait').classList.add('hidden');
+    } else {
+        currentStep = msg.round;
+        highlightCurrentDot(msg.round);
+        moveChosen = false;
+        showActionButtons();
+        startTimer();
+    }
+}
+
+const OT_ROUNDS = 3;
+
+function onOvertimeStart() {
+    showScreen('game');
+    generateGameTracks(OT_ROUNDS);
+    highlightCurrentDot(0);
+    currentStep = 0;
+    $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
+    $('round-val').textContent = '1/' + OT_ROUNDS;
+    moveChosen = false;
+    overtimePlacing = false;
+    showActionButtons();
+    startTimer();
+}
+
+async function showOvertimeAnnouncement() {
+    playSound('swooshBig');
+    const el = $('overtime-announce');
+    el.classList.remove('hidden');
+    return new Promise((resolve) => {
+        setTimeout(() => { el.classList.add('hidden'); resolve(); }, 2500);
+    });
+}
+
+function moveAvatar(avatar, step) {
+    const trackLine = avatar.parentElement;
+    const trackWidth = trackLine.offsetWidth;
+    const dotWidth = 36;
+    const numDots = trackDots;
+    if (numDots <= 1) return;
+    const spacing = (trackWidth - dotWidth) / (numDots - 1);
+    const targetLeft = Math.min(step, numDots - 1) * spacing + (dotWidth - 28) / 2;
+    avatar.style.left = targetLeft + 'px';
+}
+
+function showFloat(container, text, good) {
+    const el = document.createElement('div');
+    el.className = 'float-text';
+    el.textContent = text;
+    el.style.color = good ? 'var(--success)' : 'var(--danger)';
+    el.style.left = '50%'; el.style.top = '0';
+    container.style.position = 'relative';
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 900);
+}
+
+function showSabotageEffect() {
+    var gameWrap = document.querySelector('.game-wrap');
+    if (!gameWrap) return;
+    var overlay = document.createElement('div');
+    overlay.className = 'sabotage-flash';
+    gameWrap.appendChild(overlay);
+    setTimeout(function() { overlay.remove(); }, 800);
+}
+
+function showGameOver(winner, serverScores) {
+    const mi = playerIndex;
+    const myScore = serverScores[mi];
+    const oppScore = serverScores[1 - mi];
+
+    if (winner === 'win') {
+        playSound('win');
+        $('result-emoji').textContent = '\uD83C\uDFC6';
+        $('result-title').textContent = '\u041F\u041E\u0411\u0415\u0414\u0410!';
+        $('result-title').style.color = 'var(--success)';
+        $('result-sub').textContent = '\u0422\u044B \u043E\u043A\u0430\u0437\u0430\u043B\u0441\u044F \u0445\u0438\u0442\u0440\u0435\u0435!';
+    } else if (winner === 'lose') {
+        playSound('lose');
+        $('result-emoji').textContent = '\uD83D\uDE14';
+        $('result-title').textContent = '\u041F\u041E\u0420\u0410\u0416\u0415\u041D\u0418\u0415';
+        $('result-title').style.color = 'var(--danger)';
+        $('result-sub').textContent = '\u0412 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0440\u0430\u0437 \u043F\u043E\u0432\u0435\u0437\u0451\u0442!';
+    } else {
+        $('result-emoji').textContent = '\uD83E\uDD1D';
+        $('result-title').textContent = '\u041D\u0418\u0427\u042C\u042F';
+        $('result-title').style.color = 'var(--warn)';
+        $('result-sub').textContent = '\u0420\u0430\u0432\u043D\u044B\u0435 \u0441\u043E\u043F\u0435\u0440\u043D\u0438\u043A\u0438!';
+    }
+
+    $('fs-name-0').textContent = myName;
+    $('fs-val-0').textContent = myScore;
+    $('fs-name-1').textContent = opponentName;
+    $('fs-val-1').textContent = oppScore;
+    showScreen('result');
+}
+
+function onOpponentLeft() {
+    clearInterval(timerInterval);
+    $('result-emoji').textContent = '\uD83D\uDEB6';
+    $('result-title').textContent = '\u0421\u043E\u043F\u0435\u0440\u043D\u0438\u043A \u0443\u0448\u0451\u043B';
+    $('result-title').style.color = 'var(--warn)';
+    $('result-sub').textContent = '\u0418\u0433\u0440\u0430 \u043F\u0440\u0435\u0440\u0432\u0430\u043D\u0430';
+    $('fs-name-0').textContent = ''; $('fs-val-0').textContent = '';
+    $('fs-name-1').textContent = ''; $('fs-val-1').textContent = '';
+    showScreen('result');
+}

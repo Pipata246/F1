@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Obstacle Race</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- START -->
+    <div id="screen-start" class="screen active">
+        <a href="/" class="back-link">← Назад</a>
+        <div class="logo">
+            <div class="logo-runner">
+                <svg viewBox="0 0 40 58" xmlns="http://www.w3.org/2000/svg" style="width:50px;height:68px;display:block;overflow:visible">
+                    <circle cx="20" cy="6" r="5" fill="none" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="20" y1="14" x2="20" y2="36" stroke-width="2.5" stroke-linecap="round"/>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="-30,20,14;40,20,14;-30,20,14" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,14 20,23 28,23" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="40,20,14;-30,20,14;40,20,14" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,14 20,23 28,23" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="20,20,36;-45,20,36;20,20,36" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,36 20,47 10,47" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="-45,20,36;20,20,36;-45,20,36" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,36 20,47 10,47" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                </svg>
+            </div>
+            <h1>OBSTACLE<br>RACE</h1>
+            <p class="subtitle">Преодолей барьеры. Обмани соперника.</p>
+        </div>
+        <div class="form">
+            <input type="text" id="player-name" placeholder="Твоё имя" maxlength="15" autocomplete="off">
+            <button class="btn primary" id="btn-find">Найти соперника</button>
+            <button class="btn secondary" id="btn-bot">Играть с ботом</button>
+        </div>
+        <div class="rules-hint">
+            <details>
+                <summary>Как играть?</summary>
+                <div class="rules-text">
+                    <p><b>1.</b> Расставь 3 барьера на дорожке соперника</p>
+                    <p><b>2.</b> Каждый раунд выбирай: бежать или прыгнуть</p>
+                    <p><b>3.</b> Бежать + нет барьера = +1 очко</p>
+                    <p><b>4.</b> Прыгнуть + есть барьер = +1 очко</p>
+                    <p><b>5.</b> Первый до 5 очков — победитель</p>
+                    <p style="margin-top:10px"><b>🌟 Способности</b> — в начале игры оба игрока получают по одной случайной способности. Способность соперника скрыта, пока он её не использует. Используй 1 раз за игру — нажми кнопку способности до выбора хода:</p>
+                    <p><b>👁 Рентген</b> — выбери точку на своей дорожке и узнай, есть ли там барьер соперника. Полезно перед принятием решения.</p>
+                    <p><b>⚡ Удвоение</b> — ставишь всё на кон. Успешный ход = +2 очка. Попал на барьер = −1 очко вместо 0.</p>
+                    <p><b>💀 Саботаж</b> — отменяет очко соперника в этом раунде (включая удвоенные). Если он и так попал на барьер — промах, но без штрафа.</p>
+                    <p style="margin-top:10px"><b>⏱ Овертайм</b> — при ничьей после 7 раундов начинается овертайм: 5 дополнительных раундов. Каждый расставляет по 2 барьера. Способности в овертайме не действуют.</p>
+                </div>
+            </details>
+        </div>
+    </div>
+
+    <!-- WAITING -->
+    <div id="screen-waiting" class="screen">
+        <div class="center-content">
+            <div class="spinner"></div>
+            <h2>Ищем соперника...</h2>
+            <button class="btn secondary" id="btn-cancel">Отмена</button>
+        </div>
+    </div>
+
+    <!-- TRAPS -->
+    <div id="screen-traps" class="screen">
+        <div class="traps-content">
+            <h2>Расставь ловушки!</h2>
+            <p class="traps-sub">Нажми на точки дорожки соперника</p>
+            <div class="opponent-badge" id="opp-name-traps"></div>
+            <div class="trap-track" id="trap-track"></div>
+            <div class="trap-counter">
+                Ловушек: <span id="trap-count" class="count-num">0</span> / 3
+            </div>
+            <button class="btn primary" id="btn-traps-ok" disabled>Готово!</button>
+            <div class="wait-msg hidden" id="traps-wait">
+                <div class="spinner sm"></div>
+                <span>Соперник расставляет...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME -->
+    <div id="screen-game" class="screen">
+        <div class="game-wrap">
+            <div class="scoreboard">
+                <div class="sb-player you">
+                    <div class="sb-avatar you-color"></div>
+                    <span class="sb-name" id="sb-name-0">Ты</span>
+                    <span class="sb-score" id="sb-score-0">0</span>
+                </div>
+                <div class="sb-center">
+                    <span class="round-num" id="round-num">Раунд</span>
+                    <span class="round-val" id="round-val">1/7</span>
+                </div>
+                <div class="sb-player opp">
+                    <div class="sb-avatar opp-color"></div>
+                    <span class="sb-name" id="sb-name-1">Соперник</span>
+                    <span class="sb-score" id="sb-score-1">0</span>
+                </div>
+            </div>
+
+            <div class="tracks-area">
+                <div class="game-track" id="gtrack-0">
+                    <div class="track-header">
+                        <span class="track-name" id="tname-0">Ты</span>
+                    </div>
+                    <div class="track-line">
+                        <div class="track-points" id="tpoints-0"></div>
+                        <div class="track-avatar you-color" id="tavatar-0"></div>
+                    </div>
+                </div>
+                <div class="game-track" id="gtrack-1">
+                    <div class="track-header">
+                        <span class="track-name" id="tname-1">Соперник</span>
+                    </div>
+                    <div class="track-line">
+                        <div class="track-points" id="tpoints-1"></div>
+                        <div class="track-avatar opp-color" id="tavatar-1"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="action-zone">
+                <div id="ability-zone" class="hidden">
+                    <button class="btn ability-btn" id="btn-ability"></button>
+                    <div class="ability-opp-line">Соперник: <span id="opp-ability-status"></span></div>
+                </div>
+                <div id="action-prompt">
+                    <p id="prompt-text">Что делаешь на этой точке?</p>
+                    <div class="timer-bar"><div class="timer-fill" id="timer-fill"></div></div>
+                </div>
+                <div class="action-btns" id="action-btns">
+                    <button class="btn action run-btn" id="btn-run">
+                        <span class="action-icon">&#9654;</span>
+                        БЕЖАТЬ
+                    </button>
+                    <button class="btn action jump-btn" id="btn-jump">
+                        <span class="action-icon">&#9650;</span>
+                        ПРЫГНУТЬ
+                    </button>
+                </div>
+
+                <div class="wait-msg hidden" id="move-wait">
+                    <div class="spinner sm"></div>
+                    <span>Соперник думает...</span>
+                </div>
+            </div>
+
+            <!-- Ability reveal overlay -->
+            <div class="ability-reveal-overlay hidden" id="ability-reveal">
+                <div class="arev-card">
+                    <div class="arev-title">Твоя способность</div>
+                    <div class="arev-icon" id="arev-icon"></div>
+                    <div class="arev-name" id="arev-name"></div>
+                    <div class="arev-desc" id="arev-desc"></div>
+                    <div class="arev-opp-line">Сопернику: <span id="arev-opp"></span></div>
+                    <div class="arev-hint">Используй 1 раз за игру. Нажми чтобы продолжить</div>
+                </div>
+            </div>
+
+            <!-- Overtime announcement -->
+            <div class="overtime-overlay hidden" id="overtime-announce">
+                <h1 class="ot-title">ОВЕРТАЙМ!</h1>
+                <p class="ot-sub">Первый кто вырвется вперёд — победит</p>
+            </div>
+
+            <div class="round-reveal hidden" id="round-reveal">
+                <div class="reveal-row">
+                    <div class="reveal-card" id="reveal-you">
+                        <div class="reveal-label">Ты</div>
+                        <div class="reveal-action" id="reveal-you-action"></div>
+                        <div class="reveal-result" id="reveal-you-result"></div>
+                    </div>
+                    <div class="reveal-vs">VS</div>
+                    <div class="reveal-card" id="reveal-opp">
+                        <div class="reveal-label">Соперник</div>
+                        <div class="reveal-action" id="reveal-opp-action"></div>
+                        <div class="reveal-result" id="reveal-opp-result"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RESULT -->
+    <div id="screen-result" class="screen">
+        <div class="center-content">
+            <div class="result-emoji" id="result-emoji"></div>
+            <h1 id="result-title"></h1>
+            <p id="result-sub" class="result-sub"></p>
+            <div class="final-scores">
+                <div class="fs-item">
+                    <span class="fs-name" id="fs-name-0"></span>
+                    <span class="fs-val" id="fs-val-0"></span>
+                </div>
+                <span class="fs-dash">&mdash;</span>
+                <div class="fs-item">
+                    <span class="fs-name" id="fs-name-1"></span>
+                    <span class="fs-val" id="fs-val-1"></span>
+                </div>
+            </div>
+            <button class="btn primary" id="btn-again">Играть ещё</button>
+            <button class="btn secondary" id="btn-menu">К играм</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>

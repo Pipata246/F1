@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Frog Hunt</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- START SCREEN -->
+  <div id="screen-start" class="screen active">
+    <a href="/" class="back-link">← Назад</a>
+    <div class="logo-container">
+      <svg class="logo-frog" viewBox="0 0 120 120" width="120" height="120">
+        <ellipse cx="60" cy="70" rx="35" ry="28" fill="#4de680"/>
+        <circle cx="42" cy="46" r="14" fill="#4de680"/>
+        <circle cx="78" cy="46" r="14" fill="#4de680"/>
+        <circle cx="42" cy="44" r="8" fill="white"/>
+        <circle cx="78" cy="44" r="8" fill="white"/>
+        <circle cx="44" cy="43" r="4" fill="#1a1a2e"/>
+        <circle cx="80" cy="43" r="4" fill="#1a1a2e"/>
+        <path d="M40 78 Q60 90 80 78" stroke="#2d5a35" stroke-width="2" fill="none"/>
+        <circle cx="50" cy="65" r="4" fill="#3bc46a" opacity="0.6"/>
+        <circle cx="72" cy="62" r="3" fill="#3bc46a" opacity="0.6"/>
+        <circle cx="58" cy="80" r="3.5" fill="#3bc46a" opacity="0.6"/>
+      </svg>
+      <h1 class="game-title">FROG<br>HUNT</h1>
+      <p class="game-subtitle">Блеф на болоте</p>
+    </div>
+
+    <div class="start-form">
+      <input type="text" id="name-input" placeholder="Твоё имя" maxlength="15" autocomplete="off">
+      <button id="btn-find" class="btn btn-primary">Найти соперника</button>
+      <button id="btn-bot" class="btn btn-secondary">Играть с ботом</button>
+    </div>
+
+    <details class="rules-block">
+      <summary>Как играть?</summary>
+      <div class="rules-content">
+        <p><strong>🐸 Жаба</strong> — прячься на кувшинках. Переживи 5 ходов!</p>
+        <p><strong>🏹 Охотник</strong> — стреляй по кувшинкам. Найди жабу!</p>
+        <p>Попал — охотник победил! Не попал за 5 ходов — жаба победила!</p>
+        <p>Если жаба перепрыгнула — охотник увидит, где она была</p>
+        <p>Если жаба осталась на месте — охотник не узнает ничего</p>
+        <p style="margin-top:8px"><strong>Матч:</strong> 2 игры (меняетесь ролями). Ничья = тайбрейк!</p>
+        <p><strong>Тайбрейк:</strong> 4 кувшинки, 1 ход, охотник стреляет дважды!</p>
+      </div>
+    </details>
+  </div>
+
+  <!-- WAITING SCREEN -->
+  <div id="screen-waiting" class="screen">
+    <div class="center-content">
+      <div class="spinner"></div>
+      <p>Поиск соперника...</p>
+      <button id="btn-cancel" class="btn btn-secondary">Отмена</button>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="screen-game" class="screen">
+    <div class="game-layout">
+
+      <!-- Header -->
+      <div class="game-header">
+        <div class="header-row">
+          <span id="game-label" class="game-label">Игра 1/2</span>
+          <span id="match-score" class="match-score">0 : 0</span>
+        </div>
+        <div class="header-row">
+          <span id="round-label" class="round-label">Ход 1/5</span>
+          <span id="role-label" class="role-badge"></span>
+        </div>
+      </div>
+
+      <!-- Pond Area -->
+      <div class="pond-area">
+        <div class="pond">
+          <div class="water-surface"></div>
+          <div id="lilypads" class="lilypads-row"></div>
+          <div class="pond-reeds left"></div>
+          <div class="pond-reeds right"></div>
+        </div>
+      </div>
+
+      <!-- Bottom Controls -->
+      <div class="game-bottom">
+        <p id="hint-text" class="hint-text">Выбери кувшинку</p>
+        <div class="timer-track">
+          <div id="timer-bar" class="timer-fill"></div>
+        </div>
+        <button id="btn-confirm" class="btn btn-primary btn-confirm" disabled>Готово</button>
+      </div>
+
+      <!-- Overlays inside game -->
+      <div id="overlay-role" class="overlay">
+        <div class="overlay-card">
+          <div id="role-icon" class="big-icon"></div>
+          <h2 id="role-title"></h2>
+          <p id="role-desc"></p>
+        </div>
+      </div>
+
+      <div id="overlay-round-result" class="overlay">
+        <div class="overlay-card">
+          <div id="rr-icon" class="big-icon"></div>
+          <h2 id="rr-title"></h2>
+          <p id="rr-desc"></p>
+        </div>
+      </div>
+
+      <div id="overlay-game-over" class="overlay">
+        <div class="overlay-card">
+          <div id="go-icon" class="big-icon"></div>
+          <h2 id="go-title"></h2>
+          <p id="go-desc"></p>
+          <p id="go-score" class="overlay-score"></p>
+        </div>
+      </div>
+
+      <div id="overlay-switch" class="overlay">
+        <div class="overlay-card">
+          <div class="big-icon">🔄</div>
+          <h2>Смена ролей!</h2>
+          <p>Теперь играете за другую сторону</p>
+        </div>
+      </div>
+
+      <div id="overlay-tiebreak" class="overlay">
+        <div class="overlay-card">
+          <div class="big-icon">⚡</div>
+          <h2>Тайбрейк!</h2>
+          <p>4 кувшинки, 1 ход, 2 выстрела</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- RESULT SCREEN -->
+  <div id="screen-result" class="screen">
+    <div class="center-content">
+      <div id="final-icon" class="final-icon"></div>
+      <h1 id="final-title" class="final-title"></h1>
+      <p id="final-score" class="final-score"></p>
+      <div class="result-btns">
+        <button id="btn-again" class="btn btn-primary">Ещё раз</button>
+        <button id="btn-menu" class="btn btn-secondary">К играм</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
