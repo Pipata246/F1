@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const WS_URL = import.meta.env.DEV ? 'ws://localhost:3002' : 'wss://' + location.host;
+const ASSET_BASE = import.meta.env.BASE_URL || '/basketball-pvp/';
 
 // ============ SOUNDS (pooled) ============
 const SFX_POOL = {};
@@ -10,7 +10,7 @@ function preloadSounds() {
   const vols = { click: 0.3, swoosh: 0.4, hit: 0.6, miss: 0.6, win: 0.6, lose: 0.6 };
   Object.entries(vols).forEach(([name, vol]) => {
     // Pool of 3 audio elements per sound — no cloneNode overhead
-    SFX_POOL[name] = { pool: Array.from({ length: 3 }, () => { const a = new Audio(`/${name}.mp3`); a.preload = 'auto'; a.volume = vol; return a; }), idx: 0 };
+    SFX_POOL[name] = { pool: Array.from({ length: 3 }, () => { const a = new Audio(`${ASSET_BASE}${name}.mp3`); a.preload = 'auto'; a.volume = vol; return a; }), idx: 0 };
   });
 }
 function sfx(name) {
@@ -73,6 +73,9 @@ const GamePage = () => {
   const oppRef = useRef('');
   const gameRef = useRef(null);
   const pending = useRef([]);
+  const tgInitDataRef = useRef('');
+  const matchSavedRef = useRef(false);
+  const localMatchRef = useRef(null);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { scoresRef.current = scores; }, [scores]);
@@ -81,7 +84,8 @@ const GamePage = () => {
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     if (tg?.initDataUnsafe?.user) setPlayerName(tg.initDataUnsafe.user.first_name || 'Player');
-    if (tg?.BackButton) { tg.BackButton.show(); tg.BackButton.onClick(() => window.history.back()); }
+    tgInitDataRef.current = tg?.initData || '';
+    if (tg?.BackButton) tg.BackButton.hide();
     preloadSounds();
   }, []);
   useEffect(() => () => { wsRef.current?.close(); clearInterval(timerRef.current); pending.current.forEach(clearTimeout); }, []);
@@ -90,8 +94,8 @@ const GamePage = () => {
   function sched(fn, ms) { pending.current.push(setTimeout(fn, ms)); }
   const startTimer = () => { stopTimer(); setTimer(12); timerRef.current = setInterval(() => setTimer(p => { if (p <= 1) { stopTimer(); return 0; } return p - 1; }), 1000); };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
-  const connectWS = useCallback(() => { wsRef.current?.close(); const ws = new WebSocket(WS_URL); wsRef.current = ws; ws.onclose = () => { wsRef.current = null; }; return ws; }, []);
-  const send = (t, d = {}) => { if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify({ type: t, ...d })); };
+  const connectWS = useCallback(() => { const ws = { readyState: 1, close: () => {} }; wsRef.current = ws; return ws; }, []);
+  const send = (t, d = {}) => localOnClientMessage(t, d);
 
   // ============ TRAJECTORY (pixels, GPU transforms) ============
   function buildKF(shooterIdx, distance, made) {
@@ -150,6 +154,7 @@ const GamePage = () => {
       case 'round_result': stopTimer(); setChoosing(false); setLocked(false); setRound(msg.round); setAnnounce(null); animateRound(msg.shots,msg.phase,msg.scores); break;
       case 'match_result':
         sched(() => { setMatchResult({youWon:msg.youWon,scores:msg.scores}); setScreen('result'); sfx(msg.youWon?'win':'lose');
+          saveMatchToBackend(msg.youWon, msg.scores);
           if(msg.youWon) confetti({particleCount:80,spread:80,origin:{y:0.5},colors:['#FFD700','#4AFF93','#FFF']});
         }, 600); break;
       case 'opponent_left': setMatchResult({youWon:true,scores:[0,0],opponentLeft:true}); setScreen('result'); break;
@@ -158,12 +163,144 @@ const GamePage = () => {
 
   function showAnnounce(t,s){setAnnounce({title:t,sub:s});sched(()=>setAnnounce(null),1600);}
 
-  const findGame=(bot)=>{sfx('click');const n=playerName.trim()||'Player';setPlayerName(n);
-    const ws=connectWS();ws.onopen=()=>{const uid=window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString()||'anon_'+Math.random().toString(36).slice(2,8);ws.send(JSON.stringify({type:bot?'find_bot':'find_game',name:n,tgUserId:uid}));};
-    ws.onmessage=(e)=>handleMsg(JSON.parse(e.data));};
+  function resolveShot(distance) {
+    const cfg = {
+      close: { points: 1, baseChance: 0.85, variance: 0.1 },
+      mid: { points: 2, baseChance: 0.5, variance: 0.1 },
+      far: { points: 3, baseChance: 0.35, variance: 0.1 },
+    }[distance] || { points: 2, baseChance: 0.5, variance: 0.1 };
+    const chance = cfg.baseChance + (Math.random() * 2 - 1) * cfg.variance;
+    const made = Math.random() < chance;
+    return { made, points: made ? cfg.points : 0 };
+  }
+  function botChooseDistance(myScore, oppScore) {
+    const diff = myScore - oppScore;
+    let w;
+    if (diff >= 4) w = { close: 55, mid: 35, far: 10 };
+    else if (diff >= 2) w = { close: 35, mid: 45, far: 20 };
+    else if (diff > 0) w = { close: 25, mid: 45, far: 30 };
+    else if (diff === 0) w = { close: 15, mid: 45, far: 40 };
+    else if (diff >= -2) w = { close: 10, mid: 35, far: 55 };
+    else w = { close: 5, mid: 25, far: 70 };
+    const total = w.close + w.mid + w.far;
+    const r = Math.random() * total;
+    if (r < w.close) return 'close';
+    if (r < w.close + w.mid) return 'mid';
+    return 'far';
+  }
+  function localStartRound() {
+    const m = localMatchRef.current;
+    if (!m || m.finished) return;
+    m.choices = [null, null];
+    const max = m.phase === 2 ? 5 : 999;
+    handleMsg({ type: 'round_start', round: m.round + 1, maxRounds: max, phase: m.phase, scores: [...m.scores] });
+  }
+  function localFinishMatch() {
+    const m = localMatchRef.current;
+    if (!m || m.finished) return;
+    m.finished = true;
+    handleMsg({ type: 'match_result', youWon: m.scores[0] > m.scores[1], scores: [...m.scores] });
+  }
+  function localResolveRound() {
+    const m = localMatchRef.current;
+    if (!m || m.finished) return;
+    const shots = [0, 1].map((i) => {
+      const distance = m.choices[i];
+      const { made, points } = resolveShot(distance);
+      m.scores[i] += points;
+      return { playerIndex: i, distance, made, points };
+    });
+    m.round += 1;
+    handleMsg({ type: 'round_result', shots, scores: [...m.scores], round: m.round, phase: m.phase });
+    if (m.phase === 2 && m.round >= 5) {
+      if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), 2600);
+      else sched(() => { m.phase = 3; m.round = 0; handleMsg({ type: 'phase_start', phase: 3, scores: [...m.scores] }); sched(localStartRound, 800); }, 1200);
+      return;
+    }
+    if (m.phase === 3) {
+      if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), 2600);
+      else sched(localStartRound, 2600);
+      return;
+    }
+    sched(localStartRound, 2600);
+  }
+  function localStartWarmup() {
+    const m = localMatchRef.current;
+    if (!m || m.finished) return;
+    if (m.round >= 5) {
+      m.phase = 2; m.round = 0;
+      handleMsg({ type: 'phase_start', phase: 2, scores: [...m.scores] });
+      sched(localStartRound, 900);
+      return;
+    }
+    const shots = [0, 1].map((i) => {
+      const { made } = resolveShot('mid');
+      const points = made ? 1 : 0;
+      m.scores[i] += points;
+      return { playerIndex: i, distance: 'mid', made, points };
+    });
+    m.round += 1;
+    handleMsg({ type: 'round_result', shots, scores: [...m.scores], round: m.round, phase: 1 });
+    sched(localStartWarmup, 2600);
+  }
+  function localOnClientMessage(type, data = {}) {
+    const m = localMatchRef.current;
+    if (type === 'find_game' || type === 'find_bot') {
+      const uid = data.tgUserId || null;
+      localMatchRef.current = {
+        tgUserId: uid,
+        phase: 1,
+        round: 0,
+        scores: [0, 0],
+        choices: [null, null],
+        finished: false,
+      };
+      handleMsg({ type: 'waiting' });
+      sched(() => {
+        handleMsg({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
+        handleMsg({ type: 'phase_start', phase: 1, scores: [0, 0] });
+        sched(localStartWarmup, 800);
+      }, 550);
+      return;
+    }
+    if (!m || m.finished) return;
+    if (type === 'cancel_wait') { localMatchRef.current = null; return; }
+    if (type === 'choose_distance') {
+      if (m.choices[0] !== null) return;
+      m.choices[0] = data.distance || 'mid';
+      handleMsg({ type: 'choice_locked' });
+      m.choices[1] = botChooseDistance(m.scores[1], m.scores[0]);
+      sched(localResolveRound, 450);
+    }
+  }
+  const findGame=(bot)=>{sfx('click');const n=playerName.trim()||'Player';setPlayerName(n);matchSavedRef.current=false;connectWS();send(bot?'find_bot':'find_game',{name:n,tgUserId:window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString()||null});};
   const cancelWait=()=>{send('cancel_wait');wsRef.current?.close();setScreen('menu');};
   const chooseDist=(d)=>{if(locked||!choosing)return;sfx('click');setChoosing(false);send('choose_distance',{distance:d});};
   const playAgain=()=>{clearPending();setMatchResult(null);setGamePhase(null);setScreen('menu');wsRef.current?.close();};
+  function saveMatchToBackend(youWon, finalScores) {
+    if (matchSavedRef.current || !tgInitDataRef.current) return;
+    matchSavedRef.current = true;
+    const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'recordMatch',
+        initData: tgInitDataRef.current,
+        payload: {
+          gameKey: 'basketball',
+          mode: 'bot',
+          winnerTgUserId: youWon ? tgUserId : null,
+          players: [
+            { tgUserId, name: playerName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
+            { tgUserId: null, name: opponent || 'Бот 🤖', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
+          ],
+          score: { left: finalScores?.[0] || 0, right: finalScores?.[1] || 0 },
+          details: { phase: gamePhase || null, roundsPlayed: round || 0 },
+        },
+      }),
+    }).catch(() => { matchSavedRef.current = false; });
+  }
 
   // ============ RENDER ============
   const myName=playerName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
@@ -220,7 +357,7 @@ const GamePage = () => {
   return (
     <div className="h-screen relative overflow-hidden select-none" style={ST}>
       {/* BG */}
-      <img src="/bg.webp" alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover object-top z-0"
+      <img src={`${ASSET_BASE}bg.webp`} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover object-top z-0"
         style={{ imageRendering:'pixelated', transformOrigin:'top center', transform:'scale(1.15) translateY(8%)' }} />
 
       <Ambient />
