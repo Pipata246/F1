@@ -131,7 +131,11 @@ function startGame(vsBot) {
     clearInterval(timerInterval);
     matchSaved = false;
     connect(() => {
-        sendMsg({ type: 'find_bot', name: myName, tgUserId: window._tgUserId || null });
+        sendMsg({
+            type: vsBot ? 'find_bot' : 'find_game',
+            name: myName,
+            tgUserId: window._tgUserId || null
+        });
         showScreen('waiting');
     });
 }
