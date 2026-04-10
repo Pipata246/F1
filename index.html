@@ -718,6 +718,7 @@
     onboarding: { rulesAccepted:false, nicknameSet:false, referralAsked:false },
     profile: {
       publicId: shortId(),
+      tgUserId: "",
       nickname: "",
       rulesAcceptedAt: 0,
       nicknameChangedAt: 0,
@@ -773,6 +774,7 @@
     try{
       const data = await apiJson("/api/user", { action:"authSession", initData: tgInitData });
       const tgId = data.user?.tg_user_id ? String(data.user.tg_user_id) : "";
+      state.profile.tgUserId = tgId;
       state.profile.publicId = tgId ? tgId.slice(-4) : state.profile.publicId;
       if(data.user?.rules_accepted_at){
         state.profile.rulesAcceptedAt = new Date(data.user.rules_accepted_at).getTime();
@@ -1103,6 +1105,33 @@
     }catch(e){ return "—"; }
   }
 
+  function formatDateTime(ts){
+    try{
+      const d = new Date(ts);
+      return d.toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+    }catch(e){ return "—"; }
+  }
+
+  function gameName(key){
+    const map = {
+      frog_hunt: "Охота на жабу",
+      obstacle_race: "Полоса препятствий",
+      super_penalty: "Пенальти",
+      basketball: "Баскетбол",
+    };
+    return map[key] || key || "Игра";
+  }
+
+  let matchesCache = [];
+  async function loadMatchHistory(){
+    if(!hasTgAuth) return;
+    try{
+      const data = await apiJson("/api/user", { action:"getMatchHistory", initData: tgInitData, limit: 100 });
+      matchesCache = Array.isArray(data.matches) ? data.matches : [];
+      renderMatches();
+    }catch(e){}
+  }
+
   function closeNickModal(){ nickModalWrap.classList.remove("show"); }
   function openNickModal(){
     nickModalError.style.display = "none";
@@ -1224,7 +1253,58 @@
   }
 
   function renderMatches(){
-    // оставили заглушку
+    const empty = document.getElementById("matchesEmpty");
+    const list = document.getElementById("matchesList");
+    if(!empty || !list) return;
+
+    if(!matchesCache.length){
+      empty.style.display = "";
+      list.style.display = "none";
+      list.innerHTML = "";
+      return;
+    }
+
+    empty.style.display = "none";
+    list.style.display = "flex";
+
+    const myTgId = String(state.profile.tgUserId || tg?.initDataUnsafe?.user?.id || "");
+    list.innerHTML = "";
+
+    matchesCache.forEach((m)=>{
+      const p1Name = m.player1_name || "Игрок 1";
+      const p2Name = m.player2_name || "Игрок 2";
+      const p1Id = String(m.player1_tg_user_id || "");
+      const p2Id = String(m.player2_tg_user_id || "");
+      const isMeP1 = myTgId && p1Id === myTgId;
+      const myName = isMeP1 ? p1Name : p2Name;
+      const oppName = isMeP1 ? p2Name : p1Name;
+      const scoreObj = m.score_json || {};
+      const leftScore = Number(scoreObj.left ?? 0);
+      const rightScore = Number(scoreObj.right ?? 0);
+      const myScore = isMeP1 ? leftScore : rightScore;
+      const oppScore = isMeP1 ? rightScore : leftScore;
+      const result = m.winner_tg_user_id
+        ? (String(m.winner_tg_user_id) === myTgId ? "Победа" : "Поражение")
+        : (myScore === oppScore ? "Ничья" : (myScore > oppScore ? "Победа" : "Поражение"));
+      const resultColor = result === "Победа" ? "var(--accent)" : (result === "Ничья" ? "var(--text2)" : "var(--danger)");
+      const modeLabel = m.mode === "bot" ? "Бот" : "PvP";
+      const card = document.createElement("div");
+      card.className = "pill";
+      card.style.display = "block";
+      card.innerHTML = `
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <div style="font-weight:900">${gameName(m.game_key)}</div>
+          <div class="chip">${modeLabel}</div>
+        </div>
+        <div class="small" style="margin-top:4px">${formatDateTime(m.finished_at)}</div>
+        <div class="row" style="margin-top:8px; justify-content:space-between; align-items:center;">
+          <div class="muted" style="font-weight:700">${myName} vs ${oppName || "Бот"}</div>
+          <div style="font-weight:900">${myScore} : ${oppScore}</div>
+        </div>
+        <div style="margin-top:6px; font-weight:900; color:${resultColor}">${result}</div>
+      `;
+      list.appendChild(card);
+    });
   }
 
   function renderAll(){
@@ -1247,6 +1327,7 @@
     try{
       await hydrateUserFromServer();
       await loadExternalStats();
+      await loadMatchHistory();
     }finally{
       renderAll();
       initNav();
@@ -1254,9 +1335,9 @@
     }
   })();
 
-  window.addEventListener("focus", ()=>{ loadExternalStats(); });
+  window.addEventListener("focus", ()=>{ loadExternalStats(); loadMatchHistory(); });
   document.addEventListener("visibilitychange", ()=>{
-    if(document.visibilityState === "visible") loadExternalStats();
+    if(document.visibilityState === "visible"){ loadExternalStats(); loadMatchHistory(); }
   });
 </script>
 </body>

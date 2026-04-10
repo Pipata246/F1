@@ -369,6 +369,17 @@ async function getGameStats(initData) {
   return byGame;
 }
 
+async function getMatchHistory(initData, limit = 50) {
+  const verified = verifyTelegramInitData(initData, BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const rows = await sb(
+    `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${safeLimit}`
+  );
+  return rows || [];
+}
+
 module.exports = async (req, res) => {
   try {
     if (req.method !== "POST") {
@@ -406,6 +417,10 @@ module.exports = async (req, res) => {
     if (action === "getGameStats") {
       const stats = await getGameStats(req.body?.initData || "");
       return res.status(200).json({ ok: true, stats });
+    }
+    if (action === "getMatchHistory") {
+      const matches = await getMatchHistory(req.body?.initData || "", req.body?.limit || 50);
+      return res.status(200).json({ ok: true, matches });
     }
 
     return res.status(400).json({ ok: false, error: "Unknown action" });
