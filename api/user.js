@@ -385,6 +385,20 @@ async function pvpCancelRooms(ids) {
     body: { status: "cancelled", updated_at: new Date().toISOString() },
     prefer: "return=minimal",
   });
+  await sb(`pvp_rooms?id=in.(${uniq.join(",")})&status=eq.cancelled`, {
+    method: "DELETE",
+    prefer: "return=minimal",
+  });
+}
+
+async function pvpDeleteRoomAfterDone(roomId, expectedStatus = "finished") {
+  const id = Number(roomId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  const statusFilter = encodeURIComponent(expectedStatus);
+  await sb(`pvp_rooms?id=eq.${id}&status=eq.${statusFilter}`, {
+    method: "DELETE",
+    prefer: "return=minimal",
+  });
 }
 
 async function pvpPruneUserNonActiveRooms(tgId, gameKey) {
@@ -1176,6 +1190,7 @@ async function finalizePvpRoomIfNeeded(room) {
       },
     ],
   });
+  await pvpDeleteRoomAfterDone(room.id, "finished");
 
   return finalized;
 }
@@ -1259,6 +1274,9 @@ async function pvpLeaveRoom(initData, roomId) {
           },
         ],
       });
+    }
+    if (patched?.length) {
+      await pvpDeleteRoomAfterDone(id, "finished");
     }
     return { left: true };
   }
