@@ -69,6 +69,23 @@
       backdrop-filter: blur(18px);
       border-bottom:1px solid rgba(255,255,255,.07);
     }
+    .topbarRight{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-shrink:0;
+      max-width:min(58vw, 280px);
+    }
+    .topbarBalance{
+      font-variant-numeric: tabular-nums;
+      border-color: rgba(0,184,255,.28);
+      background: rgba(0,152,234,.10);
+      color: #9AE8FF;
+      display:none;
+      align-items:center;
+      gap:4px;
+    }
+    .topbarBalance .tonUnit{ font-size:10px; font-weight:800; opacity:.85; }
     .brand{display:flex; align-items:center; gap:10px; font-weight:900; letter-spacing:.2px}
     .brandLogo{
       width:20px; height:20px; display:block; flex:0 0 auto;
@@ -411,7 +428,12 @@
         </svg>
         <span>F1 Duel</span>
       </div>
-      <div class="chip" id="userChip">Гость</div>
+      <div class="topbarRight">
+        <div class="chip" id="userChip">Гость</div>
+        <div class="chip topbarBalance" id="headerBalanceWrap" aria-label="Баланс TON">
+          <span id="headerBalanceVal">0</span><span class="tonUnit">TON</span>
+        </div>
+      </div>
     </div>
 
     <main class="container">
@@ -612,7 +634,7 @@
           <div class="row" style="align-items:center; justify-content:space-between;">
             <div>
               <h2 class="titleXL" style="margin:0">Баланс</h2>
-              <p class="subtitle" style="margin-top:4px">TON · скоро на бэкенде</p>
+              <p class="subtitle" style="margin-top:4px">TON · баланс с сервера</p>
             </div>
             <div class="chip">TON</div>
           </div>
@@ -639,7 +661,7 @@
             </div>
           </div>
 
-          <p class="muted small" style="margin:12px 0 0 0">Демо: сумма только на фронте, без привязки к сети.</p>
+          <p class="muted small" style="margin:12px 0 0 0">Сумма из профиля в БД (пополнение и вывод — позже).</p>
 
           <div class="divider"></div>
 
@@ -902,6 +924,7 @@
       myRefCode: "",
       referredBy: "",
       refStatus: "none",
+      balanceTon: null,
     },
     wallet: { tonBalance: "0.00" },
     settings: { sound:true, haptic:true },
@@ -947,6 +970,21 @@
     return data;
   }
 
+  function formatBalanceDisplay(raw){
+    if(raw == null || raw === "") return "0,00";
+    const n = Number(raw);
+    if(!Number.isFinite(n)) return "0,00";
+    return n.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 9 });
+  }
+
+  function applyBalanceFromUserPayload(user){
+    if(user && user.balance != null && user.balance !== ""){
+      state.profile.balanceTon = String(user.balance);
+    }else if(user){
+      state.profile.balanceTon = "0";
+    }
+  }
+
   async function hydrateUserFromServer(){
     if(!hasTgAuth) return;
     try{
@@ -954,6 +992,7 @@
       const tgId = data.user?.tg_user_id ? String(data.user.tg_user_id) : "";
       state.profile.tgUserId = tgId;
       state.profile.publicId = tgId ? tgId.slice(-4) : state.profile.publicId;
+      applyBalanceFromUserPayload(data.user);
       if(data.user?.rules_accepted_at){
         state.profile.rulesAcceptedAt = new Date(data.user.rules_accepted_at).getTime();
       }
@@ -1032,6 +1071,9 @@
     }
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
+    if(page === "wallet" && hasTgAuth){
+      hydrateUserFromServer().then(()=>{ renderTopbar(); renderWallet(); }).catch(()=>{});
+    }
   }
 
   function needsOnboarding(){
@@ -1042,8 +1084,22 @@
   }
 
   const userChip = document.getElementById("userChip");
+  const headerBalanceWrap = document.getElementById("headerBalanceWrap");
+  const headerBalanceVal = document.getElementById("headerBalanceVal");
   const displayNick = ()=> (state.profile.nickname || "Player");
   function displayMe(){ return `${displayNick()} #${state.profile.publicId}`; }
+
+  function renderTopbar(){
+    userChip.textContent = displayMe();
+    if(headerBalanceWrap && headerBalanceVal){
+      if(hasTgAuth){
+        headerBalanceWrap.style.display = "flex";
+        headerBalanceVal.textContent = formatBalanceDisplay(state.profile.balanceTon);
+      }else{
+        headerBalanceWrap.style.display = "none";
+      }
+    }
+  }
 
   const onlineNow = document.getElementById("onlineNow");
   let cachedOnlineCount = null;
@@ -1299,8 +1355,13 @@
 
   function renderWallet(){
     if(!tonBalanceVal) return;
-    const raw = state.wallet?.tonBalance;
-    const str = raw != null && String(raw).trim() !== "" ? String(raw).trim() : "0.00";
+    let str;
+    if(hasTgAuth && state.profile.balanceTon != null){
+      str = formatBalanceDisplay(state.profile.balanceTon);
+    }else{
+      const raw = state.wallet?.tonBalance;
+      str = raw != null && String(raw).trim() !== "" ? String(raw).trim() : "0,00";
+    }
     tonBalanceVal.textContent = str;
   }
 
@@ -1404,8 +1465,11 @@
         document.body.classList.remove("booting");
         state.profile.nickname = data.user?.nickname || n;
         state.profile.nicknameChangedAt = now();
+        applyBalanceFromUserPayload(data.user);
         addTx("Ник обновлён");
         save();
+        renderTopbar();
+        renderWallet();
         closeNickModal();
         toast("Ник обновлён");
       })
@@ -1586,7 +1650,7 @@
   });
 
   function renderAll(){
-    userChip.textContent = displayMe();
+    renderTopbar();
     renderOnlineLabel();
     renderWallet();
     renderMatches();
@@ -1617,11 +1681,13 @@
   })();
 
   window.addEventListener("focus", ()=>{
+    if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); renderWallet(); }).catch(()=>{});
     loadExternalStats(); loadMatchHistory();
     presencePing(); refreshOnlineCount();
   });
   document.addEventListener("visibilitychange", ()=>{
     if(document.visibilityState === "visible"){
+      if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); renderWallet(); }).catch(()=>{});
       loadExternalStats(); loadMatchHistory();
       presencePing(); refreshOnlineCount();
     }

@@ -16,6 +16,7 @@ create table if not exists public.users (
   referral_asked_at timestamptz,
   referral_code text unique not null,
   rules_accepted_at timestamptz not null,
+  balance numeric(24, 9) not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint users_nickname_format check (nickname is null or nickname ~ '^[A-Za-z0-9_]{3,16}$')
@@ -86,3 +87,4 @@ using (false);
 -- update public.users set referral_code = upper(substr(md5(random()::text || clock_timestamp()::text), 1, 6))
 -- where referral_code is null;
 -- alter table public.users alter column referral_code set not null;
+-- Баланс: см. db/supabase_users_balance_delta.sql (колонка balance).

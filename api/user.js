@@ -168,7 +168,7 @@ async function authSession(initData) {
   touchPresenceTgId(tgId);
 
   const rows = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at,created_at,updated_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at,balance,created_at,updated_at&limit=1`
   );
 
   if (!rows.length) {
@@ -179,6 +179,7 @@ async function authSession(initData) {
         first_name: tg.first_name || "",
         last_name: tg.last_name || "",
         username: tg.username || "",
+        balance: 0,
       },
     };
   }
