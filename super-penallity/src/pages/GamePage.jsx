@@ -157,6 +157,12 @@ const GamePage = () => {
   const matchRef = useRef(null);
   const tgInitDataRef = useRef('');
   const matchSavedRef = useRef(false);
+  const isBotModeRef = useRef(true);
+  const pvpRoomIdRef = useRef(null);
+  const pvpPollTimerRef = useRef(null);
+  const pvpPollInFlightRef = useRef(false);
+  const pvpLastRoundMarkerRef = useRef(0);
+  const pvpLastStartKeyRef = useRef('');
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
 
@@ -172,8 +178,17 @@ const GamePage = () => {
 
   useEffect(() => {
     return () => {
+      if (!isBotModeRef.current && pvpRoomIdRef.current && tgInitDataRef.current && navigator?.sendBeacon) {
+        const payload = JSON.stringify({
+          action: 'pvpLeaveRoom',
+          initData: tgInitDataRef.current,
+          roomId: pvpRoomIdRef.current,
+        });
+        navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+      }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       if (timerRef.current) clearInterval(timerRef.current);
+      if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
     };
   }, []);
 
@@ -181,6 +196,15 @@ const GamePage = () => {
     const ws = { readyState: 1, close: () => {} };
     wsRef.current = ws;
     return ws;
+  }, []);
+
+  const apiPost = useCallback(async (payload) => {
+    const res = await fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    return res.json();
   }, []);
 
   const handleServerMessage = useCallback((msg) => {
@@ -235,7 +259,9 @@ const GamePage = () => {
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
-          saveMatchToBackend(msg.youWon, msg.scores, matchRef.current?.history || history);
+          if (isBotModeRef.current) {
+            saveMatchToBackend(msg.youWon, msg.scores, matchRef.current?.history || history);
+          }
           if (msg.youWon) {
             confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 } });
             if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
@@ -324,7 +350,139 @@ const GamePage = () => {
     }, 400);
   };
 
+  const stopPvpPolling = useCallback(() => {
+    if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
+    pvpPollTimerRef.current = null;
+    pvpPollInFlightRef.current = false;
+  }, []);
+
+  const applyPvpRoomState = useCallback((room) => {
+    if (!room) return;
+    const s = room.state_json || {};
+    if (String(room.status) === 'waiting') {
+      setScreen('waiting');
+      return;
+    }
+    const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+    const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
+    const mySide = meIsP1 ? 'p1' : 'p2';
+    const myIdx = meIsP1 ? 0 : 1;
+    setPlayerIndex(myIdx);
+    playerIndexRef.current = myIdx;
+    setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
+
+    const rr = s.lastRoundResult || {};
+    const marker = Number(rr.marker || 0);
+    if (marker > pvpLastRoundMarkerRef.current) {
+      pvpLastRoundMarkerRef.current = marker;
+      const scoresObj = rr.scores || { p1: 0, p2: 0 };
+      handleServerMessage({
+        type: 'round_result',
+        kickerZone: Number(rr.kickerZone || 0),
+        keeperZone: Number(rr.keeperZone || 0),
+        isGoal: !!rr.isGoal,
+        scores: [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)],
+        round: Number(rr.round || 0),
+        kickerIndex: Number(rr.kickerIndex || 0),
+        history: Array.isArray(rr.history) ? rr.history : [],
+      });
+      return;
+    }
+
+    if (s.phase === 'turn_input') {
+      const baseRound = Number(s.round || 0);
+      const sudden = !!s.suddenDeath;
+      const kickerIndex = sudden && Number.isInteger(Number(s.kickerOverride))
+        ? Number(s.kickerOverride)
+        : (baseRound % 2 === 0 ? 0 : 1);
+      const roleNow = kickerIndex === myIdx ? 'kicker' : 'keeper';
+      const startKey = `${baseRound}:${roleNow}:${sudden ? 1 : 0}`;
+      if (startKey !== pvpLastStartKeyRef.current) {
+        pvpLastStartKeyRef.current = startKey;
+        const scoresObj = s.scores || { p1: 0, p2: 0 };
+        handleServerMessage({
+          type: 'round_start',
+          round: baseRound + 1,
+          maxRounds: Number(s.maxRounds || 10),
+          role: roleNow,
+          scores: [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)],
+          suddenDeath: sudden,
+          history: Array.isArray(s.history) ? s.history : [],
+        });
+      }
+      return;
+    }
+
+    if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+      stopPvpPolling();
+      pvpRoomIdRef.current = null;
+      const scoresObj = s.scores || { p1: 0, p2: 0 };
+      const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
+      let youWon = false;
+      if (s.winnerSide) youWon = s.winnerSide === mySide;
+      else if (arr[0] !== arr[1]) youWon = myIdx === 0 ? arr[0] > arr[1] : arr[1] > arr[0];
+      if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg) {
+        setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
+        setScreen('result');
+        return;
+      }
+      handleServerMessage({ type: 'match_result', youWon, scores: arr });
+    }
+  }, [handleServerMessage, stopPvpPolling]);
+
+  const pvpPollState = useCallback(() => {
+    if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
+    pvpPollInFlightRef.current = true;
+    apiPost({
+      action: 'pvpGetRoomState',
+      initData: tgInitDataRef.current,
+      roomId: pvpRoomIdRef.current,
+    }).then((data) => {
+      if (data?.ok && data.room) applyPvpRoomState(data.room);
+    }).catch(() => {}).finally(() => {
+      pvpPollInFlightRef.current = false;
+    });
+  }, [apiPost, applyPvpRoomState]);
+
+  const startPvpPolling = useCallback(() => {
+    stopPvpPolling();
+    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 900);
+    pvpPollState();
+  }, [pvpPollState, stopPvpPolling]);
+
   const sendMessage = (type, data = {}) => {
+    if (!isBotModeRef.current) {
+      if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
+      if (type === 'cancel_wait') {
+        const rid = pvpRoomIdRef.current;
+        pvpRoomIdRef.current = null;
+        apiPost({
+          action: 'pvpLeaveRoom',
+          initData: tgInitDataRef.current,
+          roomId: rid,
+        }).catch(() => {});
+        return;
+      }
+      if (type === 'choose_zone') {
+        const zone = Number(data.zone);
+        if (![0, 1, 2, 3].includes(zone)) return;
+        setZoneLocked(true);
+        setWaitingOpponent(true);
+        stopTimer();
+        apiPost({
+          action: 'pvpSubmitMove',
+          initData: tgInitDataRef.current,
+          roomId: pvpRoomIdRef.current,
+          move: { zone },
+        }).then((data2) => {
+          if (data2?.ok && data2.room) applyPvpRoomState(data2.room);
+        }).catch(() => {
+          setZoneLocked(false);
+          setWaitingOpponent(false);
+        });
+      }
+      return;
+    }
     const m = matchRef.current;
     if (!m || m.finished) return;
     if (type === 'cancel_wait') {
@@ -348,9 +506,29 @@ const GamePage = () => {
     const name = playerName.trim() || 'Player';
     setPlayerName(name);
     matchSavedRef.current = false;
+    isBotModeRef.current = !!bot;
+    pvpLastRoundMarkerRef.current = 0;
+    pvpLastStartKeyRef.current = '';
+    pvpRoomIdRef.current = null;
+    stopPvpPolling();
     const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
     connectWS();
     setScreen('waiting');
+    if (!bot) {
+      apiPost({
+        action: 'pvpFindMatch',
+        initData: tgInitDataRef.current || '',
+        gameKey: 'super_penalty',
+        playerName: name,
+      }).then((data) => {
+        if (!data?.ok || !data.room) throw new Error('matchmaking');
+        pvpRoomIdRef.current = data.room.id;
+        startPvpPolling();
+      }).catch(() => {
+        setScreen('menu');
+      });
+      return;
+    }
     setTimeout(() => {
       matchRef.current = {
         playerName: name,
@@ -373,6 +551,7 @@ const GamePage = () => {
 
   const handleCancelWait = () => {
     sendMessage('cancel_wait');
+    stopPvpPolling();
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     setScreen('menu');
   };
@@ -385,6 +564,8 @@ const GamePage = () => {
   const handlePlayAgain = () => {
     setMatchResult(null);
     setHistory([]);
+    stopPvpPolling();
+    pvpRoomIdRef.current = null;
     setScreen('menu');
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
   };

@@ -349,8 +349,29 @@ function pvpDefaultObstacleState(player1Id, player2Id) {
   };
 }
 
+function pvpDefaultSuperPenaltyState(player1Id, player2Id) {
+  return {
+    engine: "super_penalty_v1",
+    phase: "turn_input",
+    phaseAtMs: Date.now(),
+    round: 0,
+    maxRounds: 10,
+    suddenDeath: false,
+    sdStart: 0,
+    kickerOverride: null,
+    choices: { p1: null, p2: null },
+    scores: { p1: 0, p2: 0 },
+    history: [],
+    markers: { round: 0, match: 0 },
+    players: { p1: String(player1Id), p2: String(player2Id) },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
   if (gameKey === "obstacle_race") return pvpDefaultObstacleState(player1Id, player2Id);
+  if (gameKey === "super_penalty") return pvpDefaultSuperPenaltyState(player1Id, player2Id);
   return pvpDefaultState(player1Id, player2Id);
 }
 
@@ -697,8 +718,175 @@ function pvpApplyObstacleMove(room, tgId, move) {
   return pvpResolveObstacleRound(next);
 }
 
+function pvpSuperPenaltyKickerSide(s) {
+  if (s.suddenDeath && Number.isInteger(Number(s.kickerOverride))) {
+    return Number(s.kickerOverride) === 0 ? "p1" : "p2";
+  }
+  return Number(s.round || 0) % 2 === 0 ? "p1" : "p2";
+}
+
+function pvpResolveSuperPenaltyRound(state) {
+  const s = { ...state };
+  const kickerSide = pvpSuperPenaltyKickerSide(s);
+  const keeperSide = kickerSide === "p1" ? "p2" : "p1";
+  const kickerZone = Number(asObj(s.choices)[kickerSide]);
+  const keeperZone = Number(asObj(s.choices)[keeperSide]);
+  const isGoal = kickerZone !== keeperZone;
+  s.scores = { ...asObj(s.scores) };
+  if (isGoal) s.scores[kickerSide] = Number(s.scores[kickerSide] || 0) + 1;
+  const history = Array.isArray(s.history) ? s.history.slice() : [];
+  history.push({
+    kickerIndex: kickerSide === "p1" ? 0 : 1,
+    kickerZone,
+    keeperZone,
+    isGoal,
+  });
+  s.history = history.slice(-40);
+  s.round = Number(s.round || 0) + 1;
+
+  let gameOver = false;
+  let winnerSide = null;
+  let startSuddenDeath = false;
+  const p1 = Number(s.scores.p1 || 0);
+  const p2 = Number(s.scores.p2 || 0);
+  const roundsPlayed = Number(s.round || 0);
+  if (s.suddenDeath) {
+    const sdRounds = roundsPlayed - Number(s.sdStart || 0);
+    if (sdRounds >= 2 && sdRounds % 2 === 0 && p1 !== p2) {
+      gameOver = true;
+      winnerSide = p1 > p2 ? "p1" : "p2";
+    } else {
+      const pairNum = Math.floor(sdRounds / 2);
+      const withinPair = sdRounds % 2;
+      s.kickerOverride = (pairNum + withinPair) % 2;
+    }
+  } else {
+    if (roundsPlayed >= Number(s.maxRounds || 10)) {
+      if (p1 === p2) {
+        s.suddenDeath = true;
+        s.sdStart = roundsPlayed;
+        s.kickerOverride = 0;
+        startSuddenDeath = true;
+      } else {
+        gameOver = true;
+        winnerSide = p1 > p2 ? "p1" : "p2";
+      }
+    } else if (roundsPlayed % 2 === 0) {
+      let p0Left = 0;
+      let p1Left = 0;
+      for (let r = roundsPlayed; r < Number(s.maxRounds || 10); r++) {
+        if (r % 2 === 0) p0Left += 1;
+        else p1Left += 1;
+      }
+      if (p1 > p2 + p1Left) {
+        gameOver = true;
+        winnerSide = "p1";
+      } else if (p2 > p1 + p0Left) {
+        gameOver = true;
+        winnerSide = "p2";
+      }
+    }
+  }
+
+  s.phase = "round_result";
+  s.phaseAtMs = Date.now();
+  s.choices = { p1: null, p2: null };
+  s.lastRoundResult = {
+    marker: Number(asObj(s.markers).round || 0) + 1,
+    kickerIndex: kickerSide === "p1" ? 0 : 1,
+    kickerZone,
+    keeperZone,
+    isGoal,
+    scores: { p1: Number(s.scores.p1 || 0), p2: Number(s.scores.p2 || 0) },
+    round: roundsPlayed,
+    maxRounds: Number(s.maxRounds || 10),
+    suddenDeath: !!s.suddenDeath,
+    history: s.history,
+    startSuddenDeath,
+    gameOver,
+    winnerSide,
+  };
+  s.markers = { ...asObj(s.markers), round: s.lastRoundResult.marker };
+  s.updatedAt = new Date().toISOString();
+  return s;
+}
+
+function pvpApplySuperPenaltyMove(room, tgId, move) {
+  const s = asObj(room?.state_json);
+  if (s.phase !== "turn_input") return s;
+  const side = getPvpSide(room, tgId);
+  if (!side) throw new Error("Invalid room side");
+  const zone = Number(asObj(move).zone);
+  if (![0, 1, 2, 3].includes(zone)) throw new Error("Invalid zone");
+  const next = { ...s, choices: { ...asObj(s.choices) } };
+  if (next.choices[side] !== null && next.choices[side] !== undefined) return next;
+  next.choices[side] = zone;
+  if (next.choices.p1 === null || next.choices.p2 === null) {
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
+  return pvpResolveSuperPenaltyRound(next);
+}
+
 function pvpAdvanceByTime(room) {
   const s = asObj(room?.state_json);
+  if (String(room?.game_key || "") === "super_penalty" || s.engine === "super_penalty_v1") {
+    const now = Date.now();
+    const phaseAt = Number(s?.phaseAtMs || 0);
+    if (!phaseAt) return { changed: false, state: s };
+    const elapsed = now - phaseAt;
+    const next = { ...s };
+    const presence = asObj(s.presence);
+    const p1Beat = Number(presence.p1 || 0);
+    const p2Beat = Number(presence.p2 || 0);
+    if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
+      const staleMs = 15000;
+      const p1Stale = now - p1Beat > staleMs;
+      const p2Stale = now - p2Beat > staleMs;
+      if (p1Stale !== p2Stale && elapsed >= 3000) {
+        const leftSide = p1Stale ? "p1" : "p2";
+        const winnerSide = leftSide === "p1" ? "p2" : "p1";
+        next.phase = "match_over";
+        next.phaseAtMs = now;
+        next.leftBy = String(asObj(next.players)[leftSide] || "");
+        next.leftAt = new Date().toISOString();
+        next.endedByLeave = true;
+        next.scores = { ...asObj(next.scores) };
+        if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
+          next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
+        }
+        next.winnerSide = winnerSide;
+        next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
+        next.updatedAt = new Date().toISOString();
+        return { changed: true, state: next };
+      }
+    }
+    if (s.phase === "turn_input" && elapsed >= 12000) {
+      const choices = { ...asObj(s.choices) };
+      if (!Number.isInteger(Number(choices.p1))) choices.p1 = Math.floor(Math.random() * 4);
+      if (!Number.isInteger(Number(choices.p2))) choices.p2 = Math.floor(Math.random() * 4);
+      next.choices = choices;
+      const resolved = pvpResolveSuperPenaltyRound(next);
+      resolved.updatedAt = new Date().toISOString();
+      return { changed: true, state: resolved };
+    }
+    if (s.phase === "round_result" && elapsed >= 2400) {
+      const rr = asObj(s.lastRoundResult);
+      if (rr.gameOver) {
+        next.phase = "match_over";
+        next.phaseAtMs = now;
+        next.winnerSide = rr.winnerSide || null;
+        next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
+      } else {
+        next.phase = "turn_input";
+        next.phaseAtMs = now;
+        next.choices = { p1: null, p2: null };
+      }
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+    return { changed: false, state: s };
+  }
   if (String(room?.game_key || "") === "obstacle_race" || s.engine === "obstacle_race_v1") {
     const now = Date.now();
     const phaseAt = Number(s?.phaseAtMs || 0);
@@ -940,6 +1128,9 @@ function pvpApplyMove(room, tgId, move) {
   if (String(room?.game_key || "") === "obstacle_race" || asObj(room?.state_json).engine === "obstacle_race_v1") {
     return pvpApplyObstacleMove(room, tgId, move);
   }
+  if (String(room?.game_key || "") === "super_penalty" || asObj(room?.state_json).engine === "super_penalty_v1") {
+    return pvpApplySuperPenaltyMove(room, tgId, move);
+  }
   const s = asObj(room?.state_json);
   if (s.phase !== "turn_input") return s;
   const side = getPvpSide(room, tgId);
@@ -1027,7 +1218,9 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const tgId = String(verified.user.id);
   const safeName = String(playerName || verified.user.first_name || "Игрок").slice(0, 64);
   const key = normalizeGameKey(gameKey);
-  if (key !== "frog_hunt" && key !== "obstacle_race") throw new Error("PvP is enabled only for frog_hunt and obstacle_race");
+  if (key !== "frog_hunt" && key !== "obstacle_race" && key !== "super_penalty") {
+    throw new Error("PvP is enabled only for frog_hunt, obstacle_race and super_penalty");
+  }
   await pvpPruneUserNonActiveRooms(tgId, key);
   await pvpEnforceSingleActiveRoom(key, tgId, safeName, 0);
 
@@ -1143,11 +1336,11 @@ async function finalizePvpRoomIfNeeded(room) {
   if (s.matchSavedAt) return room;
 
   const gameKey = normalizeGameKey(room?.game_key || "frog_hunt");
-  const scores = gameKey === "obstacle_race" ? asObj(s?.scores) : asObj(s?.matchScores);
+  const scores = (gameKey === "obstacle_race" || gameKey === "super_penalty") ? asObj(s?.scores) : asObj(s?.matchScores);
   const p1 = Number(scores?.p1 || 0);
   const p2 = Number(scores?.p2 || 0);
   let winner = null;
-  if (gameKey === "obstacle_race" && (s.winnerSide === "p1" || s.winnerSide === "p2")) {
+  if ((gameKey === "obstacle_race" || gameKey === "super_penalty") && (s.winnerSide === "p1" || s.winnerSide === "p2")) {
     winner = s.winnerSide === "p1" ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id || "");
   } else {
     winner = p1 === p2 ? null : (p1 > p2 ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id));
@@ -1217,13 +1410,13 @@ async function pvpLeaveRoom(initData, roomId) {
   if (room.status === "active") {
     const s = asObj(room.state_json);
     const gameKey = normalizeGameKey(room?.game_key || "frog_hunt");
-    const scoreSource = gameKey === "obstacle_race" ? asObj(s?.scores) : asObj(s?.matchScores);
+    const scoreSource = (gameKey === "obstacle_race" || gameKey === "super_penalty") ? asObj(s?.scores) : asObj(s?.matchScores);
     let p1 = Number(scoreSource?.p1 || 0);
     let p2 = Number(scoreSource?.p2 || 0);
     const winner = String(room.player1_tg_user_id) === tgId
       ? String(room.player2_tg_user_id || "")
       : String(room.player1_tg_user_id || "");
-    if (gameKey === "obstacle_race" && p1 === p2) {
+    if ((gameKey === "obstacle_race" || gameKey === "super_penalty") && p1 === p2) {
       if (String(winner) === String(room.player1_tg_user_id)) p1 += 1;
       else p2 += 1;
     }
@@ -1234,7 +1427,7 @@ async function pvpLeaveRoom(initData, roomId) {
       leftAt: new Date().toISOString(),
       endedByLeave: true,
       winnerSide: String(winner) === String(room.player1_tg_user_id) ? "p1" : "p2",
-      scores: gameKey === "obstacle_race" ? { p1, p2 } : s.scores,
+      scores: (gameKey === "obstacle_race" || gameKey === "super_penalty") ? { p1, p2 } : s.scores,
       matchScores: gameKey === "frog_hunt" ? { ...(asObj(s.matchScores)), p1, p2 } : s.matchScores,
       matchSavedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
