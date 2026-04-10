@@ -1,18 +1,18 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import GamePage from './pages/GamePage';
 import ProfilePage from './pages/ProfilePage';
 
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <div className="bg-gray-900 min-h-screen text-white">
         <Routes>
           <Route path="/" element={<GamePage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Routes>
       </div>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

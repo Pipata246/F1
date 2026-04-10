@@ -2,15 +2,28 @@ import React, { useState, useEffect } from 'react';
 
 const ProfilePage = () => {
   const [stats, setStats] = useState(null);
-  const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || 'anon';
+  const tgInitData = window.Telegram?.WebApp?.initData || '';
   const name = window.Telegram?.WebApp?.initDataUnsafe?.user?.first_name || 'Player';
 
   useEffect(() => {
-    fetch(`/api/stats/${tgUserId}`)
+    if (!tgInitData) return;
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'getGameStats', initData: tgInitData }),
+    })
       .then(r => r.json())
-      .then(setStats)
+      .then((data) => {
+        const s = data?.stats?.basketball || {};
+        setStats({
+          wins: s.wins || 0,
+          losses: s.losses || 0,
+          totalPoints: s.points_for || 0,
+          gamesPlayed: s.games_played || 0,
+        });
+      })
       .catch(() => {});
-  }, []);
+  }, [tgInitData]);
 
   return (
     <div className="h-screen bg-[#121214] flex flex-col items-center justify-center font-sans select-none px-4">
@@ -37,7 +50,7 @@ const ProfilePage = () => {
       ) : (
         <p className="text-gray-500">Загрузка...</p>
       )}
-      <button onClick={() => { window.location.href = '/'; }} className="mt-8 text-gray-400 hover:text-white text-sm transition-colors">
+      <button onClick={() => { window.location.hash = '#/'; }} className="mt-8 text-gray-400 hover:text-white text-sm transition-colors">
         Назад
       </button>
     </div>

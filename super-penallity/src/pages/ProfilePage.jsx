@@ -67,7 +67,7 @@ const ProfilePage = () => {
       )}
 
       <button
-        onClick={() => { window.location.href = '/'; }}
+        onClick={() => { window.location.hash = '#/'; }}
         className="mt-8 text-gray-400 hover:text-white text-sm px-6 py-2 border border-white/10 rounded-lg transition-colors"
       >
         ← Назад к игре

@@ -521,7 +521,7 @@ const GamePage = () => {
           <button onClick={() => handleFindGame(true)} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95">
             С ботом
           </button>
-          <button onClick={() => { window.location.href = '/profile'; }} className="text-gray-500 hover:text-gray-300 text-sm mt-2 transition-colors">
+          <button onClick={() => { window.location.hash = '#/profile'; }} className="text-gray-500 hover:text-gray-300 text-sm mt-2 transition-colors">
             Профиль
           </button>
         </div>
