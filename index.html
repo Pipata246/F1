@@ -340,6 +340,36 @@
       margin-top:auto;
     }
 
+    .gameCardTitle{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin:0 0 8px 0;
+    }
+    .gameCardTitle h2{margin:0; font-size:16px; letter-spacing:.2px}
+    .gameIcon{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      flex-shrink:0;
+      line-height:0;
+    }
+    .gameIcon .gameSvg{display:block}
+    .gameIcon--lg .gameSvg{width:28px;height:28px}
+    .gameIcon--md .gameSvg{width:22px;height:22px}
+    .gameIcon--sm .gameSvg{width:17px;height:17px}
+    .gameIcon--tab .gameSvg{width:15px;height:15px}
+    .gameIcon--frog{color:#52d689}
+    .gameIcon--race{color:#fbbf24}
+    .gameIcon--penalty{color:#e8eef5}
+    .gameIcon--basket{color:#fb923c}
+    .profileStatHead--withIcon{
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .matchFilterTab .gameIcon{align-self:center}
+
     .tonBalanceCard{
       display:flex;
       align-items:center;
@@ -412,6 +442,9 @@
       color: var(--text2);
       backdrop-filter: blur(var(--blur));
       transition: border-color .12s ease, background .12s ease, color .12s ease;
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
     }
     .matchFilterTab:active{ transform: scale(.98); }
     .matchFilterTab.active{
@@ -536,7 +569,10 @@
 
         <!-- Frog Hunt PvP -->
         <div class="glass card" style="margin-bottom:12px;">
-          <h2>🐸 Охота на жабу</h2>
+          <div class="gameCardTitle">
+            <span class="gameIcon gameIcon--frog gameIcon--lg" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="14" rx="9" ry="7" fill="currentColor" opacity=".22"/><circle cx="8" cy="10" r="3.5" fill="currentColor"/><circle cx="16" cy="10" r="3.5" fill="currentColor"/><circle cx="8" cy="9.5" r="1.1" fill="#0E0F13"/><circle cx="16" cy="9.5" r="1.1" fill="#0E0F13"/><path d="M9 16c1.2 1.4 4.8 1.4 6 0" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></span>
+            <h2>Охота на жабу</h2>
+          </div>
           <div class="muted">PvP: один прячет жабу на кувшинках, другой стреляет. BO2 + тайбрейк.</div>
           <div class="divider"></div>
           <div class="row">
@@ -560,7 +596,10 @@
 
         <!-- Obstacle Race PvP -->
         <div class="glass card">
-          <h2>🏁 Полоса препятствий</h2>
+          <div class="gameCardTitle">
+            <span class="gameIcon gameIcon--race gameIcon--lg" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 20V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path fill="currentColor" fill-opacity=".4" d="M4 5h14v3H4V5zm0 4.5h14v3H4v-3zm0 4.5h14v3H4v-3z"/><path d="M4 5h14v10.5H4V5z" stroke="currentColor" stroke-width="1.3"/></svg></span>
+            <h2>Полоса препятствий</h2>
+          </div>
           <div class="muted">PvP: расставляй ловушки и беги по полосе соперника. Кто быстрее!</div>
           <div class="divider"></div>
           <div class="row">
@@ -584,7 +623,10 @@
 
         <!-- Super Penallity PvP -->
         <div class="glass card" style="margin-top:12px;">
-          <h2>⚽ Пенальти</h2>
+          <div class="gameCardTitle">
+            <span class="gameIcon gameIcon--penalty gameIcon--lg" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 12l2.6-4.2 3.2 2.4-1.1 4.8H7.3l-1.1-4.8 3.2-2.4L12 12z" stroke="currentColor" stroke-width="1.2" fill="currentColor" fill-opacity=".12" stroke-linejoin="round"/></svg></span>
+            <h2>Пенальти</h2>
+          </div>
           <div class="muted">PvP: бей и лови! 5 ударов каждому, серия до промаха при ничьей.</div>
           <div class="divider"></div>
           <div class="row">
@@ -608,7 +650,10 @@
 
         <!-- Basketball PvP -->
         <div class="glass card" style="margin-top:12px;">
-          <h2>🏀 Баскетбол</h2>
+          <div class="gameCardTitle">
+            <span class="gameIcon gameIcon--basket gameIcon--lg" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 3v18M3.6 8.5C7 11 17 11 20.4 8.5M3.6 15.5C7 13 17 13 20.4 15.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+            <h2>Баскетбол</h2>
+          </div>
           <div class="muted">PvP: разминка + 5 бросков на выбор дистанции. Овертайм — два кольца!</div>
           <div class="divider"></div>
           <div class="row">
@@ -684,10 +729,10 @@
 
           <div class="matchFilterRow" id="matchesFilterRow" role="tablist" aria-label="Фильтр по игре">
             <button type="button" class="matchFilterTab active" data-game="all" role="tab" aria-selected="true">Все</button>
-            <button type="button" class="matchFilterTab" data-game="frog_hunt" role="tab" aria-selected="false">🐸 Жаба</button>
-            <button type="button" class="matchFilterTab" data-game="obstacle_race" role="tab" aria-selected="false">🏁 Полоса</button>
-            <button type="button" class="matchFilterTab" data-game="super_penalty" role="tab" aria-selected="false">⚽ Пенальти</button>
-            <button type="button" class="matchFilterTab" data-game="basketball" role="tab" aria-selected="false">🏀 Баскет</button>
+            <button type="button" class="matchFilterTab" data-game="frog_hunt" role="tab" aria-selected="false"><span class="gameIcon gameIcon--frog gameIcon--tab" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="14" rx="9" ry="7" fill="currentColor" opacity=".22"/><circle cx="8" cy="10" r="3.5" fill="currentColor"/><circle cx="16" cy="10" r="3.5" fill="currentColor"/><circle cx="8" cy="9.5" r="1.1" fill="#0E0F13"/><circle cx="16" cy="9.5" r="1.1" fill="#0E0F13"/><path d="M9 16c1.2 1.4 4.8 1.4 6 0" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></span>Жаба</button>
+            <button type="button" class="matchFilterTab" data-game="obstacle_race" role="tab" aria-selected="false"><span class="gameIcon gameIcon--race gameIcon--tab" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 20V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path fill="currentColor" fill-opacity=".4" d="M4 5h14v3H4V5zm0 4.5h14v3H4v-3zm0 4.5h14v3H4v-3z"/><path d="M4 5h14v10.5H4V5z" stroke="currentColor" stroke-width="1.3"/></svg></span>Полоса</button>
+            <button type="button" class="matchFilterTab" data-game="super_penalty" role="tab" aria-selected="false"><span class="gameIcon gameIcon--penalty gameIcon--tab" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 12l2.6-4.2 3.2 2.4-1.1 4.8H7.3l-1.1-4.8 3.2-2.4L12 12z" stroke="currentColor" stroke-width="1.2" fill="currentColor" fill-opacity=".12" stroke-linejoin="round"/></svg></span>Пенальти</button>
+            <button type="button" class="matchFilterTab" data-game="basketball" role="tab" aria-selected="false"><span class="gameIcon gameIcon--basket gameIcon--tab" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 3v18M3.6 8.5C7 11 17 11 20.4 8.5M3.6 15.5C7 13 17 13 20.4 15.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>Баскет</button>
           </div>
 
           <div class="divider"></div>
@@ -712,22 +757,22 @@
           <h2 style="margin:0 0 10px 0; font-size:16px">Статистика</h2>
           <div class="profileStatsGrid">
             <div class="profileStatTile">
-              <div class="profileStatHead">🐸 Охота на жабу</div>
+              <div class="profileStatHead profileStatHead--withIcon"><span class="gameIcon gameIcon--frog gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="14" rx="9" ry="7" fill="currentColor" opacity=".22"/><circle cx="8" cy="10" r="3.5" fill="currentColor"/><circle cx="16" cy="10" r="3.5" fill="currentColor"/><circle cx="8" cy="9.5" r="1.1" fill="#0E0F13"/><circle cx="16" cy="9.5" r="1.1" fill="#0E0F13"/><path d="M9 16c1.2 1.4 4.8 1.4 6 0" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></span><span>Охота на жабу</span></div>
               <div class="profileStatMain" id="profStatFrogMain">—</div>
               <div class="profileStatSub muted" id="profStatFrogSub">Нет матчей</div>
             </div>
             <div class="profileStatTile">
-              <div class="profileStatHead">🏁 Полоса</div>
+              <div class="profileStatHead profileStatHead--withIcon"><span class="gameIcon gameIcon--race gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 20V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path fill="currentColor" fill-opacity=".4" d="M4 5h14v3H4V5zm0 4.5h14v3H4v-3zm0 4.5h14v3H4v-3z"/><path d="M4 5h14v10.5H4V5z" stroke="currentColor" stroke-width="1.3"/></svg></span><span>Полоса</span></div>
               <div class="profileStatMain" id="profStatRaceMain">—</div>
               <div class="profileStatSub muted" id="profStatRaceSub">Нет матчей</div>
             </div>
             <div class="profileStatTile">
-              <div class="profileStatHead">⚽ Пенальти</div>
+              <div class="profileStatHead profileStatHead--withIcon"><span class="gameIcon gameIcon--penalty gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 12l2.6-4.2 3.2 2.4-1.1 4.8H7.3l-1.1-4.8 3.2-2.4L12 12z" stroke="currentColor" stroke-width="1.2" fill="currentColor" fill-opacity=".12" stroke-linejoin="round"/></svg></span><span>Пенальти</span></div>
               <div class="profileStatMain" id="profStatPenMain">—</div>
               <div class="profileStatSub muted" id="profStatPenSub">Нет матчей</div>
             </div>
             <div class="profileStatTile">
-              <div class="profileStatHead">🏀 Баскетбол</div>
+              <div class="profileStatHead profileStatHead--withIcon"><span class="gameIcon gameIcon--basket gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 3v18M3.6 8.5C7 11 17 11 20.4 8.5M3.6 15.5C7 13 17 13 20.4 15.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span>Баскетбол</span></div>
               <div class="profileStatMain" id="profStatBasketMain">—</div>
               <div class="profileStatSub muted" id="profStatBasketSub">Нет матчей</div>
             </div>
