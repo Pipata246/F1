@@ -65,9 +65,6 @@ module.exports = async (req, res) => {
   await tg("sendMessage", {
     chat_id: message.chat.id,
     text: buildWelcomeText(firstName),
-    reply_markup: {
-      inline_keyboard: [[{ text: "Открыть F1 Duel", web_app: { url: WEBAPP_URL } }]],
-    },
   });
 
   return res.status(200).json({ ok: true });
