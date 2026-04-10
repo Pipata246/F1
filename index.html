@@ -850,7 +850,7 @@
       nickname: "",
       rulesAcceptedAt: 0,
       nicknameChangedAt: 0,
-      myRefCode: randCode(6),
+      myRefCode: "",
       referredBy: "",
       refStatus: "none",
     },
@@ -916,6 +916,7 @@
       if(data.exists){
         state.profile.nickname = data.user.nickname || "Player";
         state.profile.referredBy = data.user.referred_by || "";
+        state.profile.myRefCode = data.user.referral_code || "";
         state.onboarding.rulesAccepted = !!data.user.rules_accepted_at;
         state.onboarding.nicknameSet = !!data.user.nickname;
         // Existing user should not see referral step again.
@@ -928,6 +929,7 @@
         state.onboarding.nicknameSet = false;
         state.onboarding.referralAsked = false;
         state.profile.nickname = "";
+        state.profile.myRefCode = "";
       }
     }catch(e){
       console.error("hydrateUserFromServer:", e);
@@ -1308,22 +1310,36 @@
 
   shareRefBtn.onclick = ()=>{
     const appUrl = location.origin;
-    const text =
-      `✨Тебя пригласили в битву!\n\n` +
-      `🔥 Жми сюда, чтобы войти в игру:\n` +
-      `👉 @Fffasdq_bot\n\n` +
-      `🔐 А вот твой личный ключ доступа (он волшебный, так что не теряй):\n` +
-      `Код: ${state.profile.myRefCode}\n\n` +
-      `Погнали?`;
-    try{
-      const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(text)}`;
-      showShareNotice();
-      if(tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
-      else window.open(shareUrl, "_blank");
-    }catch(e){
-      navigator.clipboard?.writeText(text);
-      toast("Текст приглашения скопирован");
+    const openShare = (code)=>{
+      const text =
+        `✨Тебя пригласили в битву!\n\n` +
+        `🔥 Жми сюда, чтобы войти в игру:\n` +
+        `👉 @Fffasdq_bot\n\n` +
+        `🔐 А вот твой личный ключ доступа (он волшебный, так что не теряй):\n` +
+        `Код: ${code || "—"}\n\n` +
+        `Погнали?`;
+      try{
+        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(text)}`;
+        showShareNotice();
+        if(tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
+        else window.open(shareUrl, "_blank");
+      }catch(e){
+        navigator.clipboard?.writeText(text);
+        toast("Текст приглашения скопирован");
+      }
+    };
+    if(hasTgAuth){
+      apiJson("/api/user", { action:"authSession", initData: tgInitData })
+        .then((data)=>{
+          const freshCode = data.user?.referral_code || state.profile.myRefCode || "";
+          state.profile.myRefCode = freshCode;
+          save();
+          openShare(freshCode);
+        })
+        .catch(()=> openShare(state.profile.myRefCode || ""));
+      return;
     }
+    openShare(state.profile.myRefCode || "");
   };
 
   setSound.onchange = ()=>{ state.settings.sound = !!setSound.checked; save(); };

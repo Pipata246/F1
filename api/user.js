@@ -101,6 +101,50 @@ function validNickname(value) {
   return /^[A-Za-z0-9_]{3,16}$/.test(value || "");
 }
 
+function generateReferralCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < 6; i++) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
+}
+
+async function getUniqueReferralCode() {
+  for (let i = 0; i < 20; i++) {
+    const code = generateReferralCode();
+    const found = await sb(
+      `users?referral_code=eq.${encodeURIComponent(code)}&select=id&limit=1`
+    );
+    if (!found.length) return code;
+  }
+  throw new Error("Failed to generate unique referral code");
+}
+
+async function ensureReferralCode(tg, row) {
+  if (row?.referral_code) return row.referral_code;
+  const referralCode = await getUniqueReferralCode();
+  const payload = {
+    tg_user_id: String(tg.id),
+    first_name: tg.first_name || "",
+    last_name: tg.last_name || "",
+    username: tg.username || "",
+    nickname: row?.nickname || null,
+    referred_by: row?.referred_by || null,
+    referral_asked_at: row?.referral_asked_at || null,
+    referral_code: referralCode,
+    rules_accepted_at: row?.rules_accepted_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  await sb("users", {
+    method: "POST",
+    body: payload,
+    onConflict: "tg_user_id",
+    prefer: "resolution=merge-duplicates,return=representation",
+  });
+  return referralCode;
+}
+
 async function authSession(initData) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -108,7 +152,7 @@ async function authSession(initData) {
   const tgId = String(tg.id);
 
   const rows = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,nickname,referred_by,referral_asked_at,rules_accepted_at,created_at,updated_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at,created_at,updated_at&limit=1`
   );
 
   if (!rows.length) {
@@ -122,7 +166,9 @@ async function authSession(initData) {
       },
     };
   }
-  return { exists: true, user: rows[0] };
+  const user = rows[0];
+  const referralCode = await ensureReferralCode(tg, user);
+  return { exists: true, user: { ...user, referral_code: referralCode } };
 }
 
 async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
@@ -135,7 +181,7 @@ async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
   if (!validNickname(cleanNick)) throw new Error("Invalid nickname format");
 
   const existing = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=referred_by,referral_asked_at,rules_accepted_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=referred_by,referral_asked_at,referral_code,rules_accepted_at&limit=1`
   );
   const prevRef = existing[0]?.referred_by || null;
   const prevAskedAt = existing[0]?.referral_asked_at || null;
@@ -153,6 +199,7 @@ async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
     nickname: cleanNick,
     referred_by: prevAskedAt ? prevRef : (cleanRef || null),
     referral_asked_at: prevAskedAt || new Date().toISOString(),
+    referral_code: existing[0]?.referral_code || (await getUniqueReferralCode()),
     rules_accepted_at: rulesAcceptedAt,
     updated_at: new Date().toISOString(),
   };
@@ -173,7 +220,7 @@ async function markReferralAsked(initData) {
   const tgId = String(tg.id);
 
   const existing = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,nickname,referred_by,referral_asked_at,rules_accepted_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at&limit=1`
   );
   if (!existing.length) throw new Error("User not found");
 
@@ -186,6 +233,7 @@ async function markReferralAsked(initData) {
     nickname: row.nickname || null,
     referred_by: row.referred_by || null,
     referral_asked_at: row.referral_asked_at || new Date().toISOString(),
+    referral_code: row.referral_code || (await getUniqueReferralCode()),
     rules_accepted_at: row.rules_accepted_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

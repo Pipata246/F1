@@ -14,6 +14,7 @@ create table if not exists public.users (
   nickname text,
   referred_by text,
   referral_asked_at timestamptz,
+  referral_code text unique not null,
   rules_accepted_at timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -22,6 +23,7 @@ create table if not exists public.users (
 
 create index if not exists idx_users_tg_user_id on public.users(tg_user_id);
 create index if not exists idx_users_username on public.users(username);
+create unique index if not exists idx_users_referral_code_unique on public.users(referral_code);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -79,3 +81,8 @@ using (false);
 --   add constraint users_nickname_format
 --   check (nickname is null or nickname ~ '^[A-Za-z0-9_]{3,16}$');
 -- alter table public.users add column if not exists referral_asked_at timestamptz;
+-- alter table public.users add column if not exists referral_code text;
+-- create unique index if not exists idx_users_referral_code_unique on public.users(referral_code);
+-- update public.users set referral_code = upper(substr(md5(random()::text || clock_timestamp()::text), 1, 6))
+-- where referral_code is null;
+-- alter table public.users alter column referral_code set not null;
