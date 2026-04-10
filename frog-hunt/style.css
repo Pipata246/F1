@@ -155,23 +155,7 @@ input[type="text"]::placeholder { color: var(--text2); }
   margin-bottom: 16px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.center-content p { color: var(--text2); margin-bottom: 12px; }
-.loading-track {
-  width: 100%;
-  max-width: 280px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-  margin: 2px 0 10px;
-}
-.loading-fill {
-  width: 12%;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #3ddf77, #7dffb0);
-  transition: width 180ms linear;
-}
+.center-content p { color: var(--text2); margin-bottom: 16px; }
 
 #screen-game {
   padding: var(--tg-safe-top-ui) 0 var(--tg-safe-bottom);

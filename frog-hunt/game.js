@@ -25,8 +25,6 @@ var pvpLastTiebreakMarker = 0;
 var pvpLastMatchMarker = 0;
 var pvpLastTurnKey = '';
 var pvpPendingSubmit = false;
-var waitingProgressTimer = null;
-var waitingProgress = 10;
 var pvpPollInFlight = false;
 var PVP_POLL_MS = 350;
 var pvpRecovering = false;
@@ -139,26 +137,6 @@ function showScreen(name) {
   var screens = document.querySelectorAll('.screen');
   for (var i = 0; i < screens.length; i++) screens[i].classList.remove('active');
   $('screen-' + name).classList.add('active');
-  if (name === 'waiting') startWaitingProgress();
-  else stopWaitingProgress();
-}
-
-function startWaitingProgress() {
-  stopWaitingProgress();
-  waitingProgress = 10;
-  var el = $('waiting-progress');
-  if (el) el.style.width = waitingProgress + '%';
-  waitingProgressTimer = setInterval(function() {
-    waitingProgress = Math.min(92, waitingProgress + (waitingProgress < 60 ? 6 : 2));
-    if (el) el.style.width = waitingProgress + '%';
-  }, 250);
-}
-
-function stopWaitingProgress() {
-  if (waitingProgressTimer) clearInterval(waitingProgressTimer);
-  waitingProgressTimer = null;
-  var el = $('waiting-progress');
-  if (el) el.style.width = '10%';
 }
 
 function showOverlay(id) { $(id).classList.add('active'); }
@@ -194,7 +172,6 @@ function stopPvpPolling() {
   pvpPollTimer = null;
   pvpPollInFlight = false;
   pvpPendingSubmit = false;
-  stopWaitingProgress();
 }
 
 function leavePvpQueue() {
