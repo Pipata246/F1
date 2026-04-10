@@ -59,6 +59,10 @@
       border-bottom:1px solid rgba(255,255,255,.07);
     }
     .brand{display:flex; align-items:center; gap:10px; font-weight:900; letter-spacing:.2px}
+    .brandLogo{
+      width:20px; height:20px; display:block; flex:0 0 auto;
+      filter: drop-shadow(0 0 8px rgba(140,255,193,.35));
+    }
     .chip{
       font-size:12px; padding:7px 10px; border-radius:999px;
       background: var(--glass-bg); border:1px solid var(--glass-border);
@@ -256,8 +260,10 @@
   <div class="app">
     <div class="topbar">
       <div class="brand">
-        <span>🏁 F1 Duel</span>
-        <span id="envChip" class="chip">WebApp</span>
+        <svg class="brandLogo" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#8CFFC1" d="M3 17h9l1.6-4H7l.8-2H14l1.3-3H6.8L5.5 11H3.2l.9-2.6C4.8 6.5 6.6 5 8.7 5H21l-.8 2h-3.4L14 14h5.4l-.9 2.5C17.8 18.5 16 20 13.9 20H3z"/>
+        </svg>
+        <span>F1 Duel</span>
       </div>
       <div class="chip" id="userChip">Гость</div>
     </div>
@@ -728,9 +734,6 @@
   document.body.classList.add("booting");
   const tg = window.Telegram?.WebApp;
   try{ tg?.ready(); tg?.expand(); }catch(e){}
-  const envChip = document.getElementById("envChip");
-  envChip.textContent = tg ? "Telegram WebApp" : "Browser";
-
   const KEY="f1duel_state_v2_games";
   const tgInitData = tg?.initData || "";
   const hasTgAuth = !!tgInitData;
