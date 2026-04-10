@@ -5,10 +5,11 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   // Собранное приложение лежит в /super-penallity/dist/ — иначе в корне остаётся старый захардкоженный бандл.
-  base: '/super-penallity/dist/',
+  base: '/super-penallity/',
   server: {
     proxy: {
       '/api': 'http://localhost:3001',
     },
   },
 })
+

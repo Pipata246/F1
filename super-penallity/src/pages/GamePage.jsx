@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
-const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/dist/';
+const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 function appSettings() {
   try {
@@ -1006,3 +1006,4 @@ const GamePage = () => {
 };
 
 export default GamePage;
+
