@@ -80,6 +80,7 @@ const GamePage = () => {
   const [matchResult, setMatchResult] = useState(null);
   const [announce, setAnnounce] = useState(null);
   const [selectedDistance, setSelectedDistance] = useState(null);
+  const [roundResolving, setRoundResolving] = useState(false);
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -100,6 +101,7 @@ const GamePage = () => {
   const pvpLastPhaseKeyRef = useRef('');
   const pvpLastStartKeyRef = useRef('');
   const choiceLockedRef = useRef(false);
+  const roundResolvingRef = useRef(false);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { scoresRef.current = scores; }, [scores]);
@@ -149,7 +151,7 @@ const GamePage = () => {
   }
 
   // ============ SHOT ANIMATION (sequential, minimal state updates) ============
-  function animateRound(shots, phase, finalScores) {
+  function animateRound(shots, phase, finalScores, onDone) {
     clearPending();
     const dur = phase === 1 ? 1.6 : 2.4, durMs = dur*1000;
     const moveMs = phase===1?100:400, showMs=1000, gap=300;
@@ -177,7 +179,11 @@ const GamePage = () => {
       sched(() => setBallAnim(null), t0+moveMs+durMs+200);
       sched(() => setShotResult(null), rimT+showMs);
     });
-    sched(() => setShotResult(null), shots.length*cycle+200);
+    const endAt = shots.length * cycle + 200;
+    sched(() => {
+      setShotResult(null);
+      onDone?.();
+    }, endAt);
   }
 
   // ============ SERVER ============
@@ -195,10 +201,31 @@ const GamePage = () => {
         setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
         if(msg.phase===2) showAnnounce('GAME ON','5 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
-      case 'round_start': setAnnounce(null); setRound(msg.round); setMaxRounds(msg.maxRounds); setChoosing(true); setLocked(false); startTimer(); break;
+      case 'round_start':
+        // Never show next-turn controls while previous round animations are still playing.
+        if (roundResolvingRef.current) break;
+        setAnnounce(null);
+        setRound(msg.round);
+        setMaxRounds(msg.maxRounds);
+        setChoosing(true);
+        setLocked(false);
+        startTimer();
+        break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'opponent_locked': break;
-      case 'round_result': stopTimer(); setChoosing(false); setLocked(false); setRound(msg.round); setAnnounce(null); animateRound(msg.shots,msg.phase,msg.scores); break;
+      case 'round_result':
+        stopTimer();
+        setChoosing(false);
+        setLocked(false);
+        setRound(msg.round);
+        setAnnounce(null);
+        roundResolvingRef.current = true;
+        setRoundResolving(true);
+        animateRound(msg.shots, msg.phase, msg.scores, () => {
+          roundResolvingRef.current = false;
+          setRoundResolving(false);
+        });
+        break;
       case 'match_result':
         sched(() => { setMatchResult({youWon:msg.youWon,scores:msg.scores}); setScreen('result'); sfx(msg.youWon?'win':'lose');
           if (playModeRef.current === 'bot') saveMatchToBackend(msg.youWon, msg.scores);
@@ -255,6 +282,7 @@ const GamePage = () => {
     if (s.phase === 'turn_input') {
       const startKey = `${phaseNum}:${Number(s.round || 0)}`;
       if (startKey === pvpLastStartKeyRef.current) return;
+      if (roundResolvingRef.current) return;
       pvpLastStartKeyRef.current = startKey;
       choiceLockedRef.current = false;
       setSelectedDistance(null);
@@ -457,7 +485,7 @@ const GamePage = () => {
   };
 
   const chooseDist = (d) => {
-    if (locked || !choosing || choiceLockedRef.current) return;
+    if (locked || !choosing || choiceLockedRef.current || roundResolvingRef.current) return;
     choiceLockedRef.current = true;
     sfx('click');
     setChoosing(false);
@@ -655,7 +683,7 @@ const GamePage = () => {
 
       {/* BOTTOM */}
       <div className="absolute bottom-2 left-0 right-0 z-30 px-3">
-        {choosing&&!locked ? (
+        {choosing&&!locked&&!roundResolving ? (
           <div className="flex gap-2 animate-[fadeIn_0.2s]">
             {DISTS.map(d => (
               <button key={d.key} onClick={()=>chooseDist(d.key)}
