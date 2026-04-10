@@ -256,7 +256,7 @@
     canvas{display:block; width:100%; height:auto; touch-action:none;}
   </style>
 </head>
-<body>
+<body class="booting">
   <div class="app">
     <div class="topbar">
       <div class="brand">
@@ -731,7 +731,6 @@
   </div>
 
 <script>
-  document.body.classList.add("booting");
   const tg = window.Telegram?.WebApp;
   try{ tg?.ready(); tg?.expand(); }catch(e){}
   const KEY="f1duel_state_v2_games";
@@ -961,13 +960,13 @@
       return;
     }
     try{
+      document.body.classList.add("booting");
       await apiJson("/api/user", { action:"upsertUser",
         initData: tgInitData,
         nickname: state.profile.nickname,
         referredBy: state.profile.referredBy || "",
         rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
-      document.body.classList.add("booting");
       await hydrateUserFromServer();
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
@@ -989,13 +988,13 @@
       return;
     }
     try{
+      document.body.classList.add("booting");
       await apiJson("/api/user", { action:"upsertUser",
         initData: tgInitData,
         nickname: state.profile.nickname,
         referredBy: "",
         rulesAcceptedAt: state.profile.rulesAcceptedAt || 0,
       });
-      document.body.classList.add("booting");
       await hydrateUserFromServer();
       state.onboarding.referralAsked = true;
       state.onboarding.rulesAccepted = true;
@@ -1176,8 +1175,10 @@
       toast("Ник обновлён");
       return;
     }
+    document.body.classList.add("booting");
     apiJson("/api/user", { action:"upsertUser", initData: tgInitData, nickname: n, referredBy: "", rulesAcceptedAt: state.profile.rulesAcceptedAt || 0 })
       .then((data)=>{
+        document.body.classList.remove("booting");
         state.profile.nickname = data.user?.nickname || n;
         state.profile.nicknameChangedAt = now();
         addTx("Ник обновлён");
@@ -1186,6 +1187,7 @@
         toast("Ник обновлён");
       })
       .catch((e)=>{
+        document.body.classList.remove("booting");
         nickModalError.textContent = e.message || "Ошибка сохранения";
         nickModalError.style.display = "block";
       });
