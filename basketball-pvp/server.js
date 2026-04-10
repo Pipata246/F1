@@ -8,6 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+const CENTRAL_API_URL = process.env.CENTRAL_API_URL || '';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 app.use(express.static(path.join(__dirname, 'dist')));
 app.use(express.json());
@@ -27,6 +29,23 @@ const stats = {};
 let waitingPlayer = null;
 let roomIdCounter = 0;
 const rooms = new Map();
+
+async function reportMatchToCentral(payload) {
+  if (!CENTRAL_API_URL || !INTERNAL_API_KEY || typeof fetch !== 'function') return;
+  try {
+    await fetch(`${CENTRAL_API_URL.replace(/\/+$/, '')}/api/user`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-api-key': INTERNAL_API_KEY,
+      },
+      body: JSON.stringify({
+        action: 'recordMatchInternal',
+        ...payload,
+      }),
+    });
+  } catch (e) {}
+}
 
 // ============ HELPERS ============
 function sendTo(ws, msg) { if (ws?.readyState === 1) ws.send(JSON.stringify(msg)); }
@@ -183,6 +202,13 @@ function endMatch(room) {
   if (room.finished) return;
   room.finished = true;
   const winner = room.scores[0] > room.scores[1] ? 0 : 1;
+  const playersPayload = room.players.map((p, i) => ({
+    tgUserId: p.tgUserId || null,
+    name: p.name || 'Player',
+    score: room.scores[i],
+    isWinner: i === winner,
+    isBot: !!p.isBot,
+  }));
   room.players.forEach((p, i) => {
     const youWon = i === winner;
     sendTo(p.ws, { type: 'match_result', youWon, scores: [...room.scores] });
@@ -191,6 +217,18 @@ function endMatch(room) {
       const s = stats[p.tgUserId]; s.gamesPlayed++; s.totalPoints += room.scores[i];
       if (youWon) s.wins++; else s.losses++;
     }
+  });
+  reportMatchToCentral({
+    gameKey: 'basketball',
+    serverMatchId: String(room.id),
+    mode: room.players.some((p) => p.isBot) ? 'bot' : 'pvp',
+    winnerTgUserId: playersPayload[winner]?.tgUserId || null,
+    players: playersPayload,
+    score: { left: room.scores[0], right: room.scores[1] },
+    details: {
+      phase: room.phase,
+      roundsPlayed: room.round,
+    },
   });
   cleanupRoom(room);
 }

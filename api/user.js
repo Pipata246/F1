@@ -247,6 +247,113 @@ async function markReferralAsked(initData) {
   return rows?.[0] || payload;
 }
 
+function assertInternalApiKey(req) {
+  const expected = process.env.INTERNAL_API_KEY || "";
+  if (!expected) throw new Error("Internal API key is not set");
+  const provided = req.headers["x-internal-api-key"];
+  if (!provided || provided !== expected) throw new Error("Forbidden");
+}
+
+function normalizeGameKey(value) {
+  const key = String(value || "").trim();
+  const allowed = new Set(["frog_hunt", "obstacle_race", "super_penalty", "basketball"]);
+  if (!allowed.has(key)) throw new Error("Invalid game key");
+  return key;
+}
+
+function asIsoDate(value) {
+  const d = value ? new Date(value) : new Date();
+  if (Number.isNaN(d.getTime())) return new Date().toISOString();
+  return d.toISOString();
+}
+
+function asObj(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+async function recordMatchInternal(req) {
+  assertInternalApiKey(req);
+  const b = req.body || {};
+  const gameKey = normalizeGameKey(b.gameKey);
+  const playersRaw = Array.isArray(b.players) ? b.players : [];
+  if (playersRaw.length < 1) throw new Error("Missing players");
+
+  const players = playersRaw.slice(0, 2).map((p) => ({
+    tgUserId: p?.tgUserId ? String(p.tgUserId) : null,
+    name: String(p?.name || "Player").slice(0, 64),
+    score: Number(p?.score || 0),
+    isWinner: !!p?.isWinner,
+    isBot: !!p?.isBot,
+  }));
+  const finishedAt = asIsoDate(b.finishedAt);
+  const mode = String(b.mode || (players.some((p) => p.isBot) ? "bot" : "pvp")).slice(0, 20);
+  const winnerTgUserId = b.winnerTgUserId ? String(b.winnerTgUserId) : null;
+  const score = asObj(b.score);
+  const details = asObj(b.details);
+  const serverMatchId = String(b.serverMatchId || `${gameKey}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`).slice(0, 80);
+
+  await sb("game_matches", {
+    method: "POST",
+    body: {
+      game_key: gameKey,
+      server_match_id: serverMatchId,
+      mode,
+      player1_tg_user_id: players[0]?.tgUserId || null,
+      player1_name: players[0]?.name || "Player",
+      player2_tg_user_id: players[1]?.tgUserId || null,
+      player2_name: players[1]?.name || "Player",
+      winner_tg_user_id: winnerTgUserId,
+      score_json: score,
+      details_json: details,
+      finished_at: finishedAt,
+      created_at: finishedAt,
+    },
+    prefer: "return=representation",
+  });
+
+  const nonBotPlayers = players.filter((p) => !p.isBot && p.tgUserId);
+  for (const p of nonBotPlayers) {
+    const tgId = String(p.tgUserId);
+    const existingRows = await sb(
+      `game_player_stats?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.${encodeURIComponent(gameKey)}&select=tg_user_id,game_key,games_played,wins,losses,points_for,points_against&limit=1`
+    );
+    const existing = existingRows[0] || null;
+    const opponent = players.find((x) => x !== p) || { score: 0 };
+    const next = {
+      tg_user_id: tgId,
+      game_key: gameKey,
+      games_played: Number(existing?.games_played || 0) + 1,
+      wins: Number(existing?.wins || 0) + (p.isWinner ? 1 : 0),
+      losses: Number(existing?.losses || 0) + (p.isWinner ? 0 : 1),
+      points_for: Number(existing?.points_for || 0) + Number(p.score || 0),
+      points_against: Number(existing?.points_against || 0) + Number(opponent.score || 0),
+      last_result: p.isWinner ? "win" : "loss",
+      last_match_at: finishedAt,
+      updated_at: new Date().toISOString(),
+    };
+    await sb("game_player_stats", {
+      method: "POST",
+      body: next,
+      onConflict: "tg_user_id,game_key",
+      prefer: "resolution=merge-duplicates,return=minimal",
+    });
+  }
+
+  return { gameKey, serverMatchId, savedPlayers: nonBotPlayers.length };
+}
+
+async function getGameStats(initData) {
+  const verified = verifyTelegramInitData(initData, BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const rows = await sb(
+    `game_player_stats?tg_user_id=eq.${encodeURIComponent(tgId)}&select=game_key,games_played,wins,losses,points_for,points_against,last_result,last_match_at`
+  );
+  const byGame = {};
+  for (const r of rows || []) byGame[r.game_key] = r;
+  return byGame;
+}
+
 module.exports = async (req, res) => {
   try {
     if (req.method !== "POST") {
@@ -273,6 +380,14 @@ module.exports = async (req, res) => {
       const user = await markReferralAsked(req.body?.initData || "");
       return res.status(200).json({ ok: true, user });
     }
+    if (action === "recordMatchInternal") {
+      const result = await recordMatchInternal(req);
+      return res.status(200).json({ ok: true, result });
+    }
+    if (action === "getGameStats") {
+      const stats = await getGameStats(req.body?.initData || "");
+      return res.status(200).json({ ok: true, stats });
+    }
 
     return res.status(400).json({ ok: false, error: "Unknown action" });
   } catch (e) {
@@ -284,6 +399,8 @@ module.exports = async (req, res) => {
           ? 404
           : msg === "Invalid nickname format" || msg.includes("Rules must be accepted")
             ? 400
+            : msg === "Forbidden"
+              ? 403
             : 500;
     return res.status(code).json({ ok: false, error: msg });
   }

@@ -43,6 +43,25 @@ function postToSheets(data) {
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+const CENTRAL_API_URL = process.env.CENTRAL_API_URL || '';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+
+async function reportMatchToCentral(payload) {
+  if (!CENTRAL_API_URL || !INTERNAL_API_KEY || typeof fetch !== 'function') return;
+  try {
+    await fetch(`${CENTRAL_API_URL.replace(/\/+$/, '')}/api/user`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-api-key': INTERNAL_API_KEY
+      },
+      body: JSON.stringify({
+        action: 'recordMatchInternal',
+        ...payload
+      })
+    });
+  } catch (e) {}
+}
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -119,8 +138,8 @@ setInterval(() => {
 
 function onMessage(ws, msg) {
   switch (msg.type) {
-    case 'find_game': findGame(ws, msg.name, false); break;
-    case 'find_bot': findGame(ws, msg.name, true); break;
+    case 'find_game': ws.tgUserId = msg.tgUserId || null; findGame(ws, msg.name, false); break;
+    case 'find_bot': ws.tgUserId = msg.tgUserId || null; findGame(ws, msg.name, true); break;
     case 'cancel_wait': if (waitingPlayer === ws) waitingPlayer = null; break;
     case 'place_traps': placeTraps(ws, msg.traps); break;
     case 'make_move': makeMove(ws, msg.action, msg.useAbility); break;
@@ -181,7 +200,8 @@ function makeRoom(p1, p2) {
     overtimeRound: 0,
     overtimeTraps: null,
     firstScorer: null,
-    botAbilityRound: Math.floor(Math.random() * 7)
+    botAbilityRound: Math.floor(Math.random() * 7),
+    reportSent: false
   };
 }
 
@@ -460,6 +480,29 @@ function resolveRound(room) {
 
   if (gameOver) {
     room.phase = 'finished';
+    if (!room.reportSent) {
+      room.reportSent = true;
+      const playersPayload = room.players.map((p, i) => ({
+        tgUserId: p.tgUserId || null,
+        name: room.names[i] || 'Player',
+        score: room.scores[i],
+        isWinner: i === winner,
+        isBot: !!p.isBot
+      }));
+      reportMatchToCentral({
+        gameKey: 'obstacle_race',
+        serverMatchId: room.id,
+        mode: room.players.some((p) => p.isBot) ? 'bot' : 'pvp',
+        winnerTgUserId: playersPayload[winner]?.tgUserId || null,
+        players: playersPayload,
+        score: { left: room.scores[0], right: room.scores[1] },
+        details: {
+          roundsPlayed: stepPlayed + 1,
+          overtime: room.overtime,
+          firstScorer: room.firstScorer
+        }
+      });
+    }
     postToSheets({
       ability_1: room.abilities[0],
       ability_2: room.abilities[1],

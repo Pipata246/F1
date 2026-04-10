@@ -6,6 +6,8 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+const CENTRAL_API_URL = process.env.CENTRAL_API_URL || "";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "";
 
 // CORS for F1 Duel to fetch stats
 app.use((req, res, next) => {
@@ -27,6 +29,23 @@ function recordResult(userId, won) {
   const s = getStats(userId);
   s.games++;
   if (won) s.wins++; else s.losses++;
+}
+
+async function reportMatchToCentral(payload) {
+  if (!CENTRAL_API_URL || !INTERNAL_API_KEY || typeof fetch !== "function") return;
+  try {
+    await fetch(`${CENTRAL_API_URL.replace(/\/+$/, '')}/api/user`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-api-key": INTERNAL_API_KEY,
+      },
+      body: JSON.stringify({
+        action: "recordMatchInternal",
+        ...payload,
+      }),
+    });
+  } catch (e) {}
 }
 
 // Stats API
@@ -417,6 +436,14 @@ function endCurrentGame(room, winnerRole) {
 
 function endMatch(room) {
   room.phase = 'match_over';
+  const winnerIdx = room.matchScores[0] > room.matchScores[1] ? 0 : 1;
+  const playersPayload = room.players.map((p, i) => ({
+    tgUserId: p.tgUserId || null,
+    name: room.names[i] || 'Player',
+    score: room.matchScores[i],
+    isWinner: i === winnerIdx,
+    isBot: !!p.isBot,
+  }));
   room.players.forEach((p, i) => {
     const won = room.matchScores[i] > room.matchScores[1 - i];
     send(p, {
@@ -427,6 +454,20 @@ function endMatch(room) {
     });
     // Record stats
     if (p.tgUserId) recordResult(p.tgUserId, won);
+  });
+  reportMatchToCentral({
+    gameKey: "frog_hunt",
+    serverMatchId: room.id,
+    mode: room.players.some((p) => p.isBot) ? "bot" : "pvp",
+    winnerTgUserId: playersPayload[winnerIdx]?.tgUserId || null,
+    players: playersPayload,
+    score: { left: room.matchScores[0], right: room.matchScores[1] },
+    details: {
+      gameNum: room.gameNum,
+      totalRounds: room.totalRounds,
+      totalCells: room.totalCells,
+      hunterShots: room.hunterShots,
+    },
   });
   setTimeout(() => rooms.delete(room.id), 10000);
 }

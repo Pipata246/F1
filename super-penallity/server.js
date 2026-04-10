@@ -10,6 +10,8 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
+const CENTRAL_API_URL = process.env.CENTRAL_API_URL || '';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 const PORT = process.env.PORT || 3001;
 
@@ -21,6 +23,23 @@ function getStats(userId) {
     stats.set(userId, { wins: 0, losses: 0, goals: 0, saves: 0 });
   }
   return stats.get(userId);
+}
+
+async function reportMatchToCentral(payload) {
+  if (!CENTRAL_API_URL || !INTERNAL_API_KEY || typeof fetch !== 'function') return;
+  try {
+    await fetch(`${CENTRAL_API_URL.replace(/\/+$/, '')}/api/user`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-api-key': INTERNAL_API_KEY,
+      },
+      body: JSON.stringify({
+        action: 'recordMatchInternal',
+        ...payload,
+      }),
+    });
+  } catch (e) {}
 }
 
 // --- API ---
@@ -259,6 +278,14 @@ function endMatch(room) {
   clearTimeout(room.timer);
 
   const [s0, s1] = room.scores;
+  const winnerIdx = s0 > s1 ? 0 : 1;
+  const playersPayload = room.players.map((p, i) => ({
+    tgUserId: p.tgUserId || null,
+    name: p.name || 'Player',
+    score: room.scores[i],
+    isWinner: i === winnerIdx,
+    isBot: !!p.isBot,
+  }));
 
   for (const p of room.players) {
     const won = (p.playerIndex === 0 && s0 > s1) || (p.playerIndex === 1 && s1 > s0);
@@ -294,6 +321,20 @@ function endMatch(room) {
       st.saves += oppKicks - room.scores[oppIdx];
     }
   }
+
+  reportMatchToCentral({
+    gameKey: 'super_penalty',
+    serverMatchId: String(room.id),
+    mode: room.players.some((p) => p.isBot) ? 'bot' : 'pvp',
+    winnerTgUserId: playersPayload[winnerIdx]?.tgUserId || null,
+    players: playersPayload,
+    score: { left: s0, right: s1 },
+    details: {
+      roundsPlayed: room.round,
+      suddenDeath: room.suddenDeath,
+      historySize: room.history.length,
+    },
+  });
 
   rooms.delete(room.id);
 }

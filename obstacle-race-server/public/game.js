@@ -11,6 +11,7 @@ let moveChosen = false;
 let timerInterval = null;
 let isOvertime = false;
 let trackDots = 7;
+let tgUserId = null;
 
 // Abilities
 let myAbility = null;
@@ -69,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.add('tg-theme');
         const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
         if (user && user.first_name) $('player-name').value = user.first_name;
+        if (user && user.id) tgUserId = String(user.id);
     }
 
     $('btn-find').onclick = () => startGame(false);
@@ -131,11 +133,11 @@ function startGame(vsBot) {
     clearInterval(timerInterval);
 
     if (ws && ws.readyState === 1) {
-        sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName });
+        sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId });
         if (!vsBot) showScreen('waiting');
     } else {
         connect(() => {
-            sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName });
+            sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId });
             if (!vsBot) showScreen('waiting');
         });
     }
