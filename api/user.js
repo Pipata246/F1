@@ -306,6 +306,65 @@ function pvpConfigForGame(gameNum) {
   return { totalRounds: 5, totalCells: 8, hunterShots: 1 };
 }
 
+function asMs(value) {
+  const t = new Date(value || 0).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function pvpHeartbeat(state, tgId) {
+  const next = { ...asObj(state) };
+  const side = String(next?.players?.p1 || "") === String(tgId) ? "p1" : "p2";
+  const now = Date.now();
+  const presence = { ...(next.presence || {}) };
+  const prev = Number(presence[side] || 0);
+  if (now - prev < 8000) return { changed: false, state: next };
+  presence[side] = now;
+  next.presence = presence;
+  next.updatedAt = new Date().toISOString();
+  return { changed: true, state: next };
+}
+
+async function pvpCancelRooms(ids) {
+  const uniq = [...new Set((ids || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0))];
+  if (!uniq.length) return;
+  await sb(`pvp_rooms?id=in.(${uniq.join(",")})`, {
+    method: "PATCH",
+    body: { status: "cancelled", updated_at: new Date().toISOString() },
+    prefer: "return=minimal",
+  });
+}
+
+async function pvpCleanupUserRooms(tgId, gameKey) {
+  const rows = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=in.(waiting,active)&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=*&order=updated_at.desc&limit=20`
+  );
+  if (!rows?.length) return null;
+  const now = Date.now();
+  const staleMs = 2 * 60 * 1000;
+  const alive = [];
+  const cancelIds = [];
+  for (const r of rows) {
+    const age = now - Math.max(asMs(r.updated_at), asMs(r.created_at));
+    if (age > staleMs) cancelIds.push(r.id);
+    else alive.push(r);
+  }
+  let keep = null;
+  for (const r of alive) {
+    if (r.status === "active") { keep = r; break; }
+  }
+  if (!keep) {
+    for (const r of alive) {
+      if (r.status === "waiting" && String(r.player1_tg_user_id) === String(tgId) && !r.player2_tg_user_id) {
+        keep = r;
+        break;
+      }
+    }
+  }
+  const toCancelDup = alive.filter((r) => !keep || Number(r.id) !== Number(keep.id)).map((r) => r.id);
+  await pvpCancelRooms(cancelIds.concat(toCancelDup));
+  return keep;
+}
+
 function pvpAdvanceByTime(room) {
   const s = asObj(room?.state_json);
   const now = Date.now();
@@ -462,10 +521,8 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const key = normalizeGameKey(gameKey);
   if (key !== "frog_hunt") throw new Error("PvP is enabled only for frog_hunt now");
 
-  const existing = await sb(
-    `pvp_rooms?game_key=eq.${encodeURIComponent(key)}&status=in.(waiting,active)&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=*&order=created_at.desc&limit=1`
-  );
-  if (existing?.length) return existing[0];
+  const existing = await pvpCleanupUserRooms(tgId, key);
+  if (existing) return existing;
 
   const waiting = await sb(
     `pvp_rooms?game_key=eq.${encodeURIComponent(key)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=5`
@@ -487,7 +544,10 @@ async function pvpFindMatch(initData, gameKey, playerName) {
         prefer: "return=representation",
       }
     );
-    if (joined?.length) return joined[0];
+    if (joined?.length) {
+      await pvpCleanupUserRooms(tgId, key);
+      return joined[0];
+    }
   }
 
   const created = await sb("pvp_rooms", {
@@ -527,10 +587,11 @@ async function pvpGetRoomState(initData, roomId) {
 
   const advanced = pvpAdvanceByTime(room);
   let nextRoom = room;
-  if (advanced.changed) {
+  const hb = pvpHeartbeat(advanced.state, tgId);
+  if (advanced.changed || hb.changed) {
     const patched = await sb(`pvp_rooms?id=eq.${id}`, {
       method: "PATCH",
-      body: { state_json: advanced.state, updated_at: new Date().toISOString() },
+      body: { state_json: hb.state, updated_at: new Date().toISOString() },
       prefer: "return=representation",
     });
     if (patched?.length) nextRoom = patched[0];
@@ -554,7 +615,8 @@ async function pvpSubmitMove(initData, roomId, move) {
   if (room.status !== "active") throw new Error("Room is not active");
 
   const nowState = pvpAdvanceByTime(room).state;
-  const nextState = pvpApplyMove({ ...room, state_json: nowState }, tgId, asObj(move));
+  const withHeartbeat = pvpHeartbeat(nowState, tgId).state;
+  const nextState = pvpApplyMove({ ...room, state_json: withHeartbeat }, tgId, asObj(move));
   const patched = await sb(`pvp_rooms?id=eq.${id}`, {
     method: "PATCH",
     body: { state_json: nextState, updated_at: new Date().toISOString() },
@@ -626,10 +688,14 @@ async function pvpLeaveRoom(initData, roomId) {
   if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
     throw new Error("Forbidden");
   }
-  if (room.status === "waiting") {
+  if (room.status === "waiting" || room.status === "active") {
     await sb(`pvp_rooms?id=eq.${id}`, {
       method: "PATCH",
-      body: { status: "cancelled", updated_at: new Date().toISOString() },
+      body: {
+        status: "cancelled",
+        state_json: { ...asObj(room.state_json), leftBy: tgId, leftAt: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      },
       prefer: "return=minimal",
     });
     return { left: true };

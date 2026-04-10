@@ -25,6 +25,8 @@ var pvpLastTiebreakMarker = 0;
 var pvpLastMatchMarker = 0;
 var pvpLastTurnKey = '';
 var pvpPendingSubmit = false;
+var waitingProgressTimer = null;
+var waitingProgress = 10;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -90,12 +92,34 @@ document.addEventListener('DOMContentLoaded', function() {
   $('btn-confirm').onclick = confirmChoice;
   $('btn-again').onclick = function() { startSearch(isBotMode); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
+  window.addEventListener('pagehide', function() { leavePvpQueue(); });
+  window.addEventListener('beforeunload', function() { leavePvpQueue(); });
 });
 
 function showScreen(name) {
   var screens = document.querySelectorAll('.screen');
   for (var i = 0; i < screens.length; i++) screens[i].classList.remove('active');
   $('screen-' + name).classList.add('active');
+  if (name === 'waiting') startWaitingProgress();
+  else stopWaitingProgress();
+}
+
+function startWaitingProgress() {
+  stopWaitingProgress();
+  waitingProgress = 10;
+  var el = $('waiting-progress');
+  if (el) el.style.width = waitingProgress + '%';
+  waitingProgressTimer = setInterval(function() {
+    waitingProgress = Math.min(92, waitingProgress + (waitingProgress < 60 ? 6 : 2));
+    if (el) el.style.width = waitingProgress + '%';
+  }, 250);
+}
+
+function stopWaitingProgress() {
+  if (waitingProgressTimer) clearInterval(waitingProgressTimer);
+  waitingProgressTimer = null;
+  var el = $('waiting-progress');
+  if (el) el.style.width = '10%';
 }
 
 function showOverlay(id) { $(id).classList.add('active'); }
@@ -130,6 +154,7 @@ function stopPvpPolling() {
   if (pvpPollTimer) clearInterval(pvpPollTimer);
   pvpPollTimer = null;
   pvpPendingSubmit = false;
+  stopWaitingProgress();
 }
 
 function leavePvpQueue() {
