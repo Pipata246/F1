@@ -431,6 +431,23 @@ async function pvpCleanupUserRooms(tgId, gameKey) {
   return keep;
 }
 
+async function pvpEnforceSingleActiveRoom(gameKey, tgId, playerName, keepRoomId) {
+  const safeName = String(playerName || "").trim();
+  const byUser = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=in.(waiting,active)&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id&limit=100`
+  );
+  let byName = [];
+  if (safeName) {
+    byName = await sb(
+      `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=in.(waiting,active)&or=(player1_name.eq.${encodeURIComponent(safeName)},player2_name.eq.${encodeURIComponent(safeName)})&select=id&limit=100`
+    );
+  }
+  const ids = [...(byUser || []), ...(byName || [])]
+    .map((r) => Number(r.id))
+    .filter((id) => Number.isInteger(id) && id > 0 && Number(id) !== Number(keepRoomId));
+  await pvpCancelRooms(ids);
+}
+
 function pvpAdvanceByTime(room) {
   const s = asObj(room?.state_json);
   const now = Date.now();
@@ -657,12 +674,14 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const key = normalizeGameKey(gameKey);
   if (key !== "frog_hunt") throw new Error("PvP is enabled only for frog_hunt now");
   await pvpPruneUserNonActiveRooms(tgId, key);
+  await pvpEnforceSingleActiveRoom(key, tgId, safeName, 0);
 
   const existing = await pvpCleanupUserRooms(tgId, key);
   if (existing) return existing;
 
   const joinedBeforeCreate = await pvpTryJoinWaiting(key, tgId, safeName);
   if (joinedBeforeCreate) {
+    await pvpEnforceSingleActiveRoom(key, tgId, safeName, joinedBeforeCreate.id);
     await pvpDedupPairRooms(key, joinedBeforeCreate.player1_tg_user_id, joinedBeforeCreate.player2_tg_user_id, joinedBeforeCreate.id);
     return joinedBeforeCreate;
   }
@@ -691,10 +710,12 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const joinedAfterCreate = await pvpTryJoinWaiting(key, tgId, safeName);
   if (joinedAfterCreate && Number(joinedAfterCreate.id) !== Number(ownRoom.id)) {
     await pvpCancelRooms([ownRoom.id]);
+    await pvpEnforceSingleActiveRoom(key, tgId, safeName, joinedAfterCreate.id);
     await pvpDedupPairRooms(key, joinedAfterCreate.player1_tg_user_id, joinedAfterCreate.player2_tg_user_id, joinedAfterCreate.id);
     return joinedAfterCreate;
   }
 
+  await pvpEnforceSingleActiveRoom(key, tgId, safeName, ownRoom.id);
   return ownRoom;
 }
 
