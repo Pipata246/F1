@@ -271,6 +271,345 @@ function asObj(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+function getPvpRole(state, tgId) {
+  const key = String(state?.player1_tg_user_id) === String(tgId) ? "p1" : "p2";
+  return state?.state_json?.roles?.[key] || null;
+}
+
+function getPvpSide(state, tgId) {
+  return String(state?.player1_tg_user_id) === String(tgId) ? "p1" : "p2";
+}
+
+function pvpDefaultState(player1Id, player2Id) {
+  const firstFrog = Math.random() < 0.5 ? "p1" : "p2";
+  const firstHunter = firstFrog === "p1" ? "p2" : "p1";
+  return {
+    phase: "turn_input",
+    gameNum: 1,
+    currentRound: 1,
+    totalRounds: 5,
+    totalCells: 8,
+    hunterShots: 1,
+    roles: { p1: firstFrog === "p1" ? "frog" : "hunter", p2: firstFrog === "p2" ? "frog" : "hunter" },
+    frogCell: null,
+    pending: { frogCell: null, hunterCells: [] },
+    matchScores: { p1: 0, p2: 0 },
+    markers: { round: 0, game: 0, switch: 0, tiebreak: 0, match: 0 },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    players: { p1: String(player1Id), p2: String(player2Id) },
+  };
+}
+
+function pvpConfigForGame(gameNum) {
+  if (gameNum === 3) return { totalRounds: 1, totalCells: 4, hunterShots: 2 };
+  return { totalRounds: 5, totalCells: 8, hunterShots: 1 };
+}
+
+function pvpAdvanceByTime(room) {
+  const s = asObj(room?.state_json);
+  const now = Date.now();
+  const phaseAt = Number(s?.phaseAtMs || 0);
+  if (!phaseAt) return { changed: false, state: s };
+  const elapsed = now - phaseAt;
+  const next = { ...s };
+
+  if (s.phase === "round_result" && elapsed >= 2600) {
+    if (s.roundHit) {
+      next.phase = "game_over";
+      next.phaseAtMs = now;
+      next.markers = { ...(s.markers || {}), game: Number(s?.markers?.game || 0) + 1 };
+    } else if (s.currentRound >= s.totalRounds) {
+      next.phase = "game_over";
+      next.phaseAtMs = now;
+      next.markers = { ...(s.markers || {}), game: Number(s?.markers?.game || 0) + 1 };
+    } else {
+      next.currentRound = Number(s.currentRound || 1) + 1;
+      next.phase = "turn_input";
+      next.phaseAtMs = now;
+      next.pending = { frogCell: null, hunterCells: [] };
+      next.frogCell = s.nextFrogCell ?? s.frogCell ?? null;
+      delete next.roundHit;
+      delete next.nextFrogCell;
+    }
+    next.updatedAt = new Date().toISOString();
+    return { changed: true, state: next };
+  }
+
+  if (s.phase === "game_over" && elapsed >= 1800) {
+    const p1 = Number(s?.matchScores?.p1 || 0);
+    const p2 = Number(s?.matchScores?.p2 || 0);
+    if (s.gameNum === 1) {
+      next.gameNum = 2;
+      next.currentRound = 1;
+      const cfg = pvpConfigForGame(2);
+      next.totalRounds = cfg.totalRounds;
+      next.totalCells = cfg.totalCells;
+      next.hunterShots = cfg.hunterShots;
+      next.roles = { p1: s.roles?.p1 === "frog" ? "hunter" : "frog", p2: s.roles?.p2 === "frog" ? "hunter" : "frog" };
+      next.frogCell = null;
+      next.pending = { frogCell: null, hunterCells: [] };
+      next.phase = "switch_roles";
+      next.phaseAtMs = now;
+      next.markers = { ...(s.markers || {}), switch: Number(s?.markers?.switch || 0) + 1 };
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+    if (s.gameNum === 2 && p1 === p2) {
+      const cfg = pvpConfigForGame(3);
+      const frog = Math.random() < 0.5 ? "p1" : "p2";
+      next.gameNum = 3;
+      next.currentRound = 1;
+      next.totalRounds = cfg.totalRounds;
+      next.totalCells = cfg.totalCells;
+      next.hunterShots = cfg.hunterShots;
+      next.roles = { p1: frog === "p1" ? "frog" : "hunter", p2: frog === "p2" ? "frog" : "hunter" };
+      next.frogCell = null;
+      next.pending = { frogCell: null, hunterCells: [] };
+      next.phase = "tiebreak_start";
+      next.phaseAtMs = now;
+      next.markers = { ...(s.markers || {}), tiebreak: Number(s?.markers?.tiebreak || 0) + 1 };
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+    next.phase = "match_over";
+    next.phaseAtMs = now;
+    next.markers = { ...(s.markers || {}), match: Number(s?.markers?.match || 0) + 1 };
+    next.updatedAt = new Date().toISOString();
+    return { changed: true, state: next };
+  }
+
+  if ((s.phase === "switch_roles" || s.phase === "tiebreak_start") && elapsed >= 1100) {
+    next.phase = "turn_input";
+    next.phaseAtMs = now;
+    next.updatedAt = new Date().toISOString();
+    return { changed: true, state: next };
+  }
+
+  return { changed: false, state: s };
+}
+
+function pvpApplyMove(room, tgId, move) {
+  const s = asObj(room?.state_json);
+  if (s.phase !== "turn_input") throw new Error("Turn is locked");
+  const side = getPvpSide(room, tgId);
+  const role = s?.roles?.[side];
+  if (!role) throw new Error("Invalid room side");
+
+  const totalCells = Number(s.totalCells || 8);
+  const hunterShots = Number(s.hunterShots || 1);
+  const next = { ...s, pending: { ...(s.pending || {}) } };
+
+  if (role === "frog") {
+    const frogCell = Number(move?.frogCell);
+    if (!Number.isInteger(frogCell) || frogCell < 0 || frogCell >= totalCells) throw new Error("Invalid frog cell");
+    next.pending.frogCell = frogCell;
+  } else {
+    const arr = Array.isArray(move?.hunterCells) ? move.hunterCells : [];
+    const cells = [];
+    for (const c of arr) {
+      const n = Number(c);
+      if (!Number.isInteger(n) || n < 0 || n >= totalCells) throw new Error("Invalid hunter cell");
+      if (!cells.includes(n)) cells.push(n);
+      if (cells.length >= hunterShots) break;
+    }
+    if (cells.length !== hunterShots) throw new Error("Invalid hunter cells count");
+    next.pending.hunterCells = cells;
+  }
+
+  const hasFrog = Number.isInteger(Number(next?.pending?.frogCell));
+  const hasHunter = Array.isArray(next?.pending?.hunterCells) && next.pending.hunterCells.length === hunterShots;
+  if (!hasFrog || !hasHunter) {
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
+
+  const frogCell = Number(next.pending.frogCell);
+  const hunterCells = next.pending.hunterCells.map(Number);
+  const hit = hunterCells.includes(frogCell);
+  const frogSide = next.roles?.p1 === "frog" ? "p1" : "p2";
+  const hunterSide = frogSide === "p1" ? "p2" : "p1";
+  const winnerSide = hit ? hunterSide : (Number(next.currentRound) >= Number(next.totalRounds) ? frogSide : null);
+  if (winnerSide) {
+    next.matchScores = { ...(next.matchScores || { p1: 0, p2: 0 }) };
+    next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;
+  }
+
+  next.phase = "round_result";
+  next.phaseAtMs = Date.now();
+  next.markers = { ...(next.markers || {}), round: Number(next?.markers?.round || 0) + 1 };
+  next.roundHit = hit;
+  next.nextFrogCell = frogCell;
+  next.lastRoundResult = {
+    marker: next.markers.round,
+    hit,
+    frogCell,
+    hunterCells,
+    round: next.currentRound,
+    totalRounds: next.totalRounds,
+    isFinal: Number(next.currentRound) === Number(next.totalRounds),
+  };
+  next.pending = { frogCell: null, hunterCells: [] };
+  next.updatedAt = new Date().toISOString();
+  return next;
+}
+
+async function pvpFindMatch(initData, gameKey, playerName) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const safeName = String(playerName || verified.user.first_name || "Игрок").slice(0, 64);
+  const key = normalizeGameKey(gameKey);
+  if (key !== "frog_hunt") throw new Error("PvP is enabled only for frog_hunt now");
+
+  const existing = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(key)}&status=in.(waiting,active)&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=*&order=created_at.desc&limit=1`
+  );
+  if (existing?.length) return existing[0];
+
+  const waiting = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(key)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=5`
+  );
+  for (const room of waiting || []) {
+    const state = pvpDefaultState(room.player1_tg_user_id, tgId);
+    const joined = await sb(
+      `pvp_rooms?id=eq.${room.id}&status=eq.waiting&player2_tg_user_id=is.null`,
+      {
+        method: "PATCH",
+        body: {
+          player2_tg_user_id: tgId,
+          player2_name: safeName,
+          status: "active",
+          current_actor_tg_user_id: null,
+          state_json: { ...state, phaseAtMs: Date.now() },
+          updated_at: new Date().toISOString(),
+        },
+        prefer: "return=representation",
+      }
+    );
+    if (joined?.length) return joined[0];
+  }
+
+  const created = await sb("pvp_rooms", {
+    method: "POST",
+    body: {
+      game_key: key,
+      status: "waiting",
+      player1_tg_user_id: tgId,
+      player1_name: safeName,
+      player2_tg_user_id: null,
+      player2_name: null,
+      winner_tg_user_id: null,
+      state_json: {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=representation",
+  });
+  return created?.[0];
+}
+
+async function pvpGetRoomState(initData, roomId) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const id = Number(roomId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
+
+  const rows = await sb(
+    `pvp_rooms?id=eq.${id}&select=*`
+  );
+  const room = rows?.[0];
+  if (!room) throw new Error("Room not found");
+  if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
+    throw new Error("Forbidden");
+  }
+
+  const advanced = pvpAdvanceByTime(room);
+  let nextRoom = room;
+  if (advanced.changed) {
+    const patched = await sb(`pvp_rooms?id=eq.${id}`, {
+      method: "PATCH",
+      body: { state_json: advanced.state, updated_at: new Date().toISOString() },
+      prefer: "return=representation",
+    });
+    if (patched?.length) nextRoom = patched[0];
+  }
+  return nextRoom;
+}
+
+async function pvpSubmitMove(initData, roomId, move) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const id = Number(roomId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
+
+  const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
+  const room = rows?.[0];
+  if (!room) throw new Error("Room not found");
+  if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
+    throw new Error("Forbidden");
+  }
+  if (room.status !== "active") throw new Error("Room is not active");
+
+  const nowState = pvpAdvanceByTime(room).state;
+  const nextState = pvpApplyMove({ ...room, state_json: nowState }, tgId, asObj(move));
+  const patched = await sb(`pvp_rooms?id=eq.${id}`, {
+    method: "PATCH",
+    body: { state_json: nextState, updated_at: new Date().toISOString() },
+    prefer: "return=representation",
+  });
+  const updated = patched?.[0] || { ...room, state_json: nextState };
+
+  const s = updated.state_json || {};
+  if (s.phase === "match_over" && !updated.winner_tg_user_id) {
+    const p1 = Number(s?.matchScores?.p1 || 0);
+    const p2 = Number(s?.matchScores?.p2 || 0);
+    const winner = p1 === p2 ? null : (p1 > p2 ? String(updated.player1_tg_user_id) : String(updated.player2_tg_user_id));
+    await sb(`pvp_rooms?id=eq.${id}`, {
+      method: "PATCH",
+      body: { status: "finished", winner_tg_user_id: winner, updated_at: new Date().toISOString() },
+      prefer: "return=minimal",
+    });
+    await persistMatchFromPayload({
+      gameKey: "frog_hunt",
+      mode: "pvp",
+      winnerTgUserId: winner,
+      score: { left: p1, right: p2 },
+      details: { roomId: id },
+      players: [
+        { tgUserId: updated.player1_tg_user_id, name: updated.player1_name || "Игрок 1", score: p1, isWinner: winner && String(winner) === String(updated.player1_tg_user_id), isBot: false },
+        { tgUserId: updated.player2_tg_user_id, name: updated.player2_name || "Игрок 2", score: p2, isWinner: winner && String(winner) === String(updated.player2_tg_user_id), isBot: false },
+      ],
+    });
+  }
+  return updated;
+}
+
+async function pvpLeaveRoom(initData, roomId) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const id = Number(roomId);
+  if (!Number.isInteger(id) || id <= 0) return { left: false };
+  const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
+  const room = rows?.[0];
+  if (!room) return { left: false };
+  if (String(room.player1_tg_user_id) !== tgId && String(room.player2_tg_user_id || "") !== tgId) {
+    throw new Error("Forbidden");
+  }
+  if (room.status === "waiting") {
+    await sb(`pvp_rooms?id=eq.${id}`, {
+      method: "PATCH",
+      body: { status: "cancelled", updated_at: new Date().toISOString() },
+      prefer: "return=minimal",
+    });
+    return { left: true };
+  }
+  return { left: false };
+}
+
 async function recordMatchInternal(req) {
   assertInternalApiKey(req);
   const b = req.body || {};
@@ -421,6 +760,30 @@ module.exports = async (req, res) => {
     if (action === "getMatchHistory") {
       const matches = await getMatchHistory(req.body?.initData || "", req.body?.limit || 50);
       return res.status(200).json({ ok: true, matches });
+    }
+    if (action === "pvpFindMatch") {
+      const room = await pvpFindMatch(
+        req.body?.initData || "",
+        req.body?.gameKey || "frog_hunt",
+        req.body?.playerName || ""
+      );
+      return res.status(200).json({ ok: true, room });
+    }
+    if (action === "pvpGetRoomState") {
+      const room = await pvpGetRoomState(req.body?.initData || "", req.body?.roomId || 0);
+      return res.status(200).json({ ok: true, room });
+    }
+    if (action === "pvpSubmitMove") {
+      const room = await pvpSubmitMove(
+        req.body?.initData || "",
+        req.body?.roomId || 0,
+        req.body?.move || {}
+      );
+      return res.status(200).json({ ok: true, room });
+    }
+    if (action === "pvpLeaveRoom") {
+      const result = await pvpLeaveRoom(req.body?.initData || "", req.body?.roomId || 0);
+      return res.status(200).json({ ok: true, result });
     }
 
     return res.status(400).json({ ok: false, error: "Unknown action" });

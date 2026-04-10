@@ -15,6 +15,16 @@ var myFrogCell = null;
 var tgUserId = null;
 var SETTINGS_KEY = "f1duel_global_settings_v1";
 var tgInitData = '';
+var isBotMode = true;
+var pvpRoomId = null;
+var pvpPollTimer = null;
+var pvpLastRoundMarker = 0;
+var pvpLastGameMarker = 0;
+var pvpLastSwitchMarker = 0;
+var pvpLastTiebreakMarker = 0;
+var pvpLastMatchMarker = 0;
+var pvpLastTurnKey = '';
+var pvpPendingSubmit = false;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -74,11 +84,11 @@ document.addEventListener('DOMContentLoaded', function() {
   if (urlParams.get('userId')) tgUserId = urlParams.get('userId');
 
   initSounds();
-  $('btn-find').onclick = function() { startSearch(true); };
+  $('btn-find').onclick = function() { startSearch(false); };
   $('btn-bot').onclick = function() { startSearch(true); };
-  $('btn-cancel').onclick = function() { showScreen('start'); };
+  $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };
   $('btn-confirm').onclick = confirmChoice;
-  $('btn-again').onclick = function() { startSearch(true); };
+  $('btn-again').onclick = function() { startSearch(isBotMode); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
 });
 
@@ -96,14 +106,207 @@ function hideAllOverlays() {
 }
 
 function startSearch(vsBot) {
-  if (!vsBot) {
-    $('hint-text').textContent = 'Сейчас доступен режим против бота';
-  }
+  isBotMode = !!vsBot;
   myName = ($('name-input').value || '').trim() || 'Игрок';
   showScreen('waiting');
-  setTimeout(function() {
-    localStartMatch();
-  }, 650);
+  if (isBotMode) {
+    setTimeout(function() {
+      localStartMatch();
+    }, 650);
+    return;
+  }
+  pvpFindMatch();
+}
+
+function apiPost(body) {
+  return fetch('/api/user', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  }).then(function(r) { return r.json(); });
+}
+
+function stopPvpPolling() {
+  if (pvpPollTimer) clearInterval(pvpPollTimer);
+  pvpPollTimer = null;
+  pvpPendingSubmit = false;
+}
+
+function leavePvpQueue() {
+  stopPvpPolling();
+  if (!isBotMode && pvpRoomId && tgInitData) {
+    apiPost({ action: 'pvpLeaveRoom', initData: tgInitData, roomId: pvpRoomId }).catch(function() {});
+  }
+  pvpRoomId = null;
+}
+
+function resetPvpMarkers() {
+  pvpLastRoundMarker = 0;
+  pvpLastGameMarker = 0;
+  pvpLastSwitchMarker = 0;
+  pvpLastTiebreakMarker = 0;
+  pvpLastMatchMarker = 0;
+  pvpLastTurnKey = '';
+}
+
+function pvpFindMatch() {
+  if (!tgInitData) {
+    $('hint-text').textContent = 'Нет Telegram-сессии. Открой игру через бота.';
+    setTimeout(function() { showScreen('start'); }, 1200);
+    return;
+  }
+  stopPvpPolling();
+  resetPvpMarkers();
+  pvpRoomId = null;
+  apiPost({
+    action: 'pvpFindMatch',
+    initData: tgInitData,
+    gameKey: 'frog_hunt',
+    playerName: myName
+  }).then(function(data) {
+    if (!data || !data.ok || !data.room) throw new Error(data && data.error ? data.error : 'Matchmaking failed');
+    pvpRoomId = data.room.id;
+    if (String(data.room.status) === 'active') {
+      showScreen('game');
+    } else {
+      showScreen('waiting');
+    }
+    startPvpPolling();
+  }).catch(function() {
+    $('hint-text').textContent = 'Не удалось найти матч. Попробуй снова.';
+    setTimeout(function() { showScreen('start'); }, 1200);
+  });
+}
+
+function startPvpPolling() {
+  stopPvpPolling();
+  pvpPollTimer = setInterval(function() {
+    pvpPollState();
+  }, 1000);
+  pvpPollState();
+}
+
+function pvpPollState() {
+  if (!pvpRoomId || !tgInitData) return;
+  apiPost({
+    action: 'pvpGetRoomState',
+    initData: tgInitData,
+    roomId: pvpRoomId
+  }).then(function(data) {
+    if (!data || !data.ok || !data.room) return;
+    applyPvpRoomState(data.room);
+  }).catch(function() {});
+}
+
+function applyPvpRoomState(room) {
+  if (!room) return;
+  if (String(room.status) === 'waiting') {
+    showScreen('waiting');
+    return;
+  }
+  var s = room.state_json || {};
+  var meIsP1 = String(room.player1_tg_user_id) === String(tgUserId);
+  var mySide = meIsP1 ? 'p1' : 'p2';
+  var oppSide = meIsP1 ? 'p2' : 'p1';
+  var myScore = Number((s.matchScores || {})[mySide] || 0);
+  var oppScore = Number((s.matchScores || {})[oppSide] || 0);
+  matchScores = [myScore, oppScore];
+  playerIndex = 0;
+  opponentName = meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник');
+  myRole = (s.roles || {})[mySide] || myRole;
+  gameNum = Number(s.gameNum || 1);
+  currentRound = Number(s.currentRound || 1);
+  totalRounds = Number(s.totalRounds || 5);
+  totalCells = Number(s.totalCells || 8);
+  hunterShots = Number(s.hunterShots || 1);
+
+  showScreen('game');
+
+  var roleAssignedMarker = String(gameNum) + ':' + String(totalRounds) + ':' + String(totalCells) + ':' + String(hunterShots) + ':' + myRole;
+  if (window.__pvpRoleMarker !== roleAssignedMarker) {
+    window.__pvpRoleMarker = roleAssignedMarker;
+    onRoleAssign({
+      role: myRole,
+      gameNum: gameNum,
+      totalRounds: totalRounds,
+      totalCells: totalCells,
+      hunterShots: hunterShots,
+      matchScores: matchScores.slice()
+    });
+  } else {
+    updateHeader();
+  }
+
+  if (s.phase === 'turn_input') {
+    pvpPendingSubmit = false;
+    var turnKey = String(gameNum) + ':' + String(currentRound) + ':' + String(myRole);
+    if (turnKey !== pvpLastTurnKey) {
+      pvpLastTurnKey = turnKey;
+      if (myRole === 'frog') {
+        onFrogTurn({
+          round: currentRound,
+          totalRounds: totalRounds,
+          currentCell: s.frogCell,
+          isFinal: currentRound === totalRounds
+        });
+      } else {
+        onHunterTurn({
+          round: currentRound,
+          totalRounds: totalRounds,
+          hunterShots: hunterShots,
+          isFinal: currentRound === totalRounds
+        });
+      }
+    }
+    return;
+  }
+
+  if (s.phase === 'round_result' && s.lastRoundResult && Number(s.lastRoundResult.marker) > pvpLastRoundMarker) {
+    pvpLastRoundMarker = Number(s.lastRoundResult.marker);
+    onRoundResult({
+      hit: !!s.lastRoundResult.hit,
+      frogCell: Number(s.lastRoundResult.frogCell),
+      hunterCells: s.lastRoundResult.hunterCells || [],
+      round: Number(s.lastRoundResult.round || currentRound),
+      totalRounds: Number(s.lastRoundResult.totalRounds || totalRounds),
+      isFinal: !!s.lastRoundResult.isFinal
+    });
+    return;
+  }
+
+  if (s.phase === 'game_over' && Number((s.markers || {}).game || 0) > pvpLastGameMarker) {
+    pvpLastGameMarker = Number((s.markers || {}).game || 0);
+    var winnerRole = s.roundHit ? (myRole === 'hunter' ? 'hunter' : 'frog') : 'frog';
+    var youWon = (myRole === winnerRole);
+    onGameOver({
+      youWon: youWon,
+      yourRole: myRole,
+      gameNum: gameNum,
+      matchScores: matchScores.slice()
+    });
+    return;
+  }
+
+  if (s.phase === 'switch_roles' && Number((s.markers || {}).switch || 0) > pvpLastSwitchMarker) {
+    pvpLastSwitchMarker = Number((s.markers || {}).switch || 0);
+    onSwitchRoles();
+    return;
+  }
+
+  if (s.phase === 'tiebreak_start' && Number((s.markers || {}).tiebreak || 0) > pvpLastTiebreakMarker) {
+    pvpLastTiebreakMarker = Number((s.markers || {}).tiebreak || 0);
+    onTiebreakStart();
+    return;
+  }
+
+  if (s.phase === 'match_over' && Number((s.markers || {}).match || 0) > pvpLastMatchMarker) {
+    pvpLastMatchMarker = Number((s.markers || {}).match || 0);
+    stopPvpPolling();
+    onMatchResult({
+      youWon: myScore > oppScore,
+      matchScores: [myScore, oppScore]
+    });
+  }
 }
 
 function generateLilypads(count) {
@@ -226,6 +429,28 @@ function confirmChoice() {
 
   var pond = document.querySelector('.pond');
   pond.classList.remove('choosing-frog', 'choosing-hunter');
+
+  if (!isBotMode) {
+    if (pvpPendingSubmit || !pvpRoomId) return;
+    pvpPendingSubmit = true;
+    var move = myRole === 'frog'
+      ? { frogCell: selectedCells[0] }
+      : { hunterCells: selectedCells.slice() };
+    apiPost({
+      action: 'pvpSubmitMove',
+      initData: tgInitData,
+      roomId: pvpRoomId,
+      move: move
+    }).then(function(data) {
+      pvpPendingSubmit = false;
+      if (data && data.ok && data.room) applyPvpRoomState(data.room);
+    }).catch(function() {
+      pvpPendingSubmit = false;
+      moveChosen = false;
+      $('btn-confirm').disabled = false;
+    });
+    return;
+  }
 
   if (myRole === 'frog') {
     localResolveFrogTurn(selectedCells[0]);
@@ -513,7 +738,7 @@ function onMatchResult(msg) {
   }
 
   score.textContent = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
-  saveMatchToBackend(msg.youWon);
+  if (isBotMode) saveMatchToBackend(msg.youWon);
 }
 
 function onOpponentLeft() {
