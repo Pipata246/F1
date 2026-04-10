@@ -7,14 +7,26 @@ const ProfilePage = () => {
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     const user = tg?.initDataUnsafe?.user;
+    const initData = tg?.initData || '';
     if (user) {
       setName(user.first_name || 'Игрок');
     }
-
-    const userId = user?.id?.toString() || 'anon';
-    fetch(`/api/stats/${userId}`)
+    if (!initData) return;
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'getGameStats', initData }),
+    })
       .then(r => r.json())
-      .then(data => setStats(data))
+      .then((data) => {
+        const s = data?.stats?.super_penalty || {};
+        setStats({
+          wins: s.wins || 0,
+          losses: s.losses || 0,
+          goals: s.points_for || 0,
+          saves: s.points_against || 0,
+        });
+      })
       .catch(() => {});
   }, []);
 

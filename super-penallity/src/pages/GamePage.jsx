@@ -2,10 +2,6 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const WS_URL = import.meta.env.DEV
-  ? 'ws://localhost:3001'
-  : 'wss://' + location.host;
-
 // Gate container: 360x280, zone grid: left=16, w=328, h=238 (85% of 280)
 // Zone cells: 164x119 each
 // Zone centers from container origin:
@@ -143,6 +139,9 @@ const GamePage = () => {
   const wsRef = useRef(null);
   const timerRef = useRef(null);
   const playerIndexRef = useRef(0);
+  const matchRef = useRef(null);
+  const tgInitDataRef = useRef('');
+  const matchSavedRef = useRef(false);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
 
@@ -151,6 +150,7 @@ const GamePage = () => {
     if (tg?.initDataUnsafe?.user) {
       setPlayerName(tg.initDataUnsafe.user.first_name || 'Player');
     }
+    tgInitDataRef.current = tg?.initData || '';
     // Show Telegram back button
     if (tg?.BackButton) {
       tg.BackButton.show();
@@ -166,10 +166,8 @@ const GamePage = () => {
   }, []);
 
   const connectWS = useCallback(() => {
-    if (wsRef.current) wsRef.current.close();
-    const ws = new WebSocket(WS_URL);
+    const ws = { readyState: 1, close: () => {} };
     wsRef.current = ws;
-    ws.onclose = () => { wsRef.current = null; };
     return ws;
   }, []);
 
@@ -225,6 +223,7 @@ const GamePage = () => {
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
+          saveMatchToBackend(msg.youWon, msg.scores, matchRef.current?.history || history);
           if (msg.youWon) {
             confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 } });
             window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
@@ -314,20 +313,50 @@ const GamePage = () => {
   };
 
   const sendMessage = (type, data = {}) => {
-    if (wsRef.current?.readyState === 1) {
-      wsRef.current.send(JSON.stringify({ type, ...data }));
+    const m = matchRef.current;
+    if (!m || m.finished) return;
+    if (type === 'cancel_wait') {
+      matchRef.current = null;
+      return;
+    }
+    if (type === 'choose_zone') {
+      const zone = Number(data.zone);
+      if (![0, 1, 2, 3].includes(zone)) return;
+      if (m.choices[0] !== null) return;
+      m.choices[0] = zone;
+      handleServerMessage({ type: 'zone_locked', zone });
+      if (m.choices[1] === null) {
+        m.choices[1] = Math.floor(Math.random() * 4);
+      }
+      localResolveRound();
     }
   };
 
   const handleFindGame = (bot = false) => {
     const name = playerName.trim() || 'Player';
     setPlayerName(name);
-    const ws = connectWS();
-    ws.onopen = () => {
-      const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || 'anon_' + Math.random().toString(36).slice(2, 8);
-      ws.send(JSON.stringify({ type: bot ? 'find_bot' : 'find_game', name, tgUserId }));
-    };
-    ws.onmessage = (e) => handleServerMessage(JSON.parse(e.data));
+    matchSavedRef.current = false;
+    const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
+    connectWS();
+    setScreen('waiting');
+    setTimeout(() => {
+      matchRef.current = {
+        playerName: name,
+        opponentName: 'Бот 🤖',
+        tgUserId,
+        scores: [0, 0],
+        round: 0,
+        maxRounds: 10,
+        suddenDeath: false,
+        choices: [null, null],
+        history: [],
+        sdStart: 0,
+        kickerOverride: null,
+        finished: false,
+      };
+      handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
+      localStartRound();
+    }, bot ? 350 : 700);
   };
 
   const handleCancelWait = () => {
@@ -346,6 +375,119 @@ const GamePage = () => {
     setHistory([]);
     setScreen('menu');
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+  };
+
+  const getKickerIndex = (m) => {
+    if (m.suddenDeath && m.kickerOverride !== null) return m.kickerOverride;
+    return m.round % 2 === 0 ? 0 : 1;
+  };
+
+  const localStartRound = () => {
+    const m = matchRef.current;
+    if (!m || m.finished) return;
+    m.choices = [null, null];
+    if (m.suddenDeath) {
+      const sdRound = m.round - m.sdStart;
+      const pairNum = Math.floor(sdRound / 2);
+      const withinPair = sdRound % 2;
+      m.kickerOverride = (pairNum + withinPair) % 2;
+    }
+    const kickerIdx = getKickerIndex(m);
+    handleServerMessage({
+      type: 'round_start',
+      round: m.round + 1,
+      maxRounds: m.maxRounds,
+      role: kickerIdx === 0 ? 'kicker' : 'keeper',
+      scores: m.scores,
+      suddenDeath: m.suddenDeath,
+      history: m.history,
+    });
+  };
+
+  const localResolveRound = () => {
+    const m = matchRef.current;
+    if (!m || m.finished || m.choices[0] === null || m.choices[1] === null) return;
+    const kickerIdx = getKickerIndex(m);
+    const keeperIdx = 1 - kickerIdx;
+    const kickerZone = m.choices[kickerIdx];
+    const keeperZone = m.choices[keeperIdx];
+    const isGoal = kickerZone !== keeperZone;
+    if (isGoal) m.scores[kickerIdx] += 1;
+    m.history.push({ kickerIndex: kickerIdx, kickerZone, keeperZone, isGoal });
+    m.round += 1;
+    handleServerMessage({
+      type: 'round_result',
+      kickerZone,
+      keeperZone,
+      isGoal,
+      scores: [...m.scores],
+      round: m.round,
+      kickerIndex: kickerIdx,
+      history: [...m.history],
+    });
+    if (localShouldEndMatch(m)) {
+      setTimeout(() => {
+        if (!matchRef.current || matchRef.current.finished) return;
+        m.finished = true;
+        const youWon = m.scores[0] > m.scores[1];
+        handleServerMessage({ type: 'match_result', youWon, scores: [...m.scores] });
+      }, 2500);
+    } else {
+      setTimeout(() => localStartRound(), 2800);
+    }
+  };
+
+  const localShouldEndMatch = (m) => {
+    const [s0, s1] = m.scores;
+    const roundsPlayed = m.round;
+    if (m.suddenDeath) {
+      const sdRounds = roundsPlayed - m.sdStart;
+      if (sdRounds >= 2 && sdRounds % 2 === 0) return s0 !== s1;
+      return false;
+    }
+    if (roundsPlayed >= m.maxRounds) {
+      if (s0 === s1) {
+        m.suddenDeath = true;
+        m.sdStart = roundsPlayed;
+        return false;
+      }
+      return true;
+    }
+    if (roundsPlayed % 2 !== 0) return false;
+    let p0Left = 0;
+    let p1Left = 0;
+    for (let r = roundsPlayed; r < m.maxRounds; r++) {
+      if (r % 2 === 0) p0Left++;
+      else p1Left++;
+    }
+    if (s0 > s1 + p1Left) return true;
+    if (s1 > s0 + p0Left) return true;
+    return false;
+  };
+
+  const saveMatchToBackend = (youWon, finalScores, finalHistory) => {
+    if (matchSavedRef.current || !tgInitDataRef.current) return;
+    matchSavedRef.current = true;
+    const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'recordMatch',
+        initData: tgInitDataRef.current,
+        payload: {
+          gameKey: 'super_penalty',
+          mode: 'bot',
+          winnerTgUserId: youWon ? tgUserId : null,
+          players: [
+            { tgUserId, name: playerName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
+            { tgUserId: null, name: opponent || 'Бот 🤖', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
+          ],
+          score: { left: finalScores?.[0] || 0, right: finalScores?.[1] || 0 },
+          details: { roundsPlayed: finalHistory?.length || 0, suddenDeath },
+        },
+      }),
+    }).catch(() => { matchSavedRef.current = false; });
   };
 
   // ==================== RENDER ====================
