@@ -334,6 +334,51 @@ async function pvpCancelRooms(ids) {
   });
 }
 
+function pvpRoomHasSamePair(room, a, b) {
+  const p1 = String(room?.player1_tg_user_id || "");
+  const p2 = String(room?.player2_tg_user_id || "");
+  const x = String(a || "");
+  const y = String(b || "");
+  return (p1 === x && p2 === y) || (p1 === y && p2 === x);
+}
+
+async function pvpDedupPairRooms(gameKey, tgA, tgB, keepRoomId) {
+  const rows = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=in.(waiting,active)&select=*&order=updated_at.desc&limit=50`
+  );
+  const dupIds = (rows || [])
+    .filter((r) => Number(r.id) !== Number(keepRoomId))
+    .filter((r) => pvpRoomHasSamePair(r, tgA, tgB))
+    .map((r) => r.id);
+  await pvpCancelRooms(dupIds);
+}
+
+async function pvpTryJoinWaiting(gameKey, tgId, safeName) {
+  const waiting = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=10`
+  );
+  for (const room of waiting || []) {
+    const state = pvpDefaultState(room.player1_tg_user_id, tgId);
+    const joined = await sb(
+      `pvp_rooms?id=eq.${room.id}&status=eq.waiting&player2_tg_user_id=is.null`,
+      {
+        method: "PATCH",
+        body: {
+          player2_tg_user_id: tgId,
+          player2_name: safeName,
+          status: "active",
+          current_actor_tg_user_id: null,
+          state_json: { ...state, phaseAtMs: Date.now() },
+          updated_at: new Date().toISOString(),
+        },
+        prefer: "return=representation",
+      }
+    );
+    if (joined?.length) return joined[0];
+  }
+  return null;
+}
+
 async function pvpCleanupUserRooms(tgId, gameKey) {
   const rows = await sb(
     `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=in.(waiting,active)&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=*&order=updated_at.desc&limit=20`
@@ -345,8 +390,20 @@ async function pvpCleanupUserRooms(tgId, gameKey) {
   const cancelIds = [];
   for (const r of rows) {
     const age = now - Math.max(asMs(r.updated_at), asMs(r.created_at));
-    if (age > staleMs) cancelIds.push(r.id);
-    else alive.push(r);
+    if (age > staleMs) {
+      cancelIds.push(r.id);
+      continue;
+    }
+    const s = asObj(r.state_json);
+    const p = asObj(s.presence);
+    const p1Beat = Number(p.p1 || 0);
+    const p2Beat = Number(p.p2 || 0);
+    const heartbeatStale = r.status === "active" && p1Beat > 0 && p2Beat > 0 && (now - Math.max(p1Beat, p2Beat) > 30000);
+    if (heartbeatStale) {
+      cancelIds.push(r.id);
+      continue;
+    }
+    alive.push(r);
   }
   let keep = null;
   for (const r of alive) {
@@ -524,30 +581,10 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const existing = await pvpCleanupUserRooms(tgId, key);
   if (existing) return existing;
 
-  const waiting = await sb(
-    `pvp_rooms?game_key=eq.${encodeURIComponent(key)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=5`
-  );
-  for (const room of waiting || []) {
-    const state = pvpDefaultState(room.player1_tg_user_id, tgId);
-    const joined = await sb(
-      `pvp_rooms?id=eq.${room.id}&status=eq.waiting&player2_tg_user_id=is.null`,
-      {
-        method: "PATCH",
-        body: {
-          player2_tg_user_id: tgId,
-          player2_name: safeName,
-          status: "active",
-          current_actor_tg_user_id: null,
-          state_json: { ...state, phaseAtMs: Date.now() },
-          updated_at: new Date().toISOString(),
-        },
-        prefer: "return=representation",
-      }
-    );
-    if (joined?.length) {
-      await pvpCleanupUserRooms(tgId, key);
-      return joined[0];
-    }
+  const joinedBeforeCreate = await pvpTryJoinWaiting(key, tgId, safeName);
+  if (joinedBeforeCreate) {
+    await pvpDedupPairRooms(key, joinedBeforeCreate.player1_tg_user_id, joinedBeforeCreate.player2_tg_user_id, joinedBeforeCreate.id);
+    return joinedBeforeCreate;
   }
 
   const created = await sb("pvp_rooms", {
@@ -566,7 +603,19 @@ async function pvpFindMatch(initData, gameKey, playerName) {
     },
     prefer: "return=representation",
   });
-  return created?.[0];
+  const ownRoom = created?.[0];
+  if (!ownRoom) throw new Error("Failed to create queue room");
+
+  // Anti-race: if two users created waiting rooms simultaneously,
+  // try to join again and cancel own waiting duplicate.
+  const joinedAfterCreate = await pvpTryJoinWaiting(key, tgId, safeName);
+  if (joinedAfterCreate && Number(joinedAfterCreate.id) !== Number(ownRoom.id)) {
+    await pvpCancelRooms([ownRoom.id]);
+    await pvpDedupPairRooms(key, joinedAfterCreate.player1_tg_user_id, joinedAfterCreate.player2_tg_user_id, joinedAfterCreate.id);
+    return joinedAfterCreate;
+  }
+
+  return ownRoom;
 }
 
 async function pvpGetRoomState(initData, roomId) {
