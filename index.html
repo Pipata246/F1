@@ -702,9 +702,29 @@
     window.addEventListener("resize", applyViewport);
   }catch(e){}
   const KEY="f1duel_state_v2_games";
+  const SETTINGS_KEY="f1duel_global_settings_v1";
   const tgInitData = tg?.initData || "";
   const hasTgAuth = !!tgInitData;
   const now = ()=>Date.now();
+  function readGlobalSettings(){
+    try{
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if(!raw) return null;
+      const s = JSON.parse(raw);
+      return {
+        sound: s?.sound !== false,
+        haptic: s?.haptic !== false,
+      };
+    }catch(e){ return null; }
+  }
+  function writeGlobalSettings(settings){
+    try{
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+        sound: settings?.sound !== false,
+        haptic: settings?.haptic !== false,
+      }));
+    }catch(e){}
+  }
 
   function randCode(len=6){
     const a="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -735,11 +755,12 @@
       const raw = localStorage.getItem(KEY);
       if(!raw) return structuredClone(defaultState);
       const s = JSON.parse(raw);
+      const globalSettings = readGlobalSettings();
       return {
         ...defaultState,
         ...s,
         wallet:{...defaultState.wallet, ...(s.wallet||{})},
-        settings:{...defaultState.settings, ...(s.settings||{})},
+        settings:{...defaultState.settings, ...(s.settings||{}), ...(globalSettings||{})},
         tx: Array.isArray(s.tx)? s.tx : []
       };
     }catch(e){
@@ -1238,8 +1259,16 @@
     openShare(state.profile.myRefCode || "");
   };
 
-  setSound.onchange = ()=>{ state.settings.sound = !!setSound.checked; save(); };
-  setHaptic.onchange = ()=>{ state.settings.haptic = !!setHaptic.checked; save(); };
+  setSound.onchange = ()=>{
+    state.settings.sound = !!setSound.checked;
+    writeGlobalSettings(state.settings);
+    save();
+  };
+  setHaptic.onchange = ()=>{
+    state.settings.haptic = !!setHaptic.checked;
+    writeGlobalSettings(state.settings);
+    save();
+  };
 
   function renderProfile(){
     profNick.textContent = displayNick();

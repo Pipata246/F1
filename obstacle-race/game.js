@@ -23,6 +23,7 @@ let overtimePlacing = false;
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
+const SETTINGS_KEY = "f1duel_global_settings_v1";
 
 const ABILITIES = {
     xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
@@ -55,6 +56,10 @@ function initSounds() {
 }
 
 function playSound(name) {
+    try {
+        const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+        if (settings.sound === false) return;
+    } catch (e) {}
     const s = SFX[name];
     if (!s) return;
     s.currentTime = 0;

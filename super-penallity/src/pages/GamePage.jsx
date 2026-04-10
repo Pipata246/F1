@@ -2,6 +2,15 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
 const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
+const SETTINGS_KEY = "f1duel_global_settings_v1";
+function appSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    return { sound: s?.sound !== false, haptic: s?.haptic !== false };
+  } catch {
+    return { sound: true, haptic: true };
+  }
+}
 
 // Gate container: 360x280, zone grid: left=16, w=328, h=238 (85% of 280)
 // Zone cells: 164x119 each
@@ -229,9 +238,9 @@ const GamePage = () => {
           saveMatchToBackend(msg.youWon, msg.scores, matchRef.current?.history || history);
           if (msg.youWon) {
             confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 } });
-            window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
+            if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
           } else {
-            window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
+            if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
           }
         }, 300);
         break;
@@ -297,19 +306,19 @@ const GamePage = () => {
         if (iAmKicker) {
           setResultMessage({ text: 'GOAL!', type: 'win' });
           confetti({ particleCount: 25, spread: 40, origin: { y: 0.6 }, ticks: 40 });
-          window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
+          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
         } else {
           setResultMessage({ text: 'GOAL!', type: 'loss' });
-          window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
+          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
         }
       } else {
         if (iAmKicker) {
           setResultMessage({ text: 'SAVED!', type: 'loss' });
-          window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
+          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
         } else {
           setResultMessage({ text: 'SAVED!', type: 'win' });
           confetti({ particleCount: 25, spread: 40, origin: { y: 0.6 }, ticks: 40 });
-          window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
+          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
         }
       }
     }, 400);

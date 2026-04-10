@@ -13,6 +13,7 @@ var timerInterval = null;
 var matchScores = [0, 0];
 var myFrogCell = null;
 var tgUserId = null;
+var SETTINGS_KEY = "f1duel_global_settings_v1";
 var tgInitData = '';
 var gameState = {
   inMatch: false,
@@ -46,6 +47,10 @@ function initSounds() {
 }
 
 function playSound(name) {
+  try{
+    var settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if(settings.sound === false) return;
+  }catch(e){}
   var s = SFX[name];
   if (!s) return;
   s.currentTime = 0;

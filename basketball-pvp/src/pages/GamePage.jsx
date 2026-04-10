@@ -3,6 +3,15 @@ import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const ASSET_BASE = import.meta.env.BASE_URL || '/basketball-pvp/';
+const SETTINGS_KEY = "f1duel_global_settings_v1";
+function appSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    return { sound: s?.sound !== false, haptic: s?.haptic !== false };
+  } catch {
+    return { sound: true, haptic: true };
+  }
+}
 
 // ============ SOUNDS (pooled) ============
 const SFX_POOL = {};
@@ -15,6 +24,7 @@ function preloadSounds() {
 }
 function sfx(name) {
   try {
+    if (!appSettings().sound) return;
     const s = SFX_POOL[name]; if (!s) return;
     const a = s.pool[s.idx % s.pool.length]; s.idx++;
     a.currentTime = 0; a.play().catch(() => {});
