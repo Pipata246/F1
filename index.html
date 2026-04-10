@@ -358,6 +358,32 @@
     }
     .walletActions .btn{ width:100%; }
 
+    .matchFilterRow{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:12px;
+    }
+    .matchFilterTab{
+      border:none;
+      cursor:pointer;
+      font-size:12px;
+      font-weight:800;
+      padding:8px 12px;
+      border-radius:999px;
+      background: var(--glass-bg-strong);
+      border:1px solid var(--glass-border);
+      color: var(--text2);
+      backdrop-filter: blur(var(--blur));
+      transition: border-color .12s ease, background .12s ease, color .12s ease;
+    }
+    .matchFilterTab:active{ transform: scale(.98); }
+    .matchFilterTab.active{
+      background: rgba(140,255,193,.12);
+      border-color: rgba(140,255,193,.30);
+      color: var(--text);
+    }
+
     /* Game surface blocks */
     .gameSurface{
       border-radius: 22px;
@@ -628,12 +654,17 @@
       <!-- MATCHES -->
       <section id="page-matches" class="hidden">
         <div class="glass card">
-          <div class="row" style="align-items:center; justify-content:space-between;">
-            <div>
-              <div class="titleXL" style="margin:0">Матчи</div>
-              <div class="subtitle">История матчей</div>
-            </div>
-            <div class="chip">MVP</div>
+          <div>
+            <div class="titleXL" style="margin:0">Матчи</div>
+            <div class="subtitle">История матчей</div>
+          </div>
+
+          <div class="matchFilterRow" id="matchesFilterRow" role="tablist" aria-label="Фильтр по игре">
+            <button type="button" class="matchFilterTab active" data-game="all" role="tab" aria-selected="true">Все</button>
+            <button type="button" class="matchFilterTab" data-game="frog_hunt" role="tab" aria-selected="false">🐸 Жаба</button>
+            <button type="button" class="matchFilterTab" data-game="obstacle_race" role="tab" aria-selected="false">🏁 Полоса</button>
+            <button type="button" class="matchFilterTab" data-game="super_penalty" role="tab" aria-selected="false">⚽ Пенальти</button>
+            <button type="button" class="matchFilterTab" data-game="basketball" role="tab" aria-selected="false">🏀 Баскет</button>
           </div>
 
           <div class="divider"></div>
@@ -1326,6 +1357,13 @@
   }
 
   let matchesCache = [];
+  let matchesGameFilter = "all";
+
+  function getFilteredMatches(){
+    if(matchesGameFilter === "all") return matchesCache.slice();
+    return matchesCache.filter((m)=> String(m.game_key || "") === matchesGameFilter);
+  }
+
   async function loadMatchHistory(){
     if(!hasTgAuth) return;
     try{
@@ -1468,7 +1506,18 @@
     const list = document.getElementById("matchesList");
     if(!empty || !list) return;
 
+    const filtered = getFilteredMatches();
+
     if(!matchesCache.length){
+      empty.textContent = "Пока матчей нет.";
+      empty.style.display = "";
+      list.style.display = "none";
+      list.innerHTML = "";
+      return;
+    }
+
+    if(!filtered.length){
+      empty.textContent = matchesGameFilter === "all" ? "Пока матчей нет." : "В этой игре пока нет матчей.";
       empty.style.display = "";
       list.style.display = "none";
       list.innerHTML = "";
@@ -1481,7 +1530,7 @@
     const myTgId = String(state.profile.tgUserId || tg?.initDataUnsafe?.user?.id || "");
     list.innerHTML = "";
 
-    matchesCache.forEach((m)=>{
+    filtered.forEach((m)=>{
       const p1Name = m.player1_name || "Игрок 1";
       const p2Name = m.player2_name || "Игрок 2";
       const p1Id = String(m.player1_tg_user_id || "");
@@ -1517,6 +1566,24 @@
       list.appendChild(card);
     });
   }
+
+  document.getElementById("matchesFilterRow")?.addEventListener("click", (e)=>{
+    const btn = e.target.closest(".matchFilterTab");
+    if(!btn) return;
+    const game = btn.getAttribute("data-game");
+    if(game == null) return;
+    matchesGameFilter = game;
+    const row = document.getElementById("matchesFilterRow");
+    if(row){
+      row.querySelectorAll(".matchFilterTab").forEach((b)=>{
+        const on = b === btn;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-selected", on ? "true" : "false");
+      });
+    }
+    hSelect();
+    renderMatches();
+  });
 
   function renderAll(){
     userChip.textContent = displayMe();
