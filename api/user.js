@@ -306,6 +306,54 @@ function pvpDefaultState(player1Id, player2Id) {
   };
 }
 
+function pvpRandomAbility() {
+  const r = Math.random() * 5;
+  if (r < 2) return "xray";
+  if (r < 4) return "sabotage";
+  return "double";
+}
+
+function pvpRandomTraps(total, count) {
+  const out = new Set();
+  const max = Math.max(1, Number(total) || 1);
+  const need = Math.max(1, Math.min(max, Number(count) || 1));
+  while (out.size < need) {
+    out.add(Math.floor(Math.random() * max));
+  }
+  return [...out];
+}
+
+function pvpDefaultObstacleState(player1Id, player2Id) {
+  return {
+    engine: "obstacle_race_v1",
+    phase: "placing_traps",
+    phaseAtMs: Date.now(),
+    currentStep: 0,
+    mainRounds: 7,
+    winScore: 5,
+    overtime: false,
+    overtimeRound: 0,
+    overtimeRounds: 3,
+    trapsPerMain: 3,
+    trapsPerOvertime: 1,
+    traps: { p1: null, p2: null },
+    overtimeTraps: { p1: null, p2: null },
+    pendingMoves: { p1: null, p2: null },
+    scores: { p1: 0, p2: 0 },
+    abilities: { p1: pvpRandomAbility(), p2: pvpRandomAbility() },
+    abilityUsed: { p1: false, p2: false },
+    markers: { round: 0, match: 0, overtime: 0, xray: 0 },
+    players: { p1: String(player1Id), p2: String(player2Id) },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
+  if (gameKey === "obstacle_race") return pvpDefaultObstacleState(player1Id, player2Id);
+  return pvpDefaultState(player1Id, player2Id);
+}
+
 function pvpConfigForGame(gameNum) {
   if (gameNum === 3) return { totalRounds: 1, totalCells: 4, hunterShots: 2 };
   return { totalRounds: 5, totalCells: 8, hunterShots: 1 };
@@ -372,7 +420,7 @@ async function pvpTryJoinWaiting(gameKey, tgId, safeName) {
     `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=10`
   );
   for (const room of waiting || []) {
-    const state = pvpDefaultState(room.player1_tg_user_id, tgId);
+    const state = pvpDefaultStateForGame(gameKey, room.player1_tg_user_id, tgId);
     const joined = await sb(
       `pvp_rooms?id=eq.${room.id}&status=eq.waiting&player2_tg_user_id=is.null`,
       {
@@ -453,8 +501,279 @@ async function pvpEnforceSingleActiveRoom(gameKey, tgId, playerName, keepRoomId)
   await pvpCancelRooms(ids);
 }
 
+function pvpNormalizeTrapList(values, total, expectedCount) {
+  const arr = Array.isArray(values) ? values : [];
+  const max = Math.max(1, Number(total) || 1);
+  const need = Math.max(1, Math.min(max, Number(expectedCount) || 1));
+  const uniq = [];
+  for (const v of arr) {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n >= max) continue;
+    if (!uniq.includes(n)) uniq.push(n);
+    if (uniq.length >= need) break;
+  }
+  if (uniq.length !== need) throw new Error("Invalid traps");
+  return uniq;
+}
+
+function pvpResolveObstacleRound(state) {
+  const s = { ...state };
+  const step = s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0);
+  const result = { p1: null, p2: null };
+  for (const side of ["p1", "p2"]) {
+    const opp = side === "p1" ? "p2" : "p1";
+    const mv = asObj(asObj(s.pendingMoves)[side]);
+    const action = mv.action;
+    const useAbility = !!mv.useAbility;
+    const trapSet = s.overtime ? asObj(s.overtimeTraps)[opp] : asObj(s.traps)[opp];
+    const hasTrap = Array.isArray(trapSet) ? trapSet.includes(step) : false;
+    let usedAbility = null;
+    if (useAbility && !asObj(s.abilityUsed)[side] && !s.overtime) {
+      const ab = asObj(s.abilities)[side];
+      if (!(ab === "double" && step > 4)) {
+        usedAbility = ab;
+        s.abilityUsed = { ...asObj(s.abilityUsed), [side]: true };
+      }
+    }
+    const success = (action === "run" && !hasTrap) || (action === "jump" && hasTrap);
+    let points = success ? 1 : 0;
+    if (usedAbility === "double") points = success ? 2 : -1;
+    let reason = "";
+    if (action === "run" && !hasTrap) reason = "clear_run";
+    else if (action === "run" && hasTrap) reason = "hit_trap";
+    else if (action === "jump" && hasTrap) reason = "dodged_trap";
+    else reason = "wasted_jump";
+    result[side] = {
+      action,
+      hasTrap,
+      success,
+      reason,
+      points,
+      usedAbility,
+      sabotaged: false,
+      sabotageHit: false,
+      sabotageBackfire: false,
+    };
+  }
+  const baseSuccess = { p1: !!result.p1.success, p2: !!result.p2.success };
+  for (const side of ["p1", "p2"]) {
+    const opp = side === "p1" ? "p2" : "p1";
+    if (result[side].usedAbility === "sabotage") {
+      if (baseSuccess[opp]) {
+        result[opp].sabotaged = true;
+        result[opp].points = 0;
+        result[side].sabotageHit = true;
+      } else {
+        result[side].sabotageBackfire = true;
+      }
+    }
+  }
+
+  s.scores = { ...asObj(s.scores) };
+  s.scores.p1 = Number(s.scores.p1 || 0) + Number(result.p1.points || 0);
+  s.scores.p2 = Number(s.scores.p2 || 0) + Number(result.p2.points || 0);
+  if (s.overtime) s.overtimeRound = Number(s.overtimeRound || 0) + 1;
+  else s.currentStep = Number(s.currentStep || 0) + 1;
+
+  const winScore = Number(s.winScore || 5);
+  const mainRounds = Number(s.mainRounds || 7);
+  const overtimeRounds = Number(s.overtimeRounds || 3);
+  let winnerSide = null;
+  let startOvertime = false;
+  if (s.overtime) {
+    if (Number(s.scores.p1 || 0) > Number(s.scores.p2 || 0)) winnerSide = "p1";
+    else if (Number(s.scores.p2 || 0) > Number(s.scores.p1 || 0)) winnerSide = "p2";
+    else if (Number(s.overtimeRound || 0) >= overtimeRounds) startOvertime = true;
+  } else {
+    const p1 = Number(s.scores.p1 || 0);
+    const p2 = Number(s.scores.p2 || 0);
+    if (p1 >= winScore && p2 >= winScore) {
+      if (p1 > p2) winnerSide = "p1";
+      else if (p2 > p1) winnerSide = "p2";
+      else startOvertime = true;
+    } else if (p1 >= winScore) winnerSide = "p1";
+    else if (p2 >= winScore) winnerSide = "p2";
+    else if (Number(s.currentStep || 0) >= mainRounds) {
+      if (p1 > p2) winnerSide = "p1";
+      else if (p2 > p1) winnerSide = "p2";
+      else startOvertime = true;
+    }
+  }
+
+  s.phase = "round_result";
+  s.phaseAtMs = Date.now();
+  s.pendingMoves = { p1: null, p2: null };
+  s.lastRoundResult = {
+    marker: Number(asObj(s.markers).round || 0) + 1,
+    step,
+    result,
+    scores: { p1: Number(s.scores.p1 || 0), p2: Number(s.scores.p2 || 0) },
+    overtime: !!s.overtime,
+    round: s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0),
+    startOvertime,
+    winnerSide: winnerSide || null,
+    gameOver: !!winnerSide,
+  };
+  s.markers = { ...asObj(s.markers), round: s.lastRoundResult.marker };
+  s.updatedAt = new Date().toISOString();
+  return s;
+}
+
+function pvpApplyObstacleMove(room, tgId, move) {
+  const s = asObj(room?.state_json);
+  const side = getPvpSide(room, tgId);
+  if (!side) throw new Error("Invalid room side");
+  const next = { ...s };
+  const m = asObj(move);
+
+  if (next.phase === "placing_traps" || next.phase === "overtime_placing") {
+    const expected = next.phase === "placing_traps" ? Number(next.trapsPerMain || 3) : Number(next.trapsPerOvertime || 1);
+    const total = next.phase === "placing_traps" ? Number(next.mainRounds || 7) : Number(next.overtimeRounds || 3);
+    const traps = pvpNormalizeTrapList(m.traps, total, expected);
+    if (next.phase === "placing_traps") next.traps = { ...asObj(next.traps), [side]: traps };
+    else next.overtimeTraps = { ...asObj(next.overtimeTraps), [side]: traps };
+    const bothReady = next.phase === "placing_traps"
+      ? Array.isArray(asObj(next.traps).p1) && Array.isArray(asObj(next.traps).p2)
+      : Array.isArray(asObj(next.overtimeTraps).p1) && Array.isArray(asObj(next.overtimeTraps).p2);
+    if (bothReady) {
+      next.phase = "running";
+      next.phaseAtMs = Date.now();
+      next.pendingMoves = { p1: null, p2: null };
+    } else {
+      next.updatedAt = new Date().toISOString();
+    }
+    return next;
+  }
+
+  if (next.phase !== "running") return next;
+  if (m.type === "xray_scan" || Number.isInteger(Number(m.point))) {
+    const point = Number(m.point);
+    if (!Number.isInteger(point)) throw new Error("Invalid xray point");
+    if (asObj(next.abilityUsed)[side]) return next;
+    if (asObj(next.abilities)[side] !== "xray") return next;
+    const current = next.overtime ? Number(next.overtimeRound || 0) : Number(next.currentStep || 0);
+    const upper = next.overtime ? Number(next.overtimeRounds || 3) : Number(next.mainRounds || 7);
+    if (point < current || point >= upper) throw new Error("Invalid xray point");
+    const opp = side === "p1" ? "p2" : "p1";
+    const trapSet = next.overtime ? asObj(next.overtimeTraps)[opp] : asObj(next.traps)[opp];
+    const hasTrap = Array.isArray(trapSet) ? trapSet.includes(point) : false;
+    next.abilityUsed = { ...asObj(next.abilityUsed), [side]: true };
+    next.lastXray = {
+      marker: Number(asObj(next.markers).xray || 0) + 1,
+      bySide: side,
+      point,
+      hasTrap,
+    };
+    next.markers = { ...asObj(next.markers), xray: next.lastXray.marker };
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
+
+  const action = String(m.action || "");
+  if (action !== "run" && action !== "jump") throw new Error("Invalid move action");
+  const pending = { ...asObj(next.pendingMoves) };
+  if (pending[side]) return next;
+  pending[side] = { action, useAbility: !!m.useAbility };
+  next.pendingMoves = pending;
+
+  if (!pending.p1 || !pending.p2) {
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
+  return pvpResolveObstacleRound(next);
+}
+
 function pvpAdvanceByTime(room) {
   const s = asObj(room?.state_json);
+  if (String(room?.game_key || "") === "obstacle_race" || s.engine === "obstacle_race_v1") {
+    const now = Date.now();
+    const phaseAt = Number(s?.phaseAtMs || 0);
+    if (!phaseAt) return { changed: false, state: s };
+    const elapsed = now - phaseAt;
+    const next = { ...s };
+    const presence = asObj(s.presence);
+    const p1Beat = Number(presence.p1 || 0);
+    const p2Beat = Number(presence.p2 || 0);
+    if ((s.phase === "placing_traps" || s.phase === "overtime_placing" || s.phase === "running" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
+      const staleMs = 15000;
+      const p1Stale = now - p1Beat > staleMs;
+      const p2Stale = now - p2Beat > staleMs;
+      if (p1Stale !== p2Stale && elapsed >= 3000) {
+        const leftSide = p1Stale ? "p1" : "p2";
+        const winnerSide = leftSide === "p1" ? "p2" : "p1";
+        next.phase = "match_over";
+        next.phaseAtMs = now;
+        next.leftBy = String(asObj(next.players)[leftSide] || "");
+        next.leftAt = new Date().toISOString();
+        next.endedByLeave = true;
+        next.scores = { ...asObj(next.scores) };
+        if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
+          next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
+        }
+        next.winnerSide = winnerSide;
+        next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
+        next.updatedAt = new Date().toISOString();
+        return { changed: true, state: next };
+      }
+    }
+
+    if (s.phase === "placing_traps" && elapsed >= 20000) {
+      const p1 = Array.isArray(asObj(s.traps).p1) ? asObj(s.traps).p1 : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3));
+      const p2 = Array.isArray(asObj(s.traps).p2) ? asObj(s.traps).p2 : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3));
+      next.traps = { p1, p2 };
+      next.phase = "running";
+      next.phaseAtMs = now;
+      next.pendingMoves = { p1: null, p2: null };
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+
+    if (s.phase === "overtime_placing" && elapsed >= 12000) {
+      const p1 = Array.isArray(asObj(s.overtimeTraps).p1) ? asObj(s.overtimeTraps).p1 : pvpRandomTraps(Number(s.overtimeRounds || 3), Number(s.trapsPerOvertime || 1));
+      const p2 = Array.isArray(asObj(s.overtimeTraps).p2) ? asObj(s.overtimeTraps).p2 : pvpRandomTraps(Number(s.overtimeRounds || 3), Number(s.trapsPerOvertime || 1));
+      next.overtimeTraps = { p1, p2 };
+      next.phase = "running";
+      next.phaseAtMs = now;
+      next.pendingMoves = { p1: null, p2: null };
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+
+    if (s.phase === "running" && elapsed >= 12000) {
+      const pending = { ...asObj(s.pendingMoves) };
+      if (!pending.p1) pending.p1 = { action: "run", useAbility: false };
+      if (!pending.p2) pending.p2 = { action: "run", useAbility: false };
+      next.pendingMoves = pending;
+      const resolved = pvpResolveObstacleRound(next);
+      resolved.updatedAt = new Date().toISOString();
+      return { changed: true, state: resolved };
+    }
+
+    if (s.phase === "round_result" && elapsed >= 1800) {
+      const rr = asObj(s.lastRoundResult);
+      if (rr.gameOver) {
+        next.phase = "match_over";
+        next.phaseAtMs = now;
+        next.winnerSide = rr.winnerSide || null;
+        next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
+      } else if (rr.startOvertime) {
+        next.overtime = true;
+        next.overtimeRound = 0;
+        next.overtimeTraps = { p1: null, p2: null };
+        next.abilityUsed = { p1: true, p2: true };
+        next.phase = "overtime_placing";
+        next.phaseAtMs = now;
+        next.markers = { ...asObj(s.markers), overtime: Number(asObj(s.markers).overtime || 0) + 1 };
+      } else {
+        next.phase = "running";
+        next.phaseAtMs = now;
+        next.pendingMoves = { p1: null, p2: null };
+      }
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+    return { changed: false, state: s };
+  }
   const now = Date.now();
   const phaseAt = Number(s?.phaseAtMs || 0);
   if (!phaseAt) return { changed: false, state: s };
@@ -604,6 +923,9 @@ function pvpAdvanceByTime(room) {
 }
 
 function pvpApplyMove(room, tgId, move) {
+  if (String(room?.game_key || "") === "obstacle_race" || asObj(room?.state_json).engine === "obstacle_race_v1") {
+    return pvpApplyObstacleMove(room, tgId, move);
+  }
   const s = asObj(room?.state_json);
   if (s.phase !== "turn_input") return s;
   const side = getPvpSide(room, tgId);
@@ -691,7 +1013,7 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const tgId = String(verified.user.id);
   const safeName = String(playerName || verified.user.first_name || "Игрок").slice(0, 64);
   const key = normalizeGameKey(gameKey);
-  if (key !== "frog_hunt") throw new Error("PvP is enabled only for frog_hunt now");
+  if (key !== "frog_hunt" && key !== "obstacle_race") throw new Error("PvP is enabled only for frog_hunt and obstacle_race");
   await pvpPruneUserNonActiveRooms(tgId, key);
   await pvpEnforceSingleActiveRoom(key, tgId, safeName, 0);
 
@@ -806,9 +1128,16 @@ async function finalizePvpRoomIfNeeded(room) {
   if (s.phase !== "match_over") return room;
   if (s.matchSavedAt) return room;
 
-  const p1 = Number(s?.matchScores?.p1 || 0);
-  const p2 = Number(s?.matchScores?.p2 || 0);
-  const winner = p1 === p2 ? null : (p1 > p2 ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id));
+  const gameKey = normalizeGameKey(room?.game_key || "frog_hunt");
+  const scores = gameKey === "obstacle_race" ? asObj(s?.scores) : asObj(s?.matchScores);
+  const p1 = Number(scores?.p1 || 0);
+  const p2 = Number(scores?.p2 || 0);
+  let winner = null;
+  if (gameKey === "obstacle_race" && (s.winnerSide === "p1" || s.winnerSide === "p2")) {
+    winner = s.winnerSide === "p1" ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id || "");
+  } else {
+    winner = p1 === p2 ? null : (p1 > p2 ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id));
+  }
   const nextState = { ...s, matchSavedAt: new Date().toISOString() };
 
   const patched = await sb(`pvp_rooms?id=eq.${room.id}&status=eq.active`, {
@@ -825,11 +1154,11 @@ async function finalizePvpRoomIfNeeded(room) {
   const finalized = patched[0];
 
   await persistMatchFromPayload({
-    gameKey: "frog_hunt",
+    gameKey,
     mode: "pvp",
     winnerTgUserId: winner,
     score: { left: p1, right: p2 },
-    details: { roomId: room.id },
+    details: { roomId: room.id, endedByLeave: !!s.endedByLeave, engine: s.engine || null },
     players: [
       {
         tgUserId: room.player1_tg_user_id,
@@ -872,17 +1201,26 @@ async function pvpLeaveRoom(initData, roomId) {
   }
   if (room.status === "active") {
     const s = asObj(room.state_json);
-    const p1 = Number(s?.matchScores?.p1 || 0);
-    const p2 = Number(s?.matchScores?.p2 || 0);
+    const gameKey = normalizeGameKey(room?.game_key || "frog_hunt");
+    const scoreSource = gameKey === "obstacle_race" ? asObj(s?.scores) : asObj(s?.matchScores);
+    let p1 = Number(scoreSource?.p1 || 0);
+    let p2 = Number(scoreSource?.p2 || 0);
     const winner = String(room.player1_tg_user_id) === tgId
       ? String(room.player2_tg_user_id || "")
       : String(room.player1_tg_user_id || "");
+    if (gameKey === "obstacle_race" && p1 === p2) {
+      if (String(winner) === String(room.player1_tg_user_id)) p1 += 1;
+      else p2 += 1;
+    }
     const nextState = {
       ...s,
       phase: "match_over",
       leftBy: tgId,
       leftAt: new Date().toISOString(),
       endedByLeave: true,
+      winnerSide: String(winner) === String(room.player1_tg_user_id) ? "p1" : "p2",
+      scores: gameKey === "obstacle_race" ? { p1, p2 } : s.scores,
+      matchScores: gameKey === "frog_hunt" ? { ...(asObj(s.matchScores)), p1, p2 } : s.matchScores,
       matchSavedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -899,11 +1237,11 @@ async function pvpLeaveRoom(initData, roomId) {
     if (patched?.length) room = patched[0];
     if (patched?.length && winner) {
       await persistMatchFromPayload({
-        gameKey: "frog_hunt",
+        gameKey,
         mode: "pvp",
         winnerTgUserId: winner,
         score: { left: p1, right: p2 },
-        details: { roomId: id, endedByLeave: true, leftBy: tgId },
+        details: { roomId: id, endedByLeave: true, leftBy: tgId, engine: s.engine || null },
         players: [
           {
             tgUserId: room.player1_tg_user_id,
