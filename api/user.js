@@ -372,9 +372,9 @@ function pvpDefaultSuperPenaltyState(player1Id, player2Id) {
 function pvpDefaultBasketballState(player1Id, player2Id) {
   return {
     engine: "basketball_v1",
-    phase: "warmup_auto",
+    phase: "turn_input",
     phaseAtMs: Date.now(),
-    phaseNum: 1, // 1 warmup, 2 main, 3 overtime
+    phaseNum: 2, // 2 main, 3 overtime
     round: 0,
     maxRounds: 5,
     choices: { p1: null, p2: null },
@@ -916,7 +916,7 @@ function pvpAdvanceByTime(room) {
     const p1Beat = Number(presence.p1 || 0);
     const p2Beat = Number(presence.p2 || 0);
 
-    if ((s.phase === "warmup_auto" || s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
+    if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
       const staleMs = 15000;
       const p1Stale = now - p1Beat > staleMs;
       const p2Stale = now - p2Beat > staleMs;
@@ -939,69 +939,11 @@ function pvpAdvanceByTime(room) {
       }
     }
 
-    if (s.phase === "warmup_auto" && elapsed >= 2200) {
-      const r1 = pvpBasketballShot("mid");
-      const r2 = pvpBasketballShot("mid");
-      next.scores = { ...asObj(s.scores) };
-      next.scores.p1 = Number(next.scores.p1 || 0) + (r1.made ? 1 : 0);
-      next.scores.p2 = Number(next.scores.p2 || 0) + (r2.made ? 1 : 0);
-      next.round = Number(s.round || 0) + 1;
-      next.phase = "round_result";
-      next.phaseAtMs = now;
-      next.lastRoundResult = {
-        marker: Number(asObj(s.markers).round || 0) + 1,
-        phaseNum: 1,
-        round: Number(next.round || 0),
-        maxRounds: 5,
-        shots: [
-          { playerIndex: 0, distance: "mid", made: !!r1.made, points: r1.made ? 1 : 0 },
-          { playerIndex: 1, distance: "mid", made: !!r2.made, points: r2.made ? 1 : 0 },
-        ],
-        scores: { p1: Number(next.scores.p1 || 0), p2: Number(next.scores.p2 || 0) },
-      };
-      next.markers = { ...asObj(s.markers), round: next.lastRoundResult.marker };
-      next.updatedAt = new Date().toISOString();
-      return { changed: true, state: next };
-    }
-
-    if (s.phase === "turn_input" && elapsed >= 12000) {
-      if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
-      const choices = { ...asObj(s.choices) };
-      const pick = () => {
-        const r = Math.random();
-        if (r < 0.25) return "close";
-        if (r < 0.7) return "mid";
-        return "far";
-      };
-      if (!choices.p1) choices.p1 = pick();
-      if (!choices.p2) choices.p2 = pick();
-      next.choices = choices;
-      const resolved = pvpResolveBasketballRound(next);
-      resolved.updatedAt = new Date().toISOString();
-      return { changed: true, state: resolved };
-    }
-
     if (s.phase === "round_result" && elapsed >= 2400) {
-      const phaseNum = Number(s.phaseNum || 1);
+      const phaseNum = Number(s.phaseNum || 2);
       const round = Number(s.round || 0);
       const p1 = Number(asObj(s.scores).p1 || 0);
       const p2 = Number(asObj(s.scores).p2 || 0);
-      if (phaseNum === 1) {
-        if (round >= 5) {
-          next.phaseNum = 2;
-          next.round = 0;
-          next.maxRounds = 5;
-          next.phase = "turn_input";
-          next.phaseAtMs = now;
-          next.choices = { p1: null, p2: null };
-          next.markers = { ...asObj(s.markers), phase: Number(asObj(s.markers).phase || 0) + 1 };
-        } else {
-          next.phase = "warmup_auto";
-          next.phaseAtMs = now;
-        }
-        next.updatedAt = new Date().toISOString();
-        return { changed: true, state: next };
-      }
       if (phaseNum === 2) {
         if (round >= 5) {
           if (p1 !== p2) {

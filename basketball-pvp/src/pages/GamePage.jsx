@@ -179,11 +179,10 @@ const GamePage = () => {
         setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
         setScreen('game'); break;
       case 'phase_start':
-        setGamePhase(msg.phase===1?'warmup':msg.phase===2?'main':'overtime');
+        setGamePhase(msg.phase===2?'main':'overtime');
         setScores(msg.scores); setRound(0); setChoosing(false);
         setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
-        if(msg.phase===1) showAnnounce('WARM UP','5 авто-бросков · 1 очко');
-        else if(msg.phase===2) showAnnounce('GAME ON','5 раундов');
+        if(msg.phase===2) showAnnounce('GAME ON','5 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
       case 'round_start': setAnnounce(null); setRound(msg.round); setMaxRounds(msg.maxRounds); setChoosing(true); setLocked(false); startTimer(); break;
       case 'choice_locked': setLocked(true); stopTimer(); break;
@@ -353,32 +352,13 @@ const GamePage = () => {
     }
     sched(localStartRound, 2600);
   }
-  function localStartWarmup() {
-    const m = localMatchRef.current;
-    if (!m || m.finished) return;
-    if (m.round >= 5) {
-      m.phase = 2; m.round = 0;
-      handleMsg({ type: 'phase_start', phase: 2, scores: [...m.scores] });
-      sched(localStartRound, 900);
-      return;
-    }
-    const shots = [0, 1].map((i) => {
-      const { made } = resolveShot('mid');
-      const points = made ? 1 : 0;
-      m.scores[i] += points;
-      return { playerIndex: i, distance: 'mid', made, points };
-    });
-    m.round += 1;
-    handleMsg({ type: 'round_result', shots, scores: [...m.scores], round: m.round, phase: 1 });
-    sched(localStartWarmup, 2600);
-  }
   function localOnClientMessage(type, data = {}) {
     const m = localMatchRef.current;
     if (type === 'find_game' || type === 'find_bot') {
       const uid = data.tgUserId || null;
       localMatchRef.current = {
         tgUserId: uid,
-        phase: 1,
+        phase: 2,
         round: 0,
         scores: [0, 0],
         choices: [null, null],
@@ -387,8 +367,8 @@ const GamePage = () => {
       handleMsg({ type: 'waiting' });
       sched(() => {
         handleMsg({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
-        handleMsg({ type: 'phase_start', phase: 1, scores: [0, 0] });
-        sched(localStartWarmup, 800);
+        handleMsg({ type: 'phase_start', phase: 2, scores: [0, 0] });
+        sched(localStartRound, 800);
       }, 550);
       return;
     }
@@ -567,7 +547,7 @@ const GamePage = () => {
   // Scoreboard matches court: P0=left(blue), P1=right(red)
   const p0Name=pi===0?myName:opName, p1Name=pi===1?myName:opName;
   const p0Score=scores[0]??0, p1Score=scores[1]??0;
-  const phaseLabel=gamePhase==='warmup'?'WARM UP':gamePhase==='overtime'?'OT':null;
+  const phaseLabel=gamePhase==='overtime'?'OT':null;
 
   return (
     <div className="h-screen relative overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
@@ -670,9 +650,6 @@ const GamePage = () => {
                 <div className="w-4 h-4 border-2 border-amber-400/40 border-t-transparent rounded-full animate-spin" />
                 <p className="text-white/30 text-sm uppercase tracking-wider">Ожидание...</p>
               </div>
-            )}
-            {gamePhase==='warmup'&&!ballAnim&&!shotResult&&(
-              <p className="text-amber-400/60 text-sm uppercase tracking-widest bg-black/60 px-5 py-3 rounded-xl">Авто-броски...</p>
             )}
           </div>
         )}
