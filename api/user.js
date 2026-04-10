@@ -449,7 +449,7 @@ function pvpAdvanceByTime(room) {
 
   // If one side stopped polling for long enough, end match by forfeit.
   if ((s.phase === "turn_input" || s.phase === "round_result" || s.phase === "game_over") && p1Beat > 0 && p2Beat > 0) {
-    const staleMs = 25000;
+    const staleMs = 7000;
     const p1Stale = now - p1Beat > staleMs;
     const p2Stale = now - p2Beat > staleMs;
     if (p1Stale !== p2Stale) {
@@ -698,7 +698,6 @@ async function pvpGetRoomState(initData, roomId) {
   const tgId = String(verified.user.id);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
-  await pvpPruneUserNonActiveRooms(tgId, "frog_hunt");
 
   const rows = await sb(
     `pvp_rooms?id=eq.${id}&select=*`

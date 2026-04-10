@@ -27,6 +27,8 @@ var pvpLastTurnKey = '';
 var pvpPendingSubmit = false;
 var waitingProgressTimer = null;
 var waitingProgress = 10;
+var pvpPollInFlight = false;
+var PVP_POLL_MS = 350;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -153,6 +155,7 @@ function apiPost(body) {
 function stopPvpPolling() {
   if (pvpPollTimer) clearInterval(pvpPollTimer);
   pvpPollTimer = null;
+  pvpPollInFlight = false;
   pvpPendingSubmit = false;
   stopWaitingProgress();
 }
@@ -160,7 +163,19 @@ function stopPvpPolling() {
 function leavePvpQueue() {
   stopPvpPolling();
   if (!isBotMode && pvpRoomId && tgInitData) {
-    apiPost({ action: 'pvpLeaveRoom', initData: tgInitData, roomId: pvpRoomId }).catch(function() {});
+    try {
+      if (navigator && navigator.sendBeacon) {
+        var payload = JSON.stringify({ action: 'pvpLeaveRoom', initData: tgInitData, roomId: pvpRoomId });
+        var blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon('/api/user', blob);
+      }
+    } catch(e) {}
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify({ action: 'pvpLeaveRoom', initData: tgInitData, roomId: pvpRoomId })
+    }).catch(function() {});
   }
   pvpRoomId = null;
 }
@@ -207,12 +222,13 @@ function startPvpPolling() {
   stopPvpPolling();
   pvpPollTimer = setInterval(function() {
     pvpPollState();
-  }, 1000);
+  }, PVP_POLL_MS);
   pvpPollState();
 }
 
 function pvpPollState() {
-  if (!pvpRoomId || !tgInitData) return;
+  if (!pvpRoomId || !tgInitData || pvpPollInFlight) return;
+  pvpPollInFlight = true;
   apiPost({
     action: 'pvpGetRoomState',
     initData: tgInitData,
@@ -220,7 +236,9 @@ function pvpPollState() {
   }).then(function(data) {
     if (!data || !data.ok || !data.room) return;
     applyPvpRoomState(data.room);
-  }).catch(function() {});
+  }).catch(function() {}).finally(function() {
+    pvpPollInFlight = false;
+  });
 }
 
 function applyPvpRoomState(room) {
@@ -284,9 +302,9 @@ function applyPvpRoomState(room) {
   }
 
   if (s.phase === 'turn_input') {
-    pvpPendingSubmit = false;
     var turnKey = String(gameNum) + ':' + String(currentRound) + ':' + String(myRole);
     if (turnKey !== pvpLastTurnKey) {
+      pvpPendingSubmit = false;
       pvpLastTurnKey = turnKey;
       if (myRole === 'frog') {
         onFrogTurn({
@@ -303,6 +321,8 @@ function applyPvpRoomState(room) {
           isFinal: currentRound === totalRounds
         });
       }
+    } else if (moveChosen || pvpPendingSubmit) {
+      $('hint-text').textContent = 'Ждём ход соперника...';
     }
     return;
   }
@@ -508,6 +528,7 @@ function confirmChoice() {
   if (!isBotMode) {
     if (pvpPendingSubmit || !pvpRoomId) return;
     pvpPendingSubmit = true;
+    $('hint-text').textContent = 'Ход отправлен. Ждём соперника...';
     var move = myRole === 'frog'
       ? { frogCell: selectedCells[0] }
       : { hunterCells: selectedCells.slice() };
@@ -523,6 +544,7 @@ function confirmChoice() {
       pvpPendingSubmit = false;
       moveChosen = false;
       $('btn-confirm').disabled = false;
+      $('hint-text').textContent = 'Ошибка отправки хода. Попробуй ещё раз.';
     });
     return;
   }
