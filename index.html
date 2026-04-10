@@ -400,46 +400,6 @@
           </div>
         </div>
 
-        <!-- Reaction game -->
-        <div class="glass card" style="margin-bottom:12px;">
-          <h2>⚡ Реакция</h2>
-          <div class="muted">Жди “GO” и тапни как можно быстрее. Сохраняем рекорд.</div>
-          <div class="divider"></div>
-          <div class="row">
-            <div class="pill" style="flex:1">
-              <span class="text2">Лучшее</span>
-              <strong id="reactBest">—</strong>
-            </div>
-            <div class="pill" style="flex:1">
-              <span class="text2">Последнее</span>
-              <strong id="reactLast">—</strong>
-            </div>
-          </div>
-          <div style="margin-top:14px">
-            <button class="btn primary" id="openReaction">Играть</button>
-          </div>
-        </div>
-
-        <!-- Pong game -->
-        <div class="glass card" style="margin-bottom:12px;">
-          <h2>🏓 Пинг-понг</h2>
-          <div class="muted">Классический Pong. Управляй ракеткой пальцем. Бот умнеет и ускоряется.</div>
-          <div class="divider"></div>
-          <div class="row">
-            <div class="pill" style="flex:1">
-              <span class="text2">Результат</span>
-              <strong id="pongScore">0 : 0</strong>
-            </div>
-            <div class="pill" style="flex:1">
-              <span class="text2">До победы</span>
-              <strong id="pongToWin">5</strong>
-            </div>
-          </div>
-          <div style="margin-top:14px">
-            <button class="btn primary" id="openPong">Играть</button>
-          </div>
-        </div>
-
         <!-- Frog Hunt PvP -->
         <div class="glass card" style="margin-bottom:12px;">
           <h2>🐸 Охота на жабу</h2>
@@ -537,88 +497,6 @@
         </div>
       </section>
 
-      <!-- REACTION GAME -->
-      <section id="page-reaction" class="hidden">
-        <div class="glass card">
-          <div class="row" style="align-items:center; justify-content:space-between;">
-            <div>
-              <div class="titleXL" style="margin:0">⚡ Реакция</div>
-              <div class="subtitle">Тапни как можно быстрее после “GO”</div>
-            </div>
-            <button class="btn ghost" style="width:auto; padding:10px 12px; font-size:13px" id="backFromReaction">Назад</button>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="gameSurface center" id="reactSurface" style="height:320px;">
-            <div>
-              <div class="big" id="reactText">Нажми “Старт”</div>
-              <div class="hint" id="reactHint" style="margin-top:10px">
-                После старта жди сигнал “GO” и тапни по полю.
-              </div>
-            </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="row">
-            <div class="pill" style="flex:1">
-              <span class="text2">Лучшее</span>
-              <strong id="reactBest2">—</strong>
-            </div>
-            <div class="pill" style="flex:1">
-              <span class="text2">Последнее</span>
-              <strong id="reactLast2">—</strong>
-            </div>
-          </div>
-
-          <div style="margin-top:14px" class="row">
-            <button class="btn primary" id="reactStart">Старт</button>
-            <button class="btn ghost" id="reactReset">Сбросить</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- PONG GAME -->
-      <section id="page-pong" class="hidden">
-        <div class="glass card">
-          <div class="row" style="align-items:center; justify-content:space-between;">
-            <div>
-              <div class="titleXL" style="margin:0">🏓 Пинг-понг</div>
-              <div class="subtitle">Двигай пальцем по экрану — ракетка повторяет</div>
-            </div>
-            <button class="btn ghost" style="width:auto; padding:10px 12px; font-size:13px" id="backFromPong">Назад</button>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="gameSurface">
-            <canvas id="pongCanvas" width="900" height="540"></canvas>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="row">
-            <div class="pill" style="flex:1">
-              <span class="text2">Счёт</span>
-              <strong id="pongScore2">0 : 0</strong>
-            </div>
-            <div class="pill" style="flex:1">
-              <span class="text2">Сложность</span>
-              <strong id="pongDiff">1.0×</strong>
-            </div>
-          </div>
-
-          <div style="margin-top:14px" class="row">
-            <button class="btn primary" id="pongRestart">Начать заново</button>
-            <button class="btn ghost" id="pongPause">Пауза</button>
-          </div>
-
-          <div class="small" style="margin-top:10px">
-            Подсказка: чем дольше розыгрыш — тем быстрее мяч и умнее бот.
-          </div>
-        </div>
-      </section>
 
       <!-- WALLET -->
       <section id="page-wallet" class="hidden">
@@ -678,13 +556,6 @@
               <div class="subtitle" id="profId">—</div>
             </div>
             <button class="btn ghost" style="width:auto; padding:10px 12px; font-size:13px" id="editNickBtn">Edit</button>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="row">
-            <div class="pill" style="flex:1"><span class="text2">Реакция (best)</span><strong id="profReactBest">—</strong></div>
-            <div class="pill" style="flex:1"><span class="text2">Pong</span><strong id="profPongBest">—</strong></div>
           </div>
 
           <div class="divider"></div>
@@ -857,9 +728,6 @@
     wallet: { coins: 120, stars: 0 },
     settings: { sound:true, haptic:true },
     tx: [],
-    // games
-    reaction: { bestMs: 0, lastMs: 0 },
-    pong: { bestWins: 0, bestDiff: 1.0 }
   };
 
   const state = (()=> {
@@ -872,8 +740,6 @@
         ...s,
         wallet:{...defaultState.wallet, ...(s.wallet||{})},
         settings:{...defaultState.settings, ...(s.settings||{})},
-        reaction:{...defaultState.reaction, ...(s.reaction||{})},
-        pong:{...defaultState.pong, ...(s.pong||{})},
         tx: Array.isArray(s.tx)? s.tx : []
       };
     }catch(e){
@@ -886,8 +752,6 @@
       wallet: state.wallet,
       settings: state.settings,
       tx: state.tx,
-      reaction: state.reaction,
-      pong: state.pong,
     };
     localStorage.setItem(KEY, JSON.stringify(persist));
     renderAll();
@@ -971,7 +835,7 @@
     modalCancel.onclick = ()=> modalWrap.classList.remove("show");
   }
 
-  const pages = ["onb-rules","onb-nick","onb-ref","games","reaction","pong","wallet","matches","profile"];
+  const pages = ["onb-rules","onb-nick","onb-ref","games","wallet","matches","profile"];
   function go(page){
     pages.forEach(p=>{
       const el = document.getElementById("page-"+p);
@@ -988,8 +852,6 @@
     }
     location.hash = "#"+page;
 
-    if(page==="pong") pongStart();
-    if(page!=="pong") pongStop();
   }
 
   function needsOnboarding(){
@@ -1119,12 +981,6 @@
     }
   };
 
-  document.getElementById("openReaction").onclick = ()=>{ hImpact("light"); go("reaction"); reactionResetUI(); };
-  document.getElementById("openPong").onclick = ()=>{ hImpact("light"); go("pong"); };
-
-  document.getElementById("backFromReaction").onclick = ()=>go("games");
-  document.getElementById("backFromPong").onclick = ()=>go("games");
-
   const FROG_HUNT_API = "https://natural-creation-production.up.railway.app";
   const OBSTACLE_RACE_API = "https://calm-gentleness-production-48ed.up.railway.app";
   const PENALTY_API = "https://humble-happiness-production-2f85.up.railway.app";
@@ -1250,8 +1106,6 @@
   const nickModalCancel = document.getElementById("nickModalCancel");
   const setSound = document.getElementById("setSound");
   const setHaptic = document.getElementById("setHaptic");
-  const profReactBest = document.getElementById("profReactBest");
-  const profPongBest = document.getElementById("profPongBest");
 
   function formatDate(ts){
     try{
@@ -1364,364 +1218,11 @@
 
     setSound.checked = !!state.settings.sound;
     setHaptic.checked = !!state.settings.haptic;
-
-    profReactBest.textContent = state.reaction.bestMs ? `${state.reaction.bestMs} ms` : "—";
-    profPongBest.textContent = state.pong.bestWins ? `Wins: ${state.pong.bestWins}` : "—";
   }
 
   function renderMatches(){
     // оставили заглушку
   }
-
-  const reactBest = document.getElementById("reactBest");
-  const reactLast = document.getElementById("reactLast");
-  const reactBest2 = document.getElementById("reactBest2");
-  const reactLast2 = document.getElementById("reactLast2");
-
-  const reactSurface = document.getElementById("reactSurface");
-  const reactText = document.getElementById("reactText");
-  const reactHint = document.getElementById("reactHint");
-  const reactStart = document.getElementById("reactStart");
-  const reactReset = document.getElementById("reactReset");
-
-  let reactState = "idle"; // idle | waiting | go | done
-  let reactGoAt = 0;
-  let reactTimer = null;
-
-  function reactionResetUI(){
-    clearTimeout(reactTimer);
-    reactState = "idle";
-    reactGoAt = 0;
-    reactText.textContent = "Нажми “Старт”";
-    reactHint.textContent = "После старта жди сигнал “GO” и тапни по полю.";
-    renderReactionStats();
-  }
-
-  function renderReactionStats(){
-    reactBest.textContent = state.reaction.bestMs ? `${state.reaction.bestMs} ms` : "—";
-    reactLast.textContent = state.reaction.lastMs ? `${state.reaction.lastMs} ms` : "—";
-    reactBest2.textContent = reactBest.textContent;
-    reactLast2.textContent = reactLast.textContent;
-
-    document.getElementById("reactBest").textContent = reactBest.textContent;
-    document.getElementById("reactLast").textContent = reactLast.textContent;
-  }
-
-  reactStart.onclick = ()=>{
-    if(reactState==="waiting" || reactState==="go") return;
-    hImpact("light");
-    reactState = "waiting";
-    reactText.textContent = "Жди…";
-    reactHint.textContent = "Не нажимай раньше времени 😄";
-    const delay = 1200 + Math.floor(Math.random()*2200); // 1.2–3.4 sec
-    clearTimeout(reactTimer);
-    reactTimer = setTimeout(()=>{
-      reactState = "go";
-      reactGoAt = now();
-      reactText.textContent = "GO!";
-      reactHint.textContent = "Тапни по полю!";
-      hNote("success");
-    }, delay);
-  };
-
-  reactReset.onclick = ()=>{
-    openModal("Сбросить рекорды?", "Это сбросит best/last в игре Реакция.", ()=>{
-      state.reaction.bestMs = 0;
-      state.reaction.lastMs = 0;
-      addTx("Сброс: Реакция");
-      save();
-      reactionResetUI();
-      toast("Сброшено");
-    });
-  };
-
-  reactSurface.addEventListener("pointerdown", ()=>{
-    if(reactState==="idle"){ toast("Нажми “Старт”"); return; }
-
-    if(reactState==="waiting"){
-      // too early
-      hNote("error");
-      reactState = "done";
-      clearTimeout(reactTimer);
-      reactText.textContent = "Слишком рано!";
-      reactHint.textContent = "Попробуй ещё раз.";
-      return;
-    }
-
-    if(reactState==="go"){
-      const ms = Math.max(1, now() - reactGoAt);
-      state.reaction.lastMs = ms;
-      if(!state.reaction.bestMs || ms < state.reaction.bestMs) state.reaction.bestMs = ms;
-      addTx(`Реакция: ${ms} ms`);
-      save();
-      hImpact("medium");
-      reactState = "done";
-      reactText.textContent = `${ms} ms`;
-      reactHint.textContent = ms < 220 ? "🔥 Очень быстро!" : (ms < 300 ? "Отлично!" : "Норм, можно быстрее 😄");
-      renderReactionStats();
-    }
-  });
-
-  const pongCanvas = document.getElementById("pongCanvas");
-  const ctx = pongCanvas.getContext("2d");
-  const pongScore = document.getElementById("pongScore");
-  const pongScore2 = document.getElementById("pongScore2");
-  const pongDiff = document.getElementById("pongDiff");
-  const pongToWin = document.getElementById("pongToWin");
-
-  const pongRestart = document.getElementById("pongRestart");
-  const pongPause = document.getElementById("pongPause");
-
-  let pongRAF = null;
-  let pongRunning = false;
-  let pongPaused = false;
-
-  const TO_WIN = 5;
-  pongToWin.textContent = TO_WIN;
-
-  const game = {
-    w: pongCanvas.width, h: pongCanvas.height,
-    scoreL: 0, scoreR: 0,
-    diff: 1.0,
-    rally: 0,
-    ball: { x:0,y:0,vx:0,vy:0,r:10 },
-    paddleL: { x:40, y:0, w:16, h:120 },
-    paddleR: { x:0, y:0, w:16, h:120 },
-    touchY: null
-  };
-
-  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-
-  function pongResetBall(dir=1){
-    game.ball.x = game.w/2;
-    game.ball.y = game.h/2;
-    const speed = 6 + (game.diff-1)*3;
-    const angle = (Math.random()*0.8 - 0.4); // -0.4..0.4
-    game.ball.vx = dir * speed;
-    game.ball.vy = speed * angle;
-    game.rally = 0;
-  }
-
-  function pongReset(){
-    game.scoreL = 0; game.scoreR = 0;
-    game.diff = 1.0;
-    game.paddleL.y = game.h/2 - game.paddleL.h/2;
-    game.paddleR.x = game.w - 40 - game.paddleR.w;
-    game.paddleR.y = game.h/2 - game.paddleR.h/2;
-    pongResetBall(Math.random() < 0.5 ? -1 : 1);
-    updatePongUI();
-  }
-
-  function updatePongUI(){
-    pongScore.textContent = `${game.scoreL} : ${game.scoreR}`;
-    pongScore2.textContent = pongScore.textContent;
-    pongDiff.textContent = `${game.diff.toFixed(2)}×`;
-    document.getElementById("pongScore").textContent = pongScore.textContent;
-  }
-
-  function pongDraw(){
-    ctx.clearRect(0,0,game.w,game.h);
-
-    // background field
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    ctx.fillRect(0,0,game.w,game.h);
-
-    // soft borders
-    ctx.strokeStyle = "rgba(255,255,255,0.10)";
-    ctx.lineWidth = 6;
-    ctx.strokeRect(10,10,game.w-20,game.h-20);
-
-    // paddles
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    roundRect(ctx, game.paddleL.x, game.paddleL.y, game.paddleL.w, game.paddleL.h, 10, true, false);
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    roundRect(ctx, game.paddleR.x, game.paddleR.y, game.paddleR.w, game.paddleR.h, 10, true, false);
-
-    // ball
-    ctx.beginPath();
-    ctx.fillStyle = "rgba(140,255,193,0.95)";
-    ctx.arc(game.ball.x, game.ball.y, game.ball.r, 0, Math.PI*2);
-    ctx.fill();
-
-    // score
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "900 44px system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText(game.scoreL, game.w*0.35, 70);
-    ctx.fillText(game.scoreR, game.w*0.65, 70);
-  }
-
-  function roundRect(ctx, x, y, w, h, r, fill, stroke) {
-    if (w < 2 * r) r = w / 2;
-    if (h < 2 * r) r = h / 2;
-    ctx.beginPath();
-    ctx.moveTo(x+r, y);
-    ctx.arcTo(x+w, y,   x+w, y+h, r);
-    ctx.arcTo(x+w, y+h, x,   y+h, r);
-    ctx.arcTo(x,   y+h, x,   y,   r);
-    ctx.arcTo(x,   y,   x+w, y,   r);
-    ctx.closePath();
-    if (fill) ctx.fill();
-    if (stroke) ctx.stroke();
-  }
-
-  function pongStep(){
-    if(!pongRunning){ return; }
-    if(pongPaused){
-      pongDraw();
-      pongRAF = requestAnimationFrame(pongStep);
-      return;
-    }
-
-    // player paddle follow
-    const targetY = game.touchY ?? (game.ball.y);
-    game.paddleL.y = clamp(targetY - game.paddleL.h/2, 20, game.h - game.paddleL.h - 20);
-
-    // bot AI: smoother + slightly imperfect
-    const botCenter = game.paddleR.y + game.paddleR.h/2;
-
-    // bot target: predict a bit but with noise
-    const noise = (Math.random()*2 - 1) * (10 + game.diff*6); // grows with diff
-    const desired = game.ball.y + noise;
-
-    // smoothness (lower = smoother)
-    const aiSpeed = 0.08 + (game.diff-1)*0.03; // 0.08.. ~
-    const next = botCenter + (desired - botCenter) * aiSpeed;
-    game.paddleR.y = clamp(next - game.paddleR.h/2, 20, game.h - game.paddleR.h - 20);
-
-    // ball move
-    game.ball.x += game.ball.vx;
-    game.ball.y += game.ball.vy;
-
-    // wall bounce
-    if(game.ball.y - game.ball.r < 20){
-      game.ball.y = 20 + game.ball.r;
-      game.ball.vy *= -1;
-      hSelect();
-    }
-    if(game.ball.y + game.ball.r > game.h - 20){
-      game.ball.y = game.h - 20 - game.ball.r;
-      game.ball.vy *= -1;
-      hSelect();
-    }
-
-    // paddle collision helper
-    function hitPaddle(p){
-      const bx = game.ball.x, by = game.ball.y, r = game.ball.r;
-      if(bx + r < p.x || bx - r > p.x + p.w) return false;
-      if(by + r < p.y || by - r > p.y + p.h) return false;
-      return true;
-    }
-
-    // left paddle
-    if(hitPaddle(game.paddleL) && game.ball.vx < 0){
-      game.ball.x = game.paddleL.x + game.paddleL.w + game.ball.r;
-      // reflect + add angle based on hit position
-      const rel = (game.ball.y - (game.paddleL.y + game.paddleL.h/2)) / (game.paddleL.h/2);
-      const speed = Math.min(16, Math.abs(game.ball.vx) + 0.4);
-      game.ball.vx = speed;
-      game.ball.vy = speed * rel * 0.9;
-      game.rally++;
-
-      // difficulty grows with rally (smooth, not too fast)
-      game.diff = 1.0 + Math.min(1.8, game.rally * 0.05);
-      hImpact("light");
-    }
-
-    // right paddle
-    if(hitPaddle(game.paddleR) && game.ball.vx > 0){
-      game.ball.x = game.paddleR.x - game.ball.r;
-      const rel = (game.ball.y - (game.paddleR.y + game.paddleR.h/2)) / (game.paddleR.h/2);
-      const speed = Math.min(16, Math.abs(game.ball.vx) + 0.4);
-      game.ball.vx = -speed;
-      game.ball.vy = speed * rel * 0.9;
-      game.rally++;
-      game.diff = 1.0 + Math.min(1.8, game.rally * 0.05);
-      hImpact("light");
-    }
-
-    // scoring
-    if(game.ball.x < -50){
-      game.scoreR++;
-      hNote("error");
-      updatePongUI();
-      if(checkPongEnd()) return;
-      pongResetBall(1);
-    }
-    if(game.ball.x > game.w + 50){
-      game.scoreL++;
-      hNote("success");
-      updatePongUI();
-      if(checkPongEnd()) return;
-      pongResetBall(-1);
-    }
-
-    pongDraw();
-    pongRAF = requestAnimationFrame(pongStep);
-  }
-
-  function checkPongEnd(){
-    if(game.scoreL >= TO_WIN || game.scoreR >= TO_WIN){
-      pongPaused = true;
-      pongDraw();
-
-      const win = game.scoreL > game.scoreR;
-      if(win){
-        toast("Победа! 🔥");
-        state.pong.bestWins = Math.max(state.pong.bestWins, 1);
-        addTx("Pong: победа");
-      } else {
-        toast("Поражение 😄");
-        addTx("Pong: поражение");
-      }
-      state.pong.bestDiff = Math.max(state.pong.bestDiff, game.diff);
-      save();
-      return true;
-    }
-    return false;
-  }
-
-  function pongStart(){
-    if(pongRunning) return;
-    pongRunning = true;
-    pongPaused = false;
-    pongReset();
-    pongRAF = requestAnimationFrame(pongStep);
-  }
-
-  function pongStop(){
-    pongRunning = false;
-    if(pongRAF) cancelAnimationFrame(pongRAF);
-    pongRAF = null;
-  }
-
-  pongRestart.onclick = ()=>{
-    hImpact("light");
-    pongPaused = false;
-    pongReset();
-    toast("Новый матч");
-  };
-
-  pongPause.onclick = ()=>{
-    pongPaused = !pongPaused;
-    pongPause.textContent = pongPaused ? "Продолжить" : "Пауза";
-    hSelect();
-  };
-
-  // Touch/mouse control
-  function canvasToY(ev){
-    const rect = pongCanvas.getBoundingClientRect();
-    const clientY = ev.touches ? ev.touches[0].clientY : ev.clientY;
-    const y = (clientY - rect.top) * (pongCanvas.height / rect.height);
-    return y;
-  }
-  pongCanvas.addEventListener("pointerdown", (e)=>{ game.touchY = canvasToY(e); });
-  pongCanvas.addEventListener("pointermove", (e)=>{ if(e.buttons || e.pointerType==="touch") game.touchY = canvasToY(e); });
-  pongCanvas.addEventListener("pointerup", ()=>{ game.touchY = null; });
-
-  pongCanvas.addEventListener("touchstart", (e)=>{ game.touchY = canvasToY(e); }, {passive:true});
-  pongCanvas.addEventListener("touchmove", (e)=>{ game.touchY = canvasToY(e); }, {passive:true});
-  pongCanvas.addEventListener("touchend", ()=>{ game.touchY = null; }, {passive:true});
 
   function renderAll(){
     userChip.textContent = displayMe();
@@ -1729,12 +1230,6 @@
     renderWallet();
     renderMatches();
     renderProfile();
-    renderReactionStats();
-
-    // games summary
-    document.getElementById("reactBest").textContent = state.reaction.bestMs ? `${state.reaction.bestMs} ms` : "—";
-    document.getElementById("reactLast").textContent = state.reaction.lastMs ? `${state.reaction.lastMs} ms` : "—";
-    pongScore.textContent = pongScore2.textContent;
     loadExternalStats();
   }
 
@@ -1750,7 +1245,6 @@
     try{
       await hydrateUserFromServer();
     }finally{
-      reactionResetUI();
       renderAll();
       initNav();
       document.body.classList.remove("booting");

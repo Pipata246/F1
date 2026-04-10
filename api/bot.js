@@ -3,8 +3,6 @@ const APP_URL = process.env.WEBAPP_URL || "https://f1-three-iota.vercel.app";
 const SECRET_TOKEN = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
 const GAMES = [
-  "⚡ Реакция",
-  "🏓 Пинг-понг",
   "🐸 Frog Hunt (PvP)",
   "🏁 Obstacle Race (PvP)",
   "⚽ Super Penalty (PvP)",
