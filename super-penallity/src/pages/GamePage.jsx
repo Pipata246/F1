@@ -157,7 +157,7 @@ const GamePage = () => {
   const matchRef = useRef(null);
   const tgInitDataRef = useRef('');
   const matchSavedRef = useRef(false);
-  const isBotModeRef = useRef(true);
+  const isBotModeRef = useRef(false);
   const pvpRoomIdRef = useRef(null);
   const pvpPollTimerRef = useRef(null);
   const pvpPollInFlightRef = useRef(false);
@@ -511,12 +511,10 @@ const GamePage = () => {
     const name = playerName.trim() || 'Player';
     setPlayerName(name);
     matchSavedRef.current = false;
-    isBotModeRef.current = !!bot;
     pvpLastRoundMarkerRef.current = 0;
     pvpLastStartKeyRef.current = '';
     pvpRoomIdRef.current = null;
     stopPvpPolling();
-    onlineSearchActiveRef.current = !bot;
     if (pvpFindRetryTimerRef.current) {
       clearTimeout(pvpFindRetryTimerRef.current);
       pvpFindRetryTimerRef.current = null;
@@ -526,48 +524,57 @@ const GamePage = () => {
       localFindTimerRef.current = null;
     }
     const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
-    connectWS();
-    setScreen('waiting');
-    if (!bot) {
-      const attemptFind = () => {
-        if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
-        apiPost({
-          action: 'pvpFindMatch',
-          initData: tgInitDataRef.current || '',
-          gameKey: 'super_penalty',
+    matchRef.current = null;
+
+    if (bot) {
+      isBotModeRef.current = true;
+      onlineSearchActiveRef.current = false;
+      connectWS();
+      setScreen('waiting');
+      localFindTimerRef.current = setTimeout(() => {
+        if (!isBotModeRef.current || onlineSearchActiveRef.current) return;
+        matchRef.current = {
           playerName: name,
-        }).then((data) => {
-          if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
-          if (!data?.ok || !data.room) throw new Error('matchmaking');
-          pvpRoomIdRef.current = data.room.id;
-          startPvpPolling();
-        }).catch(() => {
-          if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
-          pvpFindRetryTimerRef.current = setTimeout(attemptFind, 1200);
-        });
-      };
-      attemptFind();
+          opponentName: 'Бот 🤖',
+          tgUserId,
+          scores: [0, 0],
+          round: 0,
+          maxRounds: 10,
+          suddenDeath: false,
+          choices: [null, null],
+          history: [],
+          sdStart: 0,
+          kickerOverride: null,
+          finished: false,
+        };
+        handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
+        localStartRound();
+        localFindTimerRef.current = null;
+      }, 350);
       return;
     }
-    localFindTimerRef.current = setTimeout(() => {
-      matchRef.current = {
+
+    isBotModeRef.current = false;
+    onlineSearchActiveRef.current = true;
+    setScreen('waiting');
+    const attemptFind = () => {
+      if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+      apiPost({
+        action: 'pvpFindMatch',
+        initData: tgInitDataRef.current || '',
+        gameKey: 'super_penalty',
         playerName: name,
-        opponentName: 'Бот 🤖',
-        tgUserId,
-        scores: [0, 0],
-        round: 0,
-        maxRounds: 10,
-        suddenDeath: false,
-        choices: [null, null],
-        history: [],
-        sdStart: 0,
-        kickerOverride: null,
-        finished: false,
-      };
-      handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
-      localStartRound();
-      localFindTimerRef.current = null;
-    }, bot ? 350 : 700);
+      }).then((data) => {
+        if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+        if (!data?.ok || !data.room) throw new Error('matchmaking');
+        pvpRoomIdRef.current = data.room.id;
+        startPvpPolling();
+      }).catch(() => {
+        if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+        pvpFindRetryTimerRef.current = setTimeout(attemptFind, 1200);
+      });
+    };
+    attemptFind();
   };
 
   const handleCancelWait = () => {

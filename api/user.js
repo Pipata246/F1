@@ -862,6 +862,8 @@ function pvpAdvanceByTime(room) {
       }
     }
     if (s.phase === "turn_input" && elapsed >= 12000) {
+      // No random auto-moves until both humans have polled at least once (real PvP only).
+      if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
       const choices = { ...asObj(s.choices) };
       if (!Number.isInteger(Number(choices.p1))) choices.p1 = Math.floor(Math.random() * 4);
       if (!Number.isInteger(Number(choices.p2))) choices.p2 = Math.floor(Math.random() * 4);
