@@ -276,6 +276,40 @@
       backdrop-filter: blur(var(--blur));
     }
 
+    .profileStatsGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .profileStatTile{
+      padding:12px;
+      border-radius:16px;
+      background: var(--glass-bg-strong);
+      border:1px solid var(--glass-border);
+      backdrop-filter: blur(var(--blur));
+      min-height:92px;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .profileStatHead{
+      font-size:12px;
+      font-weight:800;
+      color:var(--text2);
+      letter-spacing:.2px;
+    }
+    .profileStatMain{
+      font-size:20px;
+      font-weight:950;
+      letter-spacing:.2px;
+      line-height:1.15;
+    }
+    .profileStatSub{
+      font-size:11px;
+      line-height:1.3;
+      margin-top:auto;
+    }
+
     /* Game surface blocks */
     .gameSurface{
       border-radius: 22px;
@@ -555,6 +589,33 @@
               <div class="subtitle" id="profId">—</div>
             </div>
             <button class="btn ghost" style="width:auto; padding:10px 12px; font-size:13px" id="editNickBtn">Edit</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h2 style="margin:0 0 10px 0; font-size:16px">Статистика</h2>
+          <p class="muted small" style="margin:0 0 10px 0">Кратко по всем играм (с сервера)</p>
+          <div class="profileStatsGrid">
+            <div class="profileStatTile">
+              <div class="profileStatHead">🐸 Охота на жабу</div>
+              <div class="profileStatMain" id="profStatFrogMain">—</div>
+              <div class="profileStatSub muted" id="profStatFrogSub">Нет матчей</div>
+            </div>
+            <div class="profileStatTile">
+              <div class="profileStatHead">🏁 Полоса</div>
+              <div class="profileStatMain" id="profStatRaceMain">—</div>
+              <div class="profileStatSub muted" id="profStatRaceSub">Нет матчей</div>
+            </div>
+            <div class="profileStatTile">
+              <div class="profileStatHead">⚽ Пенальти</div>
+              <div class="profileStatMain" id="profStatPenMain">—</div>
+              <div class="profileStatSub muted" id="profStatPenSub">Нет матчей</div>
+            </div>
+            <div class="profileStatTile">
+              <div class="profileStatHead">🏀 Баскетбол</div>
+              <div class="profileStatMain" id="profStatBasketMain">—</div>
+              <div class="profileStatSub muted" id="profStatBasketSub">Нет матчей</div>
+            </div>
           </div>
 
           <div class="divider"></div>
@@ -873,7 +934,7 @@
       mainNav.classList.toggle("hidden", isOnboarding);
     }
     location.hash = "#"+page;
-
+    if(page === "profile" && hasTgAuth) loadExternalStats();
   }
 
   function needsOnboarding(){
@@ -1063,9 +1124,47 @@
     window.location.href = "/basketball-pvp/";
   };
 
-  // Fetch stats from game servers
+  function setProfileStatsPlaceholder(noSession){
+    [
+      ["profStatFrogMain","profStatFrogSub"],
+      ["profStatRaceMain","profStatRaceSub"],
+      ["profStatPenMain","profStatPenSub"],
+      ["profStatBasketMain","profStatBasketSub"],
+    ].forEach(([mid, sid])=>{
+      const m = document.getElementById(mid), sub = document.getElementById(sid);
+      if(m) m.textContent = "—";
+      if(sub) sub.textContent = noSession ? "Войди через Telegram" : "Нет матчей";
+    });
+  }
+
+  function fillProfileStatTiles(stats){
+    const one = (mainId, subId, row, kind) =>{
+      const elM = document.getElementById(mainId), elS = document.getElementById(subId);
+      if(!elM || !elS) return;
+      const w = Number(row?.wins||0), l = Number(row?.losses||0), g = Number(row?.games_played||0), pf = Number(row?.points_for||0);
+      const played = g > 0 || w > 0 || l > 0;
+      if(!played){
+        elM.textContent = "—";
+        elS.textContent = "Нет матчей";
+        return;
+      }
+      elM.textContent = `${w}–${l}`;
+      if(kind === "pen") elS.textContent = `${g} игр · ${pf} голов`;
+      else if(kind === "basket") elS.textContent = `${g} игр · ${pf} очков`;
+      else elS.textContent = `${g} игр`;
+    };
+    one("profStatFrogMain","profStatFrogSub", stats.frog_hunt, "frog");
+    one("profStatRaceMain","profStatRaceSub", stats.obstacle_race, "race");
+    one("profStatPenMain","profStatPenSub", stats.super_penalty, "pen");
+    one("profStatBasketMain","profStatBasketSub", stats.basketball, "basket");
+  }
+
+  // Fetch stats from API (same data as карточки на «Игры»)
   async function loadExternalStats(){
-    if(!hasTgAuth) return;
+    if(!hasTgAuth){
+      setProfileStatsPlaceholder(true);
+      return;
+    }
     try{
       const data = await apiJson("/api/user", { action:"getGameStats", initData: tgInitData });
       const s = data.stats || {};
@@ -1089,6 +1188,8 @@
       document.getElementById("basketWins").textContent = basket.wins || 0;
       document.getElementById("basketLosses").textContent = basket.losses || 0;
       document.getElementById("basketPoints").textContent = basket.points_for || 0;
+
+      fillProfileStatTiles(s);
     }catch(e){}
   }
 
