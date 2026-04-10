@@ -943,12 +943,27 @@
 
   const toastEl = document.getElementById("toast"); let toastTimer=null;
   const shareNotice = document.getElementById("shareNotice"); let shareNoticeTimer = null;
+  let sharePending = false;
+  let shareStartedAt = 0;
   function toast(t){ toastEl.textContent=t; toastEl.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove("show"), 1500); }
-  function showShareNotice(){
+  function showShareNotice(title="Готово!", sub="Операция выполнена успешно"){
+    const t = shareNotice.querySelector(".title");
+    const s = shareNotice.querySelector(".sub");
+    if(t) t.textContent = title;
+    if(s) s.textContent = sub;
     shareNotice.classList.add("show");
     clearTimeout(shareNoticeTimer);
     shareNoticeTimer = setTimeout(()=> shareNotice.classList.remove("show"), 1600);
   }
+  function onShareReturn(){
+    if(!sharePending) return;
+    // Wait for real context switch; quick focus flicker shouldn't trigger success.
+    if(Date.now() - shareStartedAt < 900) return;
+    sharePending = false;
+    showShareNotice("Приглашение отправлено", "Сообщение успешно отправлено");
+  }
+  window.addEventListener("focus", onShareReturn);
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) onShareReturn(); });
 
   const modalWrap = document.getElementById("modalWrap");
   const modalTitle = document.getElementById("modalTitle");
@@ -1309,7 +1324,6 @@
   };
 
   shareRefBtn.onclick = ()=>{
-    const appUrl = location.origin;
     const openShare = (code)=>{
       const text =
         `✨Тебя пригласили в битву!\n\n` +
@@ -1319,11 +1333,13 @@
         `Код: ${code || "—"}\n\n` +
         `Погнали?`;
       try{
-        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(text)}`;
-        showShareNotice();
+        const shareUrl = `https://t.me/share/url?text=${encodeURIComponent(text)}`;
+        sharePending = true;
+        shareStartedAt = Date.now();
         if(tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
         else window.open(shareUrl, "_blank");
       }catch(e){
+        sharePending = false;
         navigator.clipboard?.writeText(text);
         toast("Текст приглашения скопирован");
       }
