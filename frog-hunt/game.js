@@ -88,7 +88,28 @@ document.addEventListener('DOMContentLoaded', function() {
   var urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('userId')) tgUserId = urlParams.get('userId');
 
+  var presenceTimer = null;
+  function presencePing() {
+    if (!tgInitData) return;
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'presenceHeartbeat', initData: tgInitData }),
+    }).catch(function() {});
+  }
+  function startPresenceLoop() {
+    if (presenceTimer) clearInterval(presenceTimer);
+    presencePing();
+    presenceTimer = setInterval(presencePing, 9000);
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') presencePing();
+  });
+  window.addEventListener('focus', presencePing);
+
   initSounds();
+  startPresenceLoop();
+
   $('btn-find').onclick = function() { startSearch(false); };
   $('btn-bot').onclick = function() { startSearch(true); };
   $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };

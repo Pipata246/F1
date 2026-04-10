@@ -114,6 +114,27 @@ const GamePage = () => {
     if (tg?.BackButton) tg.BackButton.hide();
     preloadSounds();
   }, []);
+  useEffect(() => {
+    const ping = () => {
+      const init = tgInitDataRef.current;
+      if (!init) return;
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'presenceHeartbeat', initData: init }),
+      }).catch(() => {});
+    };
+    ping();
+    const id = setInterval(ping, 9000);
+    const onVis = () => { if (document.visibilityState === 'visible') ping(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', ping);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', ping);
+    };
+  }, []);
   useEffect(() => () => {
     if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current && navigator?.sendBeacon) {
       const payload = JSON.stringify({ action: 'pvpLeaveRoom', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current });

@@ -91,6 +91,26 @@ document.addEventListener('DOMContentLoaded', () => {
     var urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('userId')) window._tgUserId = urlParams.get('userId');
 
+    var presenceTimer = null;
+    function presencePing() {
+        if (!tgInitData) return;
+        fetch('/api/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'presenceHeartbeat', initData: tgInitData }),
+        }).catch(function() {});
+    }
+    function startPresenceLoop() {
+        if (presenceTimer) clearInterval(presenceTimer);
+        presencePing();
+        presenceTimer = setInterval(presencePing, 9000);
+    }
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') presencePing();
+    });
+    window.addEventListener('focus', presencePing);
+    startPresenceLoop();
+
     $('btn-find').onclick = () => startGame(false);
     $('btn-bot').onclick = () => startGame(true);
     $('btn-cancel').onclick = cancelWait;

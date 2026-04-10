@@ -888,13 +888,31 @@
   function displayMe(){ return `${displayNick()} #${state.profile.publicId}`; }
 
   const onlineNow = document.getElementById("onlineNow");
-  let onlineBase = 80 + Math.floor(Math.random()*140);
-  function tickOnline(){
-    const wobble = Math.floor((Math.random()*10)-5);
-    onlineBase = Math.max(20, onlineBase + wobble);
-    onlineNow.textContent = onlineBase;
+  let cachedOnlineCount = null;
+  function renderOnlineLabel(){
+    if(!onlineNow) return;
+    onlineNow.textContent = cachedOnlineCount == null ? "—" : String(cachedOnlineCount);
   }
-  setInterval(tickOnline, 8000);
+  async function presencePing(){
+    if(!hasTgAuth) return;
+    try{
+      await apiJson("/api/user", { action:"presenceHeartbeat", initData: tgInitData });
+    }catch(e){ /* тихо: не мешаем UX */ }
+  }
+  async function refreshOnlineCount(){
+    if(!hasTgAuth) return;
+    try{
+      const data = await apiJson("/api/user", { action:"getOnlineCount", initData: tgInitData });
+      cachedOnlineCount = typeof data.count === "number" ? data.count : null;
+      renderOnlineLabel();
+    }catch(e){
+      console.error("refreshOnlineCount:", e);
+    }
+  }
+  async function syncPresenceAndOnline(){
+    await presencePing();
+    await refreshOnlineCount();
+  }
 
   const rulesCheck = document.getElementById("rulesCheck");
   const rulesContinue = document.getElementById("rulesContinue");
@@ -1337,7 +1355,7 @@
 
   function renderAll(){
     userChip.textContent = displayMe();
-    tickOnline();
+    renderOnlineLabel();
     renderWallet();
     renderMatches();
     renderProfile();
@@ -1360,12 +1378,27 @@
       renderAll();
       initNav();
       document.body.classList.remove("booting");
+      syncPresenceAndOnline();
+      setInterval(presencePing, 8000);
+      setInterval(refreshOnlineCount, 14000);
     }
   })();
 
-  window.addEventListener("focus", ()=>{ loadExternalStats(); loadMatchHistory(); });
+  window.addEventListener("focus", ()=>{
+    loadExternalStats(); loadMatchHistory();
+    presencePing(); refreshOnlineCount();
+  });
   document.addEventListener("visibilitychange", ()=>{
-    if(document.visibilityState === "visible"){ loadExternalStats(); loadMatchHistory(); }
+    if(document.visibilityState === "visible"){
+      loadExternalStats(); loadMatchHistory();
+      presencePing(); refreshOnlineCount();
+    }
+  });
+  window.addEventListener("hashchange", ()=>{
+    if(hasTgAuth){ presencePing(); refreshOnlineCount(); }
+  });
+  window.addEventListener("pageshow", (ev)=>{
+    if(ev.persisted && hasTgAuth){ presencePing(); refreshOnlineCount(); }
   });
 </script>
 </body>

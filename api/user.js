@@ -145,11 +145,27 @@ async function ensureReferralCode(tg, row) {
   return referralCode;
 }
 
+async function upsertPresenceTgId(tgId) {
+  const id = String(tgId || "").trim();
+  if (!id) return;
+  await sb("app_online_presence", {
+    method: "POST",
+    body: { tg_user_id: id, last_seen_at: new Date().toISOString() },
+    onConflict: "tg_user_id",
+    prefer: "resolution=merge-duplicates,return=minimal",
+  });
+}
+
+function touchPresenceTgId(tgId) {
+  upsertPresenceTgId(tgId).catch(() => {});
+}
+
 async function authSession(initData) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tg = verified.user;
   const tgId = String(tg.id);
+  touchPresenceTgId(tgId);
 
   const rows = await sb(
     `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at,created_at,updated_at&limit=1`
@@ -179,6 +195,7 @@ async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
   const cleanNick = String(nickname || "").trim();
   const cleanRef = String(referredBy || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
   if (!validNickname(cleanNick)) throw new Error("Invalid nickname format");
+  touchPresenceTgId(tgId);
 
   const existing = await sb(
     `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=referred_by,referral_asked_at,referral_code,rules_accepted_at&limit=1`
@@ -218,6 +235,7 @@ async function markReferralAsked(initData) {
   if (!verified.ok) throw new Error(verified.error);
   const tg = verified.user;
   const tgId = String(tg.id);
+  touchPresenceTgId(tgId);
 
   const existing = await sb(
     `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,nickname,referred_by,referral_asked_at,referral_code,rules_accepted_at&limit=1`
@@ -1375,6 +1393,7 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
   const safeName = String(playerName || verified.user.first_name || "Игрок").slice(0, 64);
   const key = normalizeGameKey(gameKey);
   if (key !== "frog_hunt" && key !== "obstacle_race" && key !== "super_penalty" && key !== "basketball") {
@@ -1430,6 +1449,7 @@ async function pvpGetRoomState(initData, roomId) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
 
@@ -1460,6 +1480,7 @@ async function pvpSubmitMove(initData, roomId, move) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
 
@@ -1551,6 +1572,7 @@ async function pvpLeaveRoom(initData, roomId) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) return { left: false };
   const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
@@ -1639,6 +1661,7 @@ async function pvpCancelQueue(initData, roomId) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) return { cancelled: false };
   const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
@@ -1737,6 +1760,7 @@ async function recordMatchClient(initData, payload) {
   const players = Array.isArray(safePayload.players) ? safePayload.players : [];
   const includesCurrentUser = players.some((p) => String(p?.tgUserId || "") === tgId);
   if (!includesCurrentUser) throw new Error("Current user is not in match payload");
+  touchPresenceTgId(tgId);
   return persistMatchFromPayload(safePayload);
 }
 
@@ -1744,6 +1768,7 @@ async function getGameStats(initData) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
   const rows = await sb(
     `game_player_stats?tg_user_id=eq.${encodeURIComponent(tgId)}&select=game_key,games_played,wins,losses,points_for,points_against,last_result,last_match_at`
   );
@@ -1756,11 +1781,49 @@ async function getMatchHistory(initData, limit = 50) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
   const rows = await sb(
     `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${safeLimit}`
   );
   return rows || [];
+}
+
+/** Seconds: users with last_seen within this window count as "online" for the hub. */
+const PRESENCE_ONLINE_WINDOW_SEC = Math.max(
+  60,
+  Math.min(600, Number(process.env.PRESENCE_ONLINE_WINDOW_SEC) || 180)
+);
+
+async function presenceHeartbeat(initData) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  await upsertPresenceTgId(String(verified.user.id));
+  return true;
+}
+
+async function getOnlineCount(initData) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  assertSupabaseEnv();
+  const cutoff = new Date(Date.now() - PRESENCE_ONLINE_WINDOW_SEC * 1000).toISOString();
+  const url = `${SUPABASE_URL}/rest/v1/app_online_presence?last_seen_at=gte.${encodeURIComponent(
+    cutoff
+  )}&select=tg_user_id`;
+  const res = await fetch(url, {
+    method: "HEAD",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Prefer: "count=exact",
+      Range: "0-0",
+    },
+  });
+  const cr = res.headers.get("content-range") || "";
+  let count = 0;
+  const slash = cr.lastIndexOf("/");
+  if (slash >= 0) count = Number(cr.slice(slash + 1)) || 0;
+  return { count, windowSec: PRESENCE_ONLINE_WINDOW_SEC };
 }
 
 module.exports = async (req, res) => {
@@ -1804,6 +1867,14 @@ module.exports = async (req, res) => {
     if (action === "getMatchHistory") {
       const matches = await getMatchHistory(req.body?.initData || "", req.body?.limit || 50);
       return res.status(200).json({ ok: true, matches });
+    }
+    if (action === "presenceHeartbeat") {
+      await presenceHeartbeat(req.body?.initData || "");
+      return res.status(200).json({ ok: true });
+    }
+    if (action === "getOnlineCount") {
+      const { count, windowSec } = await getOnlineCount(req.body?.initData || "");
+      return res.status(200).json({ ok: true, count, windowSec });
     }
     if (action === "pvpFindMatch") {
       const room = await pvpFindMatch(
