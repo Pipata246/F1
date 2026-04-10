@@ -206,7 +206,7 @@ function applyPvpRoomState(room) {
         var startKey = String(!!s.overtime) + ':' + String(step);
         if (startKey !== pvpLastStartKey) {
             pvpLastStartKey = startKey;
-            onRoundStart({ step: step, ability: (s.abilities || {})[sides.mySide] || null });
+            onRoundStart({ step: step, ability: (s.abilities || {})[sides.mySide] || null, overtime: !!s.overtime });
             return;
         }
     }
@@ -388,6 +388,9 @@ function onGameFound(msg) {
     $('btn-traps-ok').classList.remove('hidden');
     $('btn-traps-ok').disabled = true;
     $('traps-wait').classList.add('hidden');
+    scores = [0, 0];
+    currentStep = 0;
+    isOvertime = false;
     showScreen('traps');
 }
 
@@ -489,33 +492,43 @@ function highlightCurrentDot(step) {
 
 async function onRoundStart(msg) {
     currentStep = msg.step;
-    moveChosen = false; abilityActive = false; isOvertime = false;
+    moveChosen = false;
+    abilityActive = false;
+    if (!msg.overtime) isOvertime = false;
 
     if (msg.ability) {
+        var abilityChanged = myAbility !== msg.ability;
         myAbility = msg.ability;
-        oppAbility = null;
-        abilityUsed = false;
+        if (abilityChanged || currentStep === 0) {
+            oppAbility = null;
+            abilityUsed = false;
+        }
     }
 
     showScreen('game');
 
-    $('sb-name-0').textContent = myName;
-    $('sb-name-1').textContent = opponentName;
-    $('sb-score-0').textContent = '0';
-    $('sb-score-1').textContent = '0';
-    $('tname-0').textContent = myName;
-    $('tname-1').textContent = opponentName;
-    $('round-val').textContent = '1/7';
-    $('round-num').textContent = '\u0420\u0430\u0443\u043D\u0434';
+    if (currentStep === 0 && !isOvertime) {
+        $('sb-name-0').textContent = myName;
+        $('sb-name-1').textContent = opponentName;
+        $('sb-score-0').textContent = String(scores[0] || 0);
+        $('sb-score-1').textContent = String(scores[1] || 0);
+        $('tname-0').textContent = myName;
+        $('tname-1').textContent = opponentName;
+        $('round-num').textContent = '\u0420\u0430\u0443\u043D\u0434';
+        generateGameTracks(7);
+        highlightCurrentDot(0);
+        $('round-reveal').classList.add('hidden');
+        $('round-reveal').style.opacity = '';
+        var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
+        var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
+        if (myAbility) await showAbilityReveal();
+    }
 
-    generateGameTracks(7);
-    highlightCurrentDot(0);
-    $('round-reveal').classList.add('hidden');
-    $('round-reveal').style.opacity = '';
-    var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
-    var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
-
-    if (myAbility) await showAbilityReveal();
+    $('round-num').textContent = isOvertime ? '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C' : '\u0420\u0430\u0443\u043D\u0434';
+    $('round-val').textContent = isOvertime
+        ? (Math.min(currentStep + 1, OT_ROUNDS) + '/' + OT_ROUNDS)
+        : (Math.min(currentStep + 1, totalRounds) + '/' + totalRounds);
+    highlightCurrentDot(currentStep);
 
     showActionButtons();
     startTimer();
