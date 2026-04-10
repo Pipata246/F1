@@ -535,7 +535,7 @@ async function pvpGetRoomState(initData, roomId) {
     });
     if (patched?.length) nextRoom = patched[0];
   }
-  return nextRoom;
+  return finalizePvpRoomIfNeeded(nextRoom);
 }
 
 async function pvpSubmitMove(initData, roomId, move) {
@@ -562,29 +562,56 @@ async function pvpSubmitMove(initData, roomId, move) {
   });
   const updated = patched?.[0] || { ...room, state_json: nextState };
 
-  const s = updated.state_json || {};
-  if (s.phase === "match_over" && !updated.winner_tg_user_id) {
-    const p1 = Number(s?.matchScores?.p1 || 0);
-    const p2 = Number(s?.matchScores?.p2 || 0);
-    const winner = p1 === p2 ? null : (p1 > p2 ? String(updated.player1_tg_user_id) : String(updated.player2_tg_user_id));
-    await sb(`pvp_rooms?id=eq.${id}`, {
-      method: "PATCH",
-      body: { status: "finished", winner_tg_user_id: winner, updated_at: new Date().toISOString() },
-      prefer: "return=minimal",
-    });
-    await persistMatchFromPayload({
-      gameKey: "frog_hunt",
-      mode: "pvp",
-      winnerTgUserId: winner,
-      score: { left: p1, right: p2 },
-      details: { roomId: id },
-      players: [
-        { tgUserId: updated.player1_tg_user_id, name: updated.player1_name || "Игрок 1", score: p1, isWinner: winner && String(winner) === String(updated.player1_tg_user_id), isBot: false },
-        { tgUserId: updated.player2_tg_user_id, name: updated.player2_name || "Игрок 2", score: p2, isWinner: winner && String(winner) === String(updated.player2_tg_user_id), isBot: false },
-      ],
-    });
-  }
-  return updated;
+  return finalizePvpRoomIfNeeded(updated);
+}
+
+async function finalizePvpRoomIfNeeded(room) {
+  const s = asObj(room?.state_json);
+  if (s.phase !== "match_over") return room;
+  if (s.matchSavedAt) return room;
+
+  const p1 = Number(s?.matchScores?.p1 || 0);
+  const p2 = Number(s?.matchScores?.p2 || 0);
+  const winner = p1 === p2 ? null : (p1 > p2 ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id));
+  const nextState = { ...s, matchSavedAt: new Date().toISOString() };
+
+  const patched = await sb(`pvp_rooms?id=eq.${room.id}`, {
+    method: "PATCH",
+    body: {
+      status: "finished",
+      winner_tg_user_id: winner,
+      state_json: nextState,
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=representation",
+  });
+  const finalized = patched?.[0] || { ...room, status: "finished", winner_tg_user_id: winner, state_json: nextState };
+
+  await persistMatchFromPayload({
+    gameKey: "frog_hunt",
+    mode: "pvp",
+    winnerTgUserId: winner,
+    score: { left: p1, right: p2 },
+    details: { roomId: room.id },
+    players: [
+      {
+        tgUserId: room.player1_tg_user_id,
+        name: room.player1_name || "Игрок 1",
+        score: p1,
+        isWinner: winner && String(winner) === String(room.player1_tg_user_id),
+        isBot: false,
+      },
+      {
+        tgUserId: room.player2_tg_user_id,
+        name: room.player2_name || "Игрок 2",
+        score: p2,
+        isWinner: winner && String(winner) === String(room.player2_tg_user_id),
+        isBot: false,
+      },
+    ],
+  });
+
+  return finalized;
 }
 
 async function pvpLeaveRoom(initData, roomId) {
