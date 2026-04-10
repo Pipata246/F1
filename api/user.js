@@ -369,9 +369,27 @@ function pvpDefaultSuperPenaltyState(player1Id, player2Id) {
   };
 }
 
+function pvpDefaultBasketballState(player1Id, player2Id) {
+  return {
+    engine: "basketball_v1",
+    phase: "warmup_auto",
+    phaseAtMs: Date.now(),
+    phaseNum: 1, // 1 warmup, 2 main, 3 overtime
+    round: 0,
+    maxRounds: 5,
+    choices: { p1: null, p2: null },
+    scores: { p1: 0, p2: 0 },
+    markers: { round: 0, phase: 0, match: 0 },
+    players: { p1: String(player1Id), p2: String(player2Id) },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
   if (gameKey === "obstacle_race") return pvpDefaultObstacleState(player1Id, player2Id);
   if (gameKey === "super_penalty") return pvpDefaultSuperPenaltyState(player1Id, player2Id);
+  if (gameKey === "basketball") return pvpDefaultBasketballState(player1Id, player2Id);
   return pvpDefaultState(player1Id, player2Id);
 }
 
@@ -828,8 +846,202 @@ function pvpApplySuperPenaltyMove(room, tgId, move) {
   return pvpResolveSuperPenaltyRound(next);
 }
 
+function pvpBasketballShot(distance) {
+  const d = String(distance || "mid");
+  if (d === "close") return { made: Math.random() < 0.85, pointsIfMade: 1 };
+  if (d === "far") return { made: Math.random() < 0.35, pointsIfMade: 3 };
+  return { made: Math.random() < 0.5, pointsIfMade: 2 };
+}
+
+function pvpResolveBasketballRound(state) {
+  const s = { ...state };
+  const c = asObj(s.choices);
+  const d1 = String(c.p1 || "mid");
+  const d2 = String(c.p2 || "mid");
+  const r1 = pvpBasketballShot(d1);
+  const r2 = pvpBasketballShot(d2);
+  const p1Pts = r1.made ? r1.pointsIfMade : 0;
+  const p2Pts = r2.made ? r2.pointsIfMade : 0;
+  s.scores = { ...asObj(s.scores) };
+  s.scores.p1 = Number(s.scores.p1 || 0) + p1Pts;
+  s.scores.p2 = Number(s.scores.p2 || 0) + p2Pts;
+  s.round = Number(s.round || 0) + 1;
+  s.phase = "round_result";
+  s.phaseAtMs = Date.now();
+  s.choices = { p1: null, p2: null };
+  s.lastRoundResult = {
+    marker: Number(asObj(s.markers).round || 0) + 1,
+    phaseNum: Number(s.phaseNum || 2),
+    round: Number(s.round || 0),
+    maxRounds: Number(s.maxRounds || 5),
+    shots: [
+      { playerIndex: 0, distance: d1, made: !!r1.made, points: p1Pts },
+      { playerIndex: 1, distance: d2, made: !!r2.made, points: p2Pts },
+    ],
+    scores: { p1: Number(s.scores.p1 || 0), p2: Number(s.scores.p2 || 0) },
+  };
+  s.markers = { ...asObj(s.markers), round: s.lastRoundResult.marker };
+  s.updatedAt = new Date().toISOString();
+  return s;
+}
+
+function pvpApplyBasketballMove(room, tgId, move) {
+  const s = asObj(room?.state_json);
+  if (s.phase !== "turn_input") return s;
+  const side = getPvpSide(room, tgId);
+  if (!side) throw new Error("Invalid room side");
+  const distance = String(asObj(move).distance || "");
+  if (distance !== "close" && distance !== "mid" && distance !== "far") {
+    throw new Error("Invalid basketball distance");
+  }
+  const next = { ...s, choices: { ...asObj(s.choices) } };
+  if (next.choices[side]) return next;
+  next.choices[side] = distance;
+  if (!next.choices.p1 || !next.choices.p2) {
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
+  return pvpResolveBasketballRound(next);
+}
+
 function pvpAdvanceByTime(room) {
   const s = asObj(room?.state_json);
+  if (String(room?.game_key || "") === "basketball" || s.engine === "basketball_v1") {
+    const now = Date.now();
+    const phaseAt = Number(s?.phaseAtMs || 0);
+    if (!phaseAt) return { changed: false, state: s };
+    const elapsed = now - phaseAt;
+    const next = { ...s };
+    const presence = asObj(s.presence);
+    const p1Beat = Number(presence.p1 || 0);
+    const p2Beat = Number(presence.p2 || 0);
+
+    if ((s.phase === "warmup_auto" || s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
+      const staleMs = 15000;
+      const p1Stale = now - p1Beat > staleMs;
+      const p2Stale = now - p2Beat > staleMs;
+      if (p1Stale !== p2Stale && elapsed >= 3000) {
+        const leftSide = p1Stale ? "p1" : "p2";
+        const winnerSide = leftSide === "p1" ? "p2" : "p1";
+        next.phase = "match_over";
+        next.phaseAtMs = now;
+        next.leftBy = String(asObj(next.players)[leftSide] || "");
+        next.leftAt = new Date().toISOString();
+        next.endedByLeave = true;
+        next.scores = { ...asObj(next.scores) };
+        if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
+          next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
+        }
+        next.winnerSide = winnerSide;
+        next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
+        next.updatedAt = new Date().toISOString();
+        return { changed: true, state: next };
+      }
+    }
+
+    if (s.phase === "warmup_auto" && elapsed >= 2200) {
+      const r1 = pvpBasketballShot("mid");
+      const r2 = pvpBasketballShot("mid");
+      next.scores = { ...asObj(s.scores) };
+      next.scores.p1 = Number(next.scores.p1 || 0) + (r1.made ? 1 : 0);
+      next.scores.p2 = Number(next.scores.p2 || 0) + (r2.made ? 1 : 0);
+      next.round = Number(s.round || 0) + 1;
+      next.phase = "round_result";
+      next.phaseAtMs = now;
+      next.lastRoundResult = {
+        marker: Number(asObj(s.markers).round || 0) + 1,
+        phaseNum: 1,
+        round: Number(next.round || 0),
+        maxRounds: 5,
+        shots: [
+          { playerIndex: 0, distance: "mid", made: !!r1.made, points: r1.made ? 1 : 0 },
+          { playerIndex: 1, distance: "mid", made: !!r2.made, points: r2.made ? 1 : 0 },
+        ],
+        scores: { p1: Number(next.scores.p1 || 0), p2: Number(next.scores.p2 || 0) },
+      };
+      next.markers = { ...asObj(s.markers), round: next.lastRoundResult.marker };
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+
+    if (s.phase === "turn_input" && elapsed >= 12000) {
+      if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
+      const choices = { ...asObj(s.choices) };
+      const pick = () => {
+        const r = Math.random();
+        if (r < 0.25) return "close";
+        if (r < 0.7) return "mid";
+        return "far";
+      };
+      if (!choices.p1) choices.p1 = pick();
+      if (!choices.p2) choices.p2 = pick();
+      next.choices = choices;
+      const resolved = pvpResolveBasketballRound(next);
+      resolved.updatedAt = new Date().toISOString();
+      return { changed: true, state: resolved };
+    }
+
+    if (s.phase === "round_result" && elapsed >= 2400) {
+      const phaseNum = Number(s.phaseNum || 1);
+      const round = Number(s.round || 0);
+      const p1 = Number(asObj(s.scores).p1 || 0);
+      const p2 = Number(asObj(s.scores).p2 || 0);
+      if (phaseNum === 1) {
+        if (round >= 5) {
+          next.phaseNum = 2;
+          next.round = 0;
+          next.maxRounds = 5;
+          next.phase = "turn_input";
+          next.phaseAtMs = now;
+          next.choices = { p1: null, p2: null };
+          next.markers = { ...asObj(s.markers), phase: Number(asObj(s.markers).phase || 0) + 1 };
+        } else {
+          next.phase = "warmup_auto";
+          next.phaseAtMs = now;
+        }
+        next.updatedAt = new Date().toISOString();
+        return { changed: true, state: next };
+      }
+      if (phaseNum === 2) {
+        if (round >= 5) {
+          if (p1 !== p2) {
+            next.phase = "match_over";
+            next.phaseAtMs = now;
+            next.winnerSide = p1 > p2 ? "p1" : "p2";
+            next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
+          } else {
+            next.phaseNum = 3;
+            next.round = 0;
+            next.maxRounds = 999;
+            next.phase = "turn_input";
+            next.phaseAtMs = now;
+            next.choices = { p1: null, p2: null };
+            next.markers = { ...asObj(s.markers), phase: Number(asObj(s.markers).phase || 0) + 1 };
+          }
+        } else {
+          next.phase = "turn_input";
+          next.phaseAtMs = now;
+          next.choices = { p1: null, p2: null };
+        }
+        next.updatedAt = new Date().toISOString();
+        return { changed: true, state: next };
+      }
+      // overtime
+      if (p1 !== p2) {
+        next.phase = "match_over";
+        next.phaseAtMs = now;
+        next.winnerSide = p1 > p2 ? "p1" : "p2";
+        next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
+      } else {
+        next.phase = "turn_input";
+        next.phaseAtMs = now;
+        next.choices = { p1: null, p2: null };
+      }
+      next.updatedAt = new Date().toISOString();
+      return { changed: true, state: next };
+    }
+    return { changed: false, state: s };
+  }
   if (String(room?.game_key || "") === "super_penalty" || s.engine === "super_penalty_v1") {
     const now = Date.now();
     const phaseAt = Number(s?.phaseAtMs || 0);
@@ -1127,6 +1339,9 @@ function pvpAdvanceByTime(room) {
 }
 
 function pvpApplyMove(room, tgId, move) {
+  if (String(room?.game_key || "") === "basketball" || asObj(room?.state_json).engine === "basketball_v1") {
+    return pvpApplyBasketballMove(room, tgId, move);
+  }
   if (String(room?.game_key || "") === "obstacle_race" || asObj(room?.state_json).engine === "obstacle_race_v1") {
     return pvpApplyObstacleMove(room, tgId, move);
   }
@@ -1220,8 +1435,8 @@ async function pvpFindMatch(initData, gameKey, playerName) {
   const tgId = String(verified.user.id);
   const safeName = String(playerName || verified.user.first_name || "Игрок").slice(0, 64);
   const key = normalizeGameKey(gameKey);
-  if (key !== "frog_hunt" && key !== "obstacle_race" && key !== "super_penalty") {
-    throw new Error("PvP is enabled only for frog_hunt, obstacle_race and super_penalty");
+  if (key !== "frog_hunt" && key !== "obstacle_race" && key !== "super_penalty" && key !== "basketball") {
+    throw new Error("PvP is enabled only for frog_hunt, obstacle_race, super_penalty and basketball");
   }
   await pvpPruneUserNonActiveRooms(tgId, key);
   await pvpEnforceSingleActiveRoom(key, tgId, safeName, 0);
@@ -1338,11 +1553,11 @@ async function finalizePvpRoomIfNeeded(room) {
   if (s.matchSavedAt) return room;
 
   const gameKey = normalizeGameKey(room?.game_key || "frog_hunt");
-  const scores = (gameKey === "obstacle_race" || gameKey === "super_penalty") ? asObj(s?.scores) : asObj(s?.matchScores);
+  const scores = (gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball") ? asObj(s?.scores) : asObj(s?.matchScores);
   const p1 = Number(scores?.p1 || 0);
   const p2 = Number(scores?.p2 || 0);
   let winner = null;
-  if ((gameKey === "obstacle_race" || gameKey === "super_penalty") && (s.winnerSide === "p1" || s.winnerSide === "p2")) {
+  if ((gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball") && (s.winnerSide === "p1" || s.winnerSide === "p2")) {
     winner = s.winnerSide === "p1" ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id || "");
   } else {
     winner = p1 === p2 ? null : (p1 > p2 ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id));
@@ -1412,13 +1627,13 @@ async function pvpLeaveRoom(initData, roomId) {
   if (room.status === "active") {
     const s = asObj(room.state_json);
     const gameKey = normalizeGameKey(room?.game_key || "frog_hunt");
-    const scoreSource = (gameKey === "obstacle_race" || gameKey === "super_penalty") ? asObj(s?.scores) : asObj(s?.matchScores);
+    const scoreSource = (gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball") ? asObj(s?.scores) : asObj(s?.matchScores);
     let p1 = Number(scoreSource?.p1 || 0);
     let p2 = Number(scoreSource?.p2 || 0);
     const winner = String(room.player1_tg_user_id) === tgId
       ? String(room.player2_tg_user_id || "")
       : String(room.player1_tg_user_id || "");
-    if ((gameKey === "obstacle_race" || gameKey === "super_penalty") && p1 === p2) {
+    if ((gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball") && p1 === p2) {
       if (String(winner) === String(room.player1_tg_user_id)) p1 += 1;
       else p2 += 1;
     }
@@ -1429,7 +1644,7 @@ async function pvpLeaveRoom(initData, roomId) {
       leftAt: new Date().toISOString(),
       endedByLeave: true,
       winnerSide: String(winner) === String(room.player1_tg_user_id) ? "p1" : "p2",
-      scores: (gameKey === "obstacle_race" || gameKey === "super_penalty") ? { p1, p2 } : s.scores,
+      scores: (gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball") ? { p1, p2 } : s.scores,
       matchScores: gameKey === "frog_hunt" ? { ...(asObj(s.matchScores)), p1, p2 } : s.matchScores,
       matchSavedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
