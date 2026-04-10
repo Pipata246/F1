@@ -163,6 +163,7 @@ const GamePage = () => {
   const pvpPollInFlightRef = useRef(false);
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
+  const localFindTimerRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
 
@@ -189,6 +190,7 @@ const GamePage = () => {
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       if (timerRef.current) clearInterval(timerRef.current);
       if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
+      if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
     };
   }, []);
 
@@ -511,6 +513,10 @@ const GamePage = () => {
     pvpLastStartKeyRef.current = '';
     pvpRoomIdRef.current = null;
     stopPvpPolling();
+    if (localFindTimerRef.current) {
+      clearTimeout(localFindTimerRef.current);
+      localFindTimerRef.current = null;
+    }
     const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
     connectWS();
     setScreen('waiting');
@@ -529,7 +535,7 @@ const GamePage = () => {
       });
       return;
     }
-    setTimeout(() => {
+    localFindTimerRef.current = setTimeout(() => {
       matchRef.current = {
         playerName: name,
         opponentName: 'Бот 🤖',
@@ -546,10 +552,15 @@ const GamePage = () => {
       };
       handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
       localStartRound();
+      localFindTimerRef.current = null;
     }, bot ? 350 : 700);
   };
 
   const handleCancelWait = () => {
+    if (localFindTimerRef.current) {
+      clearTimeout(localFindTimerRef.current);
+      localFindTimerRef.current = null;
+    }
     sendMessage('cancel_wait');
     stopPvpPolling();
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
@@ -562,6 +573,10 @@ const GamePage = () => {
   };
 
   const handlePlayAgain = () => {
+    if (localFindTimerRef.current) {
+      clearTimeout(localFindTimerRef.current);
+      localFindTimerRef.current = null;
+    }
     setMatchResult(null);
     setHistory([]);
     stopPvpPolling();
