@@ -1184,15 +1184,17 @@
           }
           return;
         }
-        // In-app fallback: open Telegram share picker, never leave to browser.
-        if(typeof tg?.switchInlineQuery === "function"){
-          tg.switchInlineQuery(text, ["users", "groups", "channels"]);
-          toast("Выбери чат и отправь сообщение");
-          return;
-        }
+        // In-app fallback: open Telegram share picker without external browser.
         if(typeof tg?.openTelegramLink === "function"){
           const shareUrl = `https://t.me/share/url?url=${encodeURIComponent("https://t.me/Fffasdq_bot")}&text=${encodeURIComponent(text)}`;
           tg.openTelegramLink(shareUrl);
+          return;
+        }
+        // Extra fallback for clients that support inline switch.
+        if(typeof tg?.switchInlineQuery === "function"){
+          const inlineText = text.length > 240 ? `${text.slice(0, 237)}...` : text;
+          tg.switchInlineQuery(inlineText, ["users", "groups", "channels"]);
+          toast("Выбери чат и отправь сообщение");
           return;
         }
         throw new Error("share_unavailable");
