@@ -760,7 +760,7 @@
   async function hydrateUserFromServer(){
     if(!hasTgAuth) return;
     try{
-      const data = await apiJson("/api/auth-session", { initData: tgInitData });
+      const data = await apiJson("/api/user", { action:"authSession", initData: tgInitData });
       const tgId = data.user?.tg_user_id ? String(data.user.tg_user_id) : "";
       state.profile.publicId = tgId ? tgId.slice(-4) : state.profile.publicId;
       if(data.user?.rules_accepted_at){
@@ -771,7 +771,11 @@
         state.profile.referredBy = data.user.referred_by || "";
         state.onboarding.rulesAccepted = !!data.user.rules_accepted_at;
         state.onboarding.nicknameSet = !!data.user.nickname;
-        state.onboarding.referralAsked = !!data.user.referral_asked_at;
+        // Existing user should not see referral step again.
+        state.onboarding.referralAsked = true;
+        if(!data.user.referral_asked_at){
+          apiJson("/api/user", { action:"markReferralAsked", initData: tgInitData }).catch(()=>{});
+        }
       } else {
         state.onboarding.rulesAccepted = false;
         state.onboarding.nicknameSet = false;
@@ -855,7 +859,7 @@
       go("onb-nick");
       return;
     }
-    apiJson("/api/users-accept-rules", { initData: tgInitData })
+    apiJson("/api/user", { action:"acceptRules", initData: tgInitData })
       .then((data)=>{
         state.onboarding.rulesAccepted = true;
         if(data.user?.rules_accepted_at){
@@ -912,7 +916,7 @@
       return;
     }
     try{
-      await apiJson("/api/users-upsert", {
+      await apiJson("/api/user", { action:"upsertUser",
         initData: tgInitData,
         nickname: state.profile.nickname,
         referredBy: state.profile.referredBy || "",
@@ -935,7 +939,7 @@
       return;
     }
     try{
-      await apiJson("/api/users-upsert", {
+      await apiJson("/api/user", { action:"upsertUser",
         initData: tgInitData,
         nickname: state.profile.nickname,
         referredBy: "",
@@ -1104,7 +1108,7 @@
         toast("Ник обновлён");
         return;
       }
-      apiJson("/api/users-upsert", { initData: tgInitData, nickname: n, referredBy: "" })
+      apiJson("/api/user", { action:"upsertUser", initData: tgInitData, nickname: n, referredBy: "" })
         .then(()=>{
           state.profile.nickname = n;
           state.profile.nicknameChangedAt = now();

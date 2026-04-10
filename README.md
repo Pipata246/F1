@@ -4,8 +4,9 @@
 
 In this project, the Telegram bot is handled by Vercel serverless functions:
 
-- `api/telegram-webhook.js` - receives Telegram updates via webhook and handles `/start`
-- `api/telegram-set-webhook.js` - helper endpoint to register webhook in Telegram API
+- `api/bot.js` - single endpoint for bot:
+  - `POST /api/bot` - Telegram webhook updates
+  - `GET /api/bot?action=setWebhook` - helper to register webhook
 
 ### 1) Set environment variables in Vercel
 
@@ -23,7 +24,7 @@ After pushing changes, redeploy your Vercel project.
 
 Open this URL in browser:
 
-`https://f1-three-iota.vercel.app/api/telegram-set-webhook`
+`https://f1-three-iota.vercel.app/api/bot?action=setWebhook`
 
 If everything is correct, response includes `telegram.ok: true`.
 
@@ -38,10 +39,10 @@ This project now stores first-login user data in Supabase with server-side valid
 
 ### Security model
 
-- Telegram `initData` is verified on the server (`api/_lib/telegram.js`)
+- Telegram `initData` is verified on the server (`api/user.js`)
 - Supabase write/read is done only from serverless API with `SUPABASE_SERVICE_ROLE_KEY`
 - Direct anon access to `users` table is blocked by RLS policies
-- Rules acceptance is stored in DB with timestamp before nickname step (`api/users-accept-rules.js`)
+- Rules acceptance and user profile actions are served by one endpoint: `api/user.js`
 
 ### SQL migration (full portable schema)
 
