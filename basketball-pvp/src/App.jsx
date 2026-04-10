@@ -10,6 +10,7 @@ function App() {
         <Routes>
           <Route path="/" element={<GamePage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="*" element={<GamePage />} />
         </Routes>
       </div>
     </HashRouter>
