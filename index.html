@@ -687,7 +687,7 @@
     </main>
   </div>
 
-  <nav class="nav">
+  <nav class="nav" id="mainNav">
     <button id="tab-games" onclick="go('games')"><div class="icon">🎮</div><div>Игры</div></button>
     <button id="tab-wallet" onclick="go('wallet')"><div class="icon">💰</div><div>Баланс</div></button>
     <button id="tab-matches" onclick="go('matches')"><div class="icon">🧾</div><div>Матчи</div></button>
@@ -872,6 +872,11 @@
       const tab = document.getElementById("tab-"+t);
       if(tab) tab.classList.toggle("active", t===page);
     });
+    const mainNav = document.getElementById("mainNav");
+    if(mainNav){
+      const isOnboarding = page.startsWith("onb-");
+      mainNav.classList.toggle("hidden", isOnboarding);
+    }
     location.hash = "#"+page;
 
     if(page==="pong") pongStart();
