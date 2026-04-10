@@ -202,6 +202,30 @@ const GamePage = () => {
   }, []);
 
   useEffect(() => {
+    const leave = () => {
+      const init = tgInitDataRef.current;
+      if (!init) return;
+      const payload = JSON.stringify({ action: 'presenceLeave', initData: init });
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+      } catch {}
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    };
+    window.addEventListener('pagehide', leave);
+    return () => {
+      window.removeEventListener('pagehide', leave);
+      leave();
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current && navigator?.sendBeacon) {
         const payload = JSON.stringify({

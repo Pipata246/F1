@@ -899,6 +899,21 @@
       await apiJson("/api/user", { action:"presenceHeartbeat", initData: tgInitData });
     }catch(e){ /* тихо: не мешаем UX */ }
   }
+  function presenceLeaveNet(){
+    if(!hasTgAuth || !tgInitData) return;
+    const payload = JSON.stringify({ action:"presenceLeave", initData: tgInitData });
+    try{
+      if(navigator.sendBeacon){
+        navigator.sendBeacon("/api/user", new Blob([payload], { type:"application/json" }));
+      }
+    }catch(e){}
+    fetch("/api/user", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: payload,
+      keepalive: true,
+    }).catch(()=>{});
+  }
   async function refreshOnlineCount(){
     if(!hasTgAuth) return;
     try{
@@ -1400,6 +1415,8 @@
   window.addEventListener("pageshow", (ev)=>{
     if(ev.persisted && hasTgAuth){ presencePing(); refreshOnlineCount(); }
   });
+  window.addEventListener("pagehide", ()=>{ presenceLeaveNet(); });
+  window.addEventListener("beforeunload", ()=>{ presenceLeaveNet(); });
 </script>
 </body>
 </html>

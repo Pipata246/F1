@@ -102,6 +102,21 @@ document.addEventListener('DOMContentLoaded', function() {
     presencePing();
     presenceTimer = setInterval(presencePing, 9000);
   }
+  function presenceLeaveNet() {
+    if (!tgInitData) return;
+    var payload = JSON.stringify({ action: 'presenceLeave', initData: tgInitData });
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+      }
+    } catch (e) {}
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      keepalive: true,
+    }).catch(function() {});
+  }
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible') presencePing();
   });
@@ -116,8 +131,8 @@ document.addEventListener('DOMContentLoaded', function() {
   $('btn-confirm').onclick = confirmChoice;
   $('btn-again').onclick = function() { startSearch(isBotMode); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
-  window.addEventListener('pagehide', function() { leavePvpQueue(); });
-  window.addEventListener('beforeunload', function() { leavePvpQueue(); });
+  window.addEventListener('pagehide', function() { leavePvpQueue(); presenceLeaveNet(); });
+  window.addEventListener('beforeunload', function() { leavePvpQueue(); presenceLeaveNet(); });
 });
 
 function showScreen(name) {

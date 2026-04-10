@@ -1,4 +1,5 @@
 -- Online presence for TMA hub counter (run in Supabase SQL Editor if not applied yet).
+-- Semantics: a row means the user is considered online; API deletes the row on presenceLeave and on stale prune.
 
 create table if not exists public.app_online_presence (
   tg_user_id text primary key,

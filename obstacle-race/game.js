@@ -105,6 +105,21 @@ document.addEventListener('DOMContentLoaded', () => {
         presencePing();
         presenceTimer = setInterval(presencePing, 9000);
     }
+    function presenceLeaveNet() {
+        if (!tgInitData) return;
+        var payload = JSON.stringify({ action: 'presenceLeave', initData: tgInitData });
+        try {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+            }
+        } catch (e) {}
+        fetch('/api/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+        }).catch(function() {});
+    }
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'visible') presencePing();
     });
@@ -120,7 +135,18 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
     $('btn-ability').onclick = toggleAbility;
+    window.addEventListener('pagehide', function() {
+        presenceLeaveNet();
+        if (isBotMode || !pvpRoomId || !tgInitData || !navigator.sendBeacon) return;
+        var payload = JSON.stringify({
+            action: 'pvpLeaveRoom',
+            initData: tgInitData,
+            roomId: pvpRoomId
+        });
+        navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+    });
     window.addEventListener('beforeunload', function() {
+        presenceLeaveNet();
         if (isBotMode || !pvpRoomId || !tgInitData || !navigator.sendBeacon) return;
         var payload = JSON.stringify({
             action: 'pvpLeaveRoom',

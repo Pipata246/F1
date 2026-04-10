@@ -1789,10 +1789,13 @@ async function getMatchHistory(initData, limit = 50) {
   return rows || [];
 }
 
-/** Seconds: users with last_seen within this window count as "online" for the hub. */
-const PRESENCE_ONLINE_WINDOW_SEC = Math.max(
-  60,
-  Math.min(600, Number(process.env.PRESENCE_ONLINE_WINDOW_SEC) || 180)
+/**
+ * Rows older than this are removed when counting online (crash / killed WebView without presenceLeave).
+ * Active clients heartbeat more often, so they are never pruned.
+ */
+const PRESENCE_STALE_PRUNE_SEC = Math.max(
+  120,
+  Math.min(7200, Number(process.env.PRESENCE_STALE_PRUNE_SEC) || 300)
 );
 
 async function presenceHeartbeat(initData) {
@@ -1802,14 +1805,35 @@ async function presenceHeartbeat(initData) {
   return true;
 }
 
+async function presenceLeave(initData) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  await sb(`app_online_presence?tg_user_id=eq.${encodeURIComponent(tgId)}`, {
+    method: "DELETE",
+    prefer: "return=minimal",
+  });
+  return true;
+}
+
+async function pruneStalePresenceRows() {
+  const cutoff = new Date(Date.now() - PRESENCE_STALE_PRUNE_SEC * 1000).toISOString();
+  await sb(`app_online_presence?last_seen_at=lt.${encodeURIComponent(cutoff)}`, {
+    method: "DELETE",
+    prefer: "return=minimal",
+  });
+}
+
 async function getOnlineCount(initData) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   assertSupabaseEnv();
-  const cutoff = new Date(Date.now() - PRESENCE_ONLINE_WINDOW_SEC * 1000).toISOString();
-  const url = `${SUPABASE_URL}/rest/v1/app_online_presence?last_seen_at=gte.${encodeURIComponent(
-    cutoff
-  )}&select=tg_user_id`;
+  try {
+    await pruneStalePresenceRows();
+  } catch {
+    /* ignore prune errors; count still useful */
+  }
+  const url = `${SUPABASE_URL}/rest/v1/app_online_presence?select=tg_user_id`;
   const res = await fetch(url, {
     method: "HEAD",
     headers: {
@@ -1823,7 +1847,7 @@ async function getOnlineCount(initData) {
   let count = 0;
   const slash = cr.lastIndexOf("/");
   if (slash >= 0) count = Number(cr.slice(slash + 1)) || 0;
-  return { count, windowSec: PRESENCE_ONLINE_WINDOW_SEC };
+  return { count, stalePruneSec: PRESENCE_STALE_PRUNE_SEC };
 }
 
 module.exports = async (req, res) => {
@@ -1872,9 +1896,13 @@ module.exports = async (req, res) => {
       await presenceHeartbeat(req.body?.initData || "");
       return res.status(200).json({ ok: true });
     }
+    if (action === "presenceLeave") {
+      await presenceLeave(req.body?.initData || "");
+      return res.status(200).json({ ok: true });
+    }
     if (action === "getOnlineCount") {
-      const { count, windowSec } = await getOnlineCount(req.body?.initData || "");
-      return res.status(200).json({ ok: true, count, windowSec });
+      const { count, stalePruneSec } = await getOnlineCount(req.body?.initData || "");
+      return res.status(200).json({ ok: true, count, stalePruneSec });
     }
     if (action === "pvpFindMatch") {
       const room = await pvpFindMatch(
