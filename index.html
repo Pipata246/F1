@@ -310,6 +310,54 @@
       margin-top:auto;
     }
 
+    .tonBalanceCard{
+      display:flex;
+      align-items:center;
+      gap:16px;
+      padding:18px 16px;
+      border-radius:20px;
+      background: linear-gradient(135deg, rgba(0,152,234,.22), rgba(0,200,255,.08));
+      border:1px solid rgba(0,184,255,.35);
+      box-shadow: 0 0 28px rgba(0,152,234,.12);
+    }
+    .tonLogo{
+      width:52px; height:52px; flex:0 0 auto;
+      border-radius:16px;
+      background: rgba(0,0,0,.2);
+      display:flex; align-items:center; justify-content:center;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+    }
+    .tonLogo svg{ width:34px; height:34px; display:block; }
+    .tonBalanceMeta{ flex:1; min-width:0; }
+    .tonBalanceLabel{
+      font-size:12px;
+      font-weight:700;
+      color: var(--text2);
+      letter-spacing:.12em;
+      text-transform: uppercase;
+    }
+    .tonBalanceAmount{
+      margin-top:4px;
+      font-size:28px;
+      font-weight:950;
+      letter-spacing:.02em;
+      line-height:1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .tonBalanceUnit{
+      font-size:14px;
+      font-weight:800;
+      color: #5ADBFF;
+      margin-left:6px;
+    }
+    .walletActions{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:4px;
+    }
+    .walletActions .btn{ width:100%; }
+
     /* Game surface blocks */
     .gameSurface{
       border-radius: 22px;
@@ -535,27 +583,45 @@
       <!-- WALLET -->
       <section id="page-wallet" class="hidden">
         <div class="glass card">
-          <h2 class="titleXL">Баланс</h2>
-          <p class="subtitle">Coins • Stars (скоро)</p>
-          <div class="divider"></div>
-
-          <div class="row">
-            <div class="pill" style="flex:1">
-              <span class="text2">🪙 Coins</span>
-              <strong id="coinsVal">0</strong>
+          <div class="row" style="align-items:center; justify-content:space-between;">
+            <div>
+              <h2 class="titleXL" style="margin:0">Баланс</h2>
+              <p class="subtitle" style="margin-top:4px">TON · скоро на бэкенде</p>
             </div>
-            <div class="pill" style="flex:1">
-              <span class="text2">⭐ Stars</span>
-              <strong id="starsVal">0</strong>
-            </div>
+            <div class="chip">TON</div>
           </div>
 
           <div class="divider"></div>
-          <div class="muted">История операций (локально)</div>
-          <div id="txList" style="margin-top:10px; display:flex; flex-direction:column; gap:10px"></div>
+
+          <div class="tonBalanceCard">
+            <div class="tonLogo" aria-hidden="true">
+              <svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="tonGrad" x1="10" y1="8" x2="46" y2="48" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#0098EA"/>
+                    <stop offset="1" stop-color="#00D4FF"/>
+                  </linearGradient>
+                </defs>
+                <path fill="url(#tonGrad)" d="M28 7l21 15.5v11L28 49 7 33.5v-11L28 7z"/>
+              </svg>
+            </div>
+            <div class="tonBalanceMeta">
+              <div class="tonBalanceLabel">Доступно</div>
+              <div>
+                <span class="tonBalanceAmount" id="tonBalanceVal">0.00</span><span class="tonBalanceUnit">TON</span>
+              </div>
+            </div>
+          </div>
+
+          <p class="muted small" style="margin:12px 0 0 0">Демо: сумма только на фронте, без привязки к сети.</p>
 
           <div class="divider"></div>
-          <button class="btn danger" id="resetBtn">Сбросить прогресс (тест)</button>
+
+          <div class="walletActions">
+            <button type="button" class="btn primary" id="walletBtnTopup">Пополнить</button>
+            <button type="button" class="btn ghost" id="walletBtnWithdraw">Вывести</button>
+            <button type="button" class="btn ghost" id="walletBtnHistory">История операций</button>
+          </div>
         </div>
       </section>
 
@@ -806,7 +872,7 @@
       referredBy: "",
       refStatus: "none",
     },
-    wallet: { coins: 120, stars: 0 },
+    wallet: { tonBalance: "0.00" },
     settings: { sound:true, haptic:true },
     tx: [],
   };
@@ -1193,49 +1259,32 @@
     }catch(e){}
   }
 
-  const coinsVal = document.getElementById("coinsVal");
-  const starsVal = document.getElementById("starsVal");
-  const txList = document.getElementById("txList");
-  const resetBtn = document.getElementById("resetBtn");
+  const tonBalanceVal = document.getElementById("tonBalanceVal");
 
   function addTx(label, amount=0){
     state.tx.unshift({ts: now(), label, amount});
     state.tx = state.tx.slice(0, 30);
   }
 
-  resetBtn.onclick = ()=>{
-    openModal("Сбросить прогресс?", "Это удалит локальные данные на этом устройстве.", ()=>{
-      localStorage.removeItem(KEY);
-      location.reload();
-    });
-  };
-
   function renderWallet(){
-    coinsVal.textContent = state.wallet.coins;
-    starsVal.textContent = state.wallet.stars;
-
-    txList.innerHTML="";
-    if(state.tx.length===0){
-      const d=document.createElement("div");
-      d.className="muted";
-      d.textContent="Операций пока нет.";
-      txList.appendChild(d);
-      return;
-    }
-    state.tx.slice(0,12).forEach(t=>{
-      const item=document.createElement("div");
-      item.className="pill";
-      const sign = t.amount>0 ? "+" : "";
-      item.innerHTML = `
-        <div>
-          <div style="font-weight:800">${t.label}</div>
-          <div class="small">${new Date(t.ts).toLocaleString("ru-RU")}</div>
-        </div>
-        <div style="font-weight:950; color:${t.amount>=0?'var(--accent)':'var(--danger)'}">${sign}${t.amount}</div>
-      `;
-      txList.appendChild(item);
-    });
+    if(!tonBalanceVal) return;
+    const raw = state.wallet?.tonBalance;
+    const str = raw != null && String(raw).trim() !== "" ? String(raw).trim() : "0.00";
+    tonBalanceVal.textContent = str;
   }
+
+  document.getElementById("walletBtnTopup").onclick = ()=>{
+    hImpact("light");
+    toast("Пополнение — скоро");
+  };
+  document.getElementById("walletBtnWithdraw").onclick = ()=>{
+    hImpact("light");
+    toast("Вывод — скоро");
+  };
+  document.getElementById("walletBtnHistory").onclick = ()=>{
+    hImpact("light");
+    openModal("История операций", "Здесь появится список пополнений и выводов. Пока заглушка на фронте.", ()=>{});
+  };
 
   const profNick = document.getElementById("profNick");
   const profId = document.getElementById("profId");
