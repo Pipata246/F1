@@ -164,6 +164,8 @@ const GamePage = () => {
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
   const localFindTimerRef = useRef(null);
+  const onlineSearchActiveRef = useRef(false);
+  const pvpFindRetryTimerRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
 
@@ -191,6 +193,7 @@ const GamePage = () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
+      if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
     };
   }, []);
 
@@ -513,6 +516,11 @@ const GamePage = () => {
     pvpLastStartKeyRef.current = '';
     pvpRoomIdRef.current = null;
     stopPvpPolling();
+    onlineSearchActiveRef.current = !bot;
+    if (pvpFindRetryTimerRef.current) {
+      clearTimeout(pvpFindRetryTimerRef.current);
+      pvpFindRetryTimerRef.current = null;
+    }
     if (localFindTimerRef.current) {
       clearTimeout(localFindTimerRef.current);
       localFindTimerRef.current = null;
@@ -521,18 +529,24 @@ const GamePage = () => {
     connectWS();
     setScreen('waiting');
     if (!bot) {
-      apiPost({
-        action: 'pvpFindMatch',
-        initData: tgInitDataRef.current || '',
-        gameKey: 'super_penalty',
-        playerName: name,
-      }).then((data) => {
-        if (!data?.ok || !data.room) throw new Error('matchmaking');
-        pvpRoomIdRef.current = data.room.id;
-        startPvpPolling();
-      }).catch(() => {
-        setScreen('menu');
-      });
+      const attemptFind = () => {
+        if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+        apiPost({
+          action: 'pvpFindMatch',
+          initData: tgInitDataRef.current || '',
+          gameKey: 'super_penalty',
+          playerName: name,
+        }).then((data) => {
+          if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+          if (!data?.ok || !data.room) throw new Error('matchmaking');
+          pvpRoomIdRef.current = data.room.id;
+          startPvpPolling();
+        }).catch(() => {
+          if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+          pvpFindRetryTimerRef.current = setTimeout(attemptFind, 1200);
+        });
+      };
+      attemptFind();
       return;
     }
     localFindTimerRef.current = setTimeout(() => {
@@ -557,6 +571,11 @@ const GamePage = () => {
   };
 
   const handleCancelWait = () => {
+    onlineSearchActiveRef.current = false;
+    if (pvpFindRetryTimerRef.current) {
+      clearTimeout(pvpFindRetryTimerRef.current);
+      pvpFindRetryTimerRef.current = null;
+    }
     if (localFindTimerRef.current) {
       clearTimeout(localFindTimerRef.current);
       localFindTimerRef.current = null;
@@ -573,6 +592,11 @@ const GamePage = () => {
   };
 
   const handlePlayAgain = () => {
+    onlineSearchActiveRef.current = false;
+    if (pvpFindRetryTimerRef.current) {
+      clearTimeout(pvpFindRetryTimerRef.current);
+      pvpFindRetryTimerRef.current = null;
+    }
     if (localFindTimerRef.current) {
       clearTimeout(localFindTimerRef.current);
       localFindTimerRef.current = null;
