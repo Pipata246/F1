@@ -79,6 +79,7 @@ const GamePage = () => {
   const [shotResult, setShotResult] = useState(null); // single result
   const [matchResult, setMatchResult] = useState(null);
   const [announce, setAnnounce] = useState(null);
+  const [selectedDistance, setSelectedDistance] = useState(null);
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -98,6 +99,7 @@ const GamePage = () => {
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastPhaseKeyRef = useRef('');
   const pvpLastStartKeyRef = useRef('');
+  const choiceLockedRef = useRef(false);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { scoresRef.current = scores; }, [scores]);
@@ -157,7 +159,16 @@ const GamePage = () => {
     shots.forEach((shot, i) => {
       const t0 = i*cycle;
       // Move player
-      sched(() => { if (phase!==1) setPositions(p=>{const n=[...p];n[shot.playerIndex]={x:PLAYER_X[shot.playerIndex],y:DIST_Y[shot.distance]||START_Y};return n;}); setShotResult(null); }, t0);
+      sched(() => {
+        if (phase !== 1) {
+          setPositions(() => {
+            const n = [{ x: PLAYER_X[0], y: START_Y }, { x: PLAYER_X[1], y: START_Y }];
+            n[shot.playerIndex] = { x: PLAYER_X[shot.playerIndex], y: DIST_Y[shot.distance] || START_Y };
+            return n;
+          });
+        }
+        setShotResult(null);
+      }, t0);
       // Ball
       sched(() => { sfx('swoosh'); const kf=buildKF(shot.playerIndex,shot.distance,shot.made); if(kf)setBallAnim({id:Date.now()+i,kf,duration:dur}); }, t0+moveMs);
       // Result (no confetti per shot — only on match end)
@@ -185,7 +196,7 @@ const GamePage = () => {
         if(msg.phase===2) showAnnounce('GAME ON','5 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
       case 'round_start': setAnnounce(null); setRound(msg.round); setMaxRounds(msg.maxRounds); setChoosing(true); setLocked(false); startTimer(); break;
-      case 'choice_locked': setLocked(true); stopTimer(); break;
+      case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'opponent_locked': break;
       case 'round_result': stopTimer(); setChoosing(false); setLocked(false); setRound(msg.round); setAnnounce(null); animateRound(msg.shots,msg.phase,msg.scores); break;
       case 'match_result':
@@ -245,6 +256,8 @@ const GamePage = () => {
       const startKey = `${phaseNum}:${Number(s.round || 0)}`;
       if (startKey === pvpLastStartKeyRef.current) return;
       pvpLastStartKeyRef.current = startKey;
+      choiceLockedRef.current = false;
+      setSelectedDistance(null);
       handleMsg({
         type: 'round_start',
         round: Number(s.round || 0) + 1,
@@ -320,6 +333,8 @@ const GamePage = () => {
     const m = localMatchRef.current;
     if (!m || m.finished) return;
     m.choices = [null, null];
+    choiceLockedRef.current = false;
+    setSelectedDistance(null);
     const max = m.phase === 2 ? 5 : 999;
     handleMsg({ type: 'round_start', round: m.round + 1, maxRounds: max, phase: m.phase, scores: [...m.scores] });
   }
@@ -377,6 +392,7 @@ const GamePage = () => {
     if (type === 'choose_distance') {
       if (m.choices[0] !== null) return;
       m.choices[0] = data.distance || 'mid';
+      choiceLockedRef.current = true;
       handleMsg({ type: 'choice_locked' });
       m.choices[1] = botChooseDistance(m.scores[1], m.scores[0]);
       sched(localResolveRound, 450);
@@ -441,9 +457,11 @@ const GamePage = () => {
   };
 
   const chooseDist = (d) => {
-    if (locked || !choosing) return;
+    if (locked || !choosing || choiceLockedRef.current) return;
+    choiceLockedRef.current = true;
     sfx('click');
     setChoosing(false);
+    setSelectedDistance(d);
     if (playModeRef.current === 'pvp') {
       if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
       setLocked(true);
@@ -457,6 +475,8 @@ const GamePage = () => {
         if (data?.ok && data.room) applyPvpRoomState(data.room);
       }).catch(() => {
         setLocked(false);
+        choiceLockedRef.current = false;
+        setSelectedDistance(null);
       });
       return;
     }
@@ -562,7 +582,7 @@ const GamePage = () => {
         <div className="bg-black/85 border-b-2 border-amber-500/50 rounded-b-2xl px-4 py-2">
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
-              <p className="text-xs text-blue-400 uppercase tracking-wider truncate">{p0Name}</p>
+              <p className="text-xs text-blue-400 uppercase tracking-wider truncate">{p0Name}{pi===0?' · ТЫ':' · СОПЕРНИК'}</p>
               <p className="text-5xl text-blue-400 leading-none mt-0.5">{p0Score}</p>
             </div>
             <div className="flex flex-col items-center px-4 gap-0.5">
@@ -572,7 +592,7 @@ const GamePage = () => {
               {choosing&&!locked&&<span className={`text-sm ${timer<=3?'text-red-400 animate-pulse':'text-white/25'}`}>{timer}s</span>}
             </div>
             <div className="flex-1 text-center">
-              <p className="text-xs text-red-400 uppercase tracking-wider truncate">{p1Name}</p>
+              <p className="text-xs text-red-400 uppercase tracking-wider truncate">{p1Name}{pi===1?' · ТЫ':' · СОПЕРНИК'}</p>
               <p className="text-5xl text-red-400 leading-none mt-0.5">{p1Score}</p>
             </div>
           </div>
@@ -602,7 +622,9 @@ const GamePage = () => {
             <img src={`${ASSET_BASE}Subway_Homeless_2_48x48.gif`} alt="" draggable={false}
               style={{width:CHAR_W,height:CHAR_H,imageRendering:'pixelated',transform:idx===1?'scaleX(-1)':'none'}} />
             <div className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap ${idx===0?'text-blue-400':'text-red-400'}`}
-              style={{textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>{idx===0?p0Name:p1Name}</div>
+              style={{textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
+              {idx===0?p0Name:p1Name}{idx===pi?' · ТЫ':' · OPP'}
+            </div>
           </div>
         ))}
 
@@ -637,7 +659,10 @@ const GamePage = () => {
           <div className="flex gap-2 animate-[fadeIn_0.2s]">
             {DISTS.map(d => (
               <button key={d.key} onClick={()=>chooseDist(d.key)}
-                className={`flex-1 bg-gradient-to-b ${d.bg} text-white py-5 rounded-xl active:scale-95 border-2 border-white/10 uppercase`}>
+                disabled={!!selectedDistance}
+                className={`flex-1 bg-gradient-to-b ${d.bg} text-white py-5 rounded-xl border-2 uppercase ${
+                  selectedDistance ? 'opacity-60 border-white/20' : 'active:scale-95 border-white/10'
+                }`}>
                 <div className="text-base tracking-wider">{d.label}</div>
                 <div className="text-[11px] opacity-60 mt-0.5">{d.pts} · {d.pct}</div>
               </button>
@@ -650,6 +675,11 @@ const GamePage = () => {
                 <div className="w-4 h-4 border-2 border-amber-400/40 border-t-transparent rounded-full animate-spin" />
                 <p className="text-white/30 text-sm uppercase tracking-wider">Ожидание...</p>
               </div>
+            )}
+            {selectedDistance && !locked && (
+              <p className="text-amber-300/80 text-sm uppercase tracking-wider bg-black/60 px-5 py-3 rounded-xl">
+                Выбор: {selectedDistance === 'close' ? 'Ближняя' : selectedDistance === 'mid' ? 'Средняя' : 'Дальняя'}
+              </p>
             )}
           </div>
         )}
