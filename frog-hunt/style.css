@@ -17,7 +17,7 @@
   --pad-bg: #1a4a2a;
   --pad-border: #2d6a3d;
   --radius: 14px;
-  --tg-safe-top: calc(env(safe-area-inset-top, 0px) + 124px);
+  --tg-safe-top-ui: calc(env(safe-area-inset-top, 0px) + 16px);
   --tg-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
 }
 
@@ -42,7 +42,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--tg-safe-top) 16px var(--tg-safe-bottom);
+  padding: var(--tg-safe-top-ui) 16px var(--tg-safe-bottom);
 }
 .screen.active {
   display: flex;
@@ -158,7 +158,7 @@ input[type="text"]::placeholder { color: var(--text2); }
 .center-content p { color: var(--text2); margin-bottom: 12px; }
 
 #screen-game {
-  padding: var(--tg-safe-top) 0 var(--tg-safe-bottom);
+  padding: var(--tg-safe-top-ui) 0 var(--tg-safe-bottom);
   justify-content: flex-start;
 }
 .game-layout {
