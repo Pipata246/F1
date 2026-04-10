@@ -70,7 +70,7 @@ function assertSupabaseEnv() {
   }
 }
 
-async function sb(path, { method = "GET", body, prefer } = {}) {
+async function sb(path, { method = "GET", body, prefer, onConflict } = {}) {
   assertSupabaseEnv();
   const headers = {
     apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -79,7 +79,10 @@ async function sb(path, { method = "GET", body, prefer } = {}) {
   };
   if (prefer) headers.Prefer = prefer;
 
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const suffix = onConflict
+    ? `${path.includes("?") ? "&" : "?"}on_conflict=${encodeURIComponent(onConflict)}`
+    : "";
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}${suffix}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -157,6 +160,7 @@ async function upsertUser(initData, nickname, referredBy, rulesAcceptedAtMs) {
   const rows = await sb("users", {
     method: "POST",
     body: payload,
+    onConflict: "tg_user_id",
     prefer: "resolution=merge-duplicates,return=representation",
   });
   return rows?.[0] || payload;
@@ -189,6 +193,7 @@ async function markReferralAsked(initData) {
   const rows = await sb("users", {
     method: "POST",
     body: payload,
+    onConflict: "tg_user_id",
     prefer: "resolution=merge-duplicates,return=representation",
   });
   return rows?.[0] || payload;
