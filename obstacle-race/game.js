@@ -23,7 +23,15 @@ let overtimePlacing = false;
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
+let isBotMode = true;
+let pvpRoomId = null;
+let pvpPollTimer = null;
+let pvpPollInFlight = false;
+let pvpLastRoundMarker = 0;
+let pvpLastXrayMarker = 0;
+let pvpLastStartKey = '';
 const SETTINGS_KEY = "f1duel_global_settings_v1";
+const PVP_POLL_MS = 900;
 
 const ABILITIES = {
     xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
@@ -92,6 +100,15 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
     $('btn-ability').onclick = toggleAbility;
+    window.addEventListener('beforeunload', function() {
+        if (isBotMode || !pvpRoomId || !tgInitData || !navigator.sendBeacon) return;
+        var payload = JSON.stringify({
+            action: 'pvpLeaveRoom',
+            initData: tgInitData,
+            roomId: pvpRoomId
+        });
+        navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+    });
 
     generateTrapTrack();
     generateGameTracks(7);
@@ -101,7 +118,210 @@ function connect(cb) {
     if (cb) cb();
 }
 
-function sendMsg(m) { localServerOnClientMessage(m || {}); }
+function apiPost(payload) {
+    return fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+    }).then(function(r) { return r.json(); });
+}
+
+function stopPvpPolling() {
+    if (pvpPollTimer) clearInterval(pvpPollTimer);
+    pvpPollTimer = null;
+    pvpPollInFlight = false;
+}
+
+function startPvpPolling() {
+    stopPvpPolling();
+    pvpPollTimer = setInterval(function() { pvpPollState(); }, PVP_POLL_MS);
+    pvpPollState();
+}
+
+function resetPvpMarkers() {
+    pvpLastRoundMarker = 0;
+    pvpLastXrayMarker = 0;
+    pvpLastStartKey = '';
+}
+
+function getPvpSides(room) {
+    var meIsP1 = String(room && room.player1_tg_user_id || '') === String(window._tgUserId || '');
+    return {
+        meIsP1: meIsP1,
+        mySide: meIsP1 ? 'p1' : 'p2',
+        oppSide: meIsP1 ? 'p2' : 'p1',
+        playerIndex: meIsP1 ? 0 : 1
+    };
+}
+
+function applyPvpRoomState(room) {
+    if (!room) return;
+    var s = room.state_json || {};
+    if (String(room.status) === 'waiting') {
+        showScreen('waiting');
+        return;
+    }
+
+    var sides = getPvpSides(room);
+    playerIndex = sides.playerIndex;
+    opponentName = sides.meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник');
+    if (!$('screen-traps').classList.contains('active') && !$('screen-game').classList.contains('active')) {
+        onGameFound({ opponent: opponentName, playerIndex: playerIndex });
+    }
+
+    var xray = s.lastXray || {};
+    var xrayMarker = Number(xray.marker || 0);
+    if (xrayMarker > pvpLastXrayMarker) {
+        pvpLastXrayMarker = xrayMarker;
+        if (xray.bySide === sides.mySide) onXrayResult({ point: xray.point, hasTrap: !!xray.hasTrap });
+        else onOppXray({ point: xray.point });
+    }
+
+    var rr = s.lastRoundResult || {};
+    var roundMarker = Number(rr.marker || 0);
+    if (roundMarker > pvpLastRoundMarker) {
+        pvpLastRoundMarker = roundMarker;
+        var my = rr.result ? rr.result[sides.mySide] : null;
+        var opp = rr.result ? rr.result[sides.oppSide] : null;
+        if (my && opp) {
+            onRoundResult({
+                you: my,
+                opponent: opp,
+                step: Number(rr.step || 0),
+                scores: [Number((rr.scores || {}).p1 || 0), Number((rr.scores || {}).p2 || 0)],
+                winner: rr.gameOver ? (rr.winnerSide === sides.mySide ? 'win' : 'lose') : null,
+                gameOver: !!rr.gameOver,
+                round: Number(rr.round || 0),
+                totalRounds: 7,
+                playerIndex: sides.playerIndex,
+                overtime: !!rr.overtime,
+                startOvertime: !!rr.startOvertime
+            });
+            return;
+        }
+    }
+
+    if (s.phase === 'running') {
+        var step = s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0);
+        var startKey = String(!!s.overtime) + ':' + String(step);
+        if (startKey !== pvpLastStartKey) {
+            pvpLastStartKey = startKey;
+            onRoundStart({ step: step, ability: (s.abilities || {})[sides.mySide] || null });
+            return;
+        }
+    }
+
+    if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+        stopPvpPolling();
+        if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(window._tgUserId || '')) {
+            onOpponentLeft();
+            return;
+        }
+        var fin = s.scores || {};
+        var finalScores = [Number(fin.p1 || 0), Number(fin.p2 || 0)];
+        var winner = null;
+        if (s.winnerSide) winner = s.winnerSide === sides.mySide ? 'win' : 'lose';
+        else if (finalScores[0] !== finalScores[1]) winner = (sides.meIsP1 ? finalScores[0] > finalScores[1] : finalScores[1] > finalScores[0]) ? 'win' : 'lose';
+        showGameOver(winner, finalScores);
+    }
+}
+
+function pvpPollState() {
+    if (!pvpRoomId || !tgInitData || pvpPollInFlight) return;
+    pvpPollInFlight = true;
+    apiPost({
+        action: 'pvpGetRoomState',
+        initData: tgInitData,
+        roomId: pvpRoomId
+    }).then(function(data) {
+        if (!data || !data.ok || !data.room) return;
+        applyPvpRoomState(data.room);
+    }).catch(function() {}).finally(function() {
+        pvpPollInFlight = false;
+    });
+}
+
+function pvpFindMatch() {
+    if (!tgInitData) {
+        showScreen('start');
+        return;
+    }
+    resetPvpMarkers();
+    pvpRoomId = null;
+    apiPost({
+        action: 'pvpFindMatch',
+        initData: tgInitData,
+        gameKey: 'obstacle_race',
+        playerName: myName
+    }).then(function(data) {
+        if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
+        pvpRoomId = data.room.id;
+        showScreen(String(data.room.status) === 'active' ? 'traps' : 'waiting');
+        startPvpPolling();
+    }).catch(function() {
+        showScreen('start');
+    });
+}
+
+function pvpLeaveRoomSafe() {
+    if (!pvpRoomId || !tgInitData) {
+        pvpRoomId = null;
+        return Promise.resolve();
+    }
+    var rid = pvpRoomId;
+    pvpRoomId = null;
+    return apiPost({
+        action: 'pvpLeaveRoom',
+        initData: tgInitData,
+        roomId: rid
+    }).catch(function() {});
+}
+
+function sendMsg(m) {
+    var msg = m || {};
+    if (isBotMode) {
+        localServerOnClientMessage(msg);
+        return;
+    }
+    if (!pvpRoomId || !tgInitData) return;
+    if (msg.type === 'place_traps') {
+        apiPost({
+            action: 'pvpSubmitMove',
+            initData: tgInitData,
+            roomId: pvpRoomId,
+            move: { traps: msg.traps || [] }
+        }).then(function(data) {
+            if (data && data.ok && data.room) applyPvpRoomState(data.room);
+        }).catch(function() {});
+        return;
+    }
+    if (msg.type === 'xray_scan') {
+        apiPost({
+            action: 'pvpSubmitMove',
+            initData: tgInitData,
+            roomId: pvpRoomId,
+            move: { type: 'xray_scan', point: Number(msg.point || 0) }
+        }).then(function(data) {
+            if (data && data.ok && data.room) applyPvpRoomState(data.room);
+        }).catch(function() {});
+        return;
+    }
+    if (msg.type === 'make_move') {
+        apiPost({
+            action: 'pvpSubmitMove',
+            initData: tgInitData,
+            roomId: pvpRoomId,
+            move: { action: msg.action, useAbility: !!msg.useAbility }
+        }).then(function(data) {
+            if (data && data.ok && data.room) applyPvpRoomState(data.room);
+        }).catch(function() {
+            moveChosen = false;
+            $('btn-run').disabled = false;
+            $('btn-jump').disabled = false;
+            $('move-wait').classList.add('hidden');
+        });
+    }
+}
 
 function handleMessage(msg) {
     switch (msg.type) {
@@ -130,17 +350,32 @@ function startGame(vsBot) {
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
     clearInterval(timerInterval);
     matchSaved = false;
+    isBotMode = !!vsBot;
+    stopPvpPolling();
+    pvpRoomId = null;
     connect(() => {
-        sendMsg({
-            type: vsBot ? 'find_bot' : 'find_game',
-            name: myName,
-            tgUserId: window._tgUserId || null
-        });
-        showScreen('waiting');
+        if (isBotMode) {
+            sendMsg({
+                type: 'find_bot',
+                name: myName,
+                tgUserId: window._tgUserId || null
+            });
+            showScreen('waiting');
+            return;
+        }
+        pvpFindMatch();
     });
 }
 
-function cancelWait() { localMatch = null; showScreen('start'); }
+function cancelWait() {
+    if (isBotMode) {
+        localMatch = null;
+        showScreen('start');
+        return;
+    }
+    stopPvpPolling();
+    pvpLeaveRoomSafe().finally(function() { showScreen('start'); });
+}
 
 function onGameFound(msg) {
     playSound('ping');
@@ -980,7 +1215,7 @@ function showGameOver(winner, serverScores) {
     $('fs-name-1').textContent = opponentName;
     $('fs-val-1').textContent = oppScore;
     showScreen('result');
-    saveMatchToBackend(winner, myScore, oppScore);
+    if (isBotMode) saveMatchToBackend(winner, myScore, oppScore);
 }
 
 function onOpponentLeft() {
