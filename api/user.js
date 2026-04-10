@@ -1896,7 +1896,12 @@ async function getGameStats(initData) {
     `game_player_stats?tg_user_id=eq.${encodeURIComponent(tgId)}&select=game_key,games_played,wins,losses,points_for,points_against,last_result,last_match_at`
   );
   const byGame = {};
-  for (const r of rows || []) byGame[r.game_key] = r;
+  for (const r of rows || []) {
+    const g = Number(r.games_played || 0);
+    const w = Number(r.wins || 0);
+    const win_rate_pct = g > 0 ? Math.round((w / g) * 1000) / 10 : null;
+    byGame[r.game_key] = { ...r, win_rate_pct };
+  }
   return byGame;
 }
 

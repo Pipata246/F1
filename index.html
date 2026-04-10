@@ -1227,6 +1227,16 @@
     });
   }
 
+  function formatWinRatePct(row){
+    const g = Number(row?.games_played || 0);
+    const w = Number(row?.wins || 0);
+    let p = row?.win_rate_pct;
+    if((p == null || p === "") && g > 0) p = Math.round((w / g) * 1000) / 10;
+    if(p == null || p === "") return "";
+    const s = String(p).replace(".", ",");
+    return ` · ${s}% побед`;
+  }
+
   function fillProfileStatTiles(stats){
     const one = (mainId, subId, row, kind) =>{
       const elM = document.getElementById(mainId), elS = document.getElementById(subId);
@@ -1238,10 +1248,11 @@
         elS.textContent = "Нет матчей";
         return;
       }
+      const pctPart = formatWinRatePct(row);
       elM.textContent = `${w}–${l}`;
-      if(kind === "pen") elS.textContent = `${g} игр · ${pf} голов`;
-      else if(kind === "basket") elS.textContent = `${g} игр · ${pf} очков`;
-      else elS.textContent = `${g} игр`;
+      if(kind === "pen") elS.textContent = `${g} игр · ${pf} голов${pctPart}`;
+      else if(kind === "basket") elS.textContent = `${g} игр · ${pf} очков${pctPart}`;
+      else elS.textContent = `${g} игр${pctPart}`;
     };
     one("profStatFrogMain","profStatFrogSub", stats.frog_hunt, "frog");
     one("profStatRaceMain","profStatRaceSub", stats.obstacle_race, "race");
@@ -1560,6 +1571,10 @@
       syncPresenceAndOnline();
       setInterval(presencePing, 8000);
       setInterval(refreshOnlineCount, 14000);
+      setInterval(()=>{
+        if(!hasTgAuth) return;
+        if((location.hash||"").slice(1) === "profile") loadExternalStats();
+      }, 12000);
     }
   })();
 
@@ -1576,7 +1591,11 @@
     }
   });
   window.addEventListener("hashchange", ()=>{
-    if(hasTgAuth){ presencePing(); refreshOnlineCount(); }
+    if(hasTgAuth){
+      presencePing();
+      refreshOnlineCount();
+      if((location.hash||"").slice(1) === "profile") loadExternalStats();
+    }
   });
   window.addEventListener("pageshow", (ev)=>{
     if(ev.persisted && hasTgAuth){ presencePing(); refreshOnlineCount(); }
