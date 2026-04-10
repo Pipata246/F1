@@ -40,6 +40,11 @@
     }
     *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
     a{color:inherit}
+    :root{
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --app-vh: 100dvh;
+    }
 
     body:before{
       content:"";
@@ -49,7 +54,11 @@
       mix-blend-mode: overlay;
     }
 
-    .app{min-height:100vh; padding-bottom:86px}
+    .app{
+      min-height:var(--app-vh);
+      padding-top:var(--safe-top);
+      padding-bottom:calc(86px + var(--safe-bottom));
+    }
     .topbar{
       position:sticky; top:0; z-index:20;
       padding:14px 16px;
@@ -112,7 +121,7 @@
 
     .nav{
       position:fixed; left:0; right:0; bottom:0; height:72px;
-      padding:10px 10px 14px;
+      padding:10px 10px calc(14px + var(--safe-bottom));
       display:flex; gap:10px;
       background: rgba(10,12,18,.45);
       backdrop-filter: blur(18px);
@@ -770,7 +779,26 @@
 
 <script>
   const tg = window.Telegram?.WebApp;
-  try{ tg?.ready(); tg?.expand(); }catch(e){}
+  function applyViewport(){
+    try{
+      if(tg?.viewportStableHeight){
+        document.documentElement.style.setProperty("--app-vh", `${tg.viewportStableHeight}px`);
+      } else {
+        document.documentElement.style.setProperty("--app-vh", `${window.innerHeight}px`);
+      }
+    }catch(e){
+      document.documentElement.style.setProperty("--app-vh", `${window.innerHeight}px`);
+    }
+  }
+  try{
+    tg?.ready();
+    tg?.expand();
+    tg?.requestFullscreen?.();
+    tg?.disableVerticalSwipes?.();
+    applyViewport();
+    tg?.onEvent?.("viewportChanged", applyViewport);
+    window.addEventListener("resize", applyViewport);
+  }catch(e){}
   const KEY="f1duel_state_v2_games";
   const tgInitData = tg?.initData || "";
   const hasTgAuth = !!tgInitData;
