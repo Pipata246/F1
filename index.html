@@ -186,6 +186,32 @@
       font-size:13px;
     }
     .toast.show{opacity:1}
+    .shareNotice{
+      position:fixed; left:50%; top:50%;
+      transform: translate(-50%, -50%) scale(.92);
+      width:min(360px, 92vw);
+      padding:16px;
+      border-radius:18px;
+      background: rgba(20,24,36,.78);
+      border:1px solid rgba(140,255,193,.28);
+      box-shadow: 0 20px 48px rgba(0,0,0,.45), 0 0 24px rgba(140,255,193,.18);
+      backdrop-filter: blur(14px);
+      text-align:center;
+      z-index:140;
+      opacity:0;
+      pointer-events:none;
+      transition: opacity .24s ease, transform .24s ease;
+    }
+    .shareNotice.show{
+      opacity:1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .shareNotice .title{
+      font-weight:900; font-size:18px; letter-spacing:.2px;
+    }
+    .shareNotice .sub{
+      margin-top:6px; font-size:13px; color:var(--text2);
+    }
 
     .modalWrap{
       position:fixed; inset:0; z-index:100;
@@ -744,6 +770,10 @@
   </nav>
 
   <div id="toast" class="toast"></div>
+  <div id="shareNotice" class="shareNotice">
+    <div class="title">Готово!</div>
+    <div class="sub">Открываем Telegram для отправки приглашения</div>
+  </div>
 
   <div class="bootScreen" id="bootScreen">
     <div class="bootCard">
@@ -910,7 +940,13 @@
   function hSelect(){ if(!state.settings.haptic) return; try{ tg?.HapticFeedback?.selectionChanged();}catch(e){} }
 
   const toastEl = document.getElementById("toast"); let toastTimer=null;
+  const shareNotice = document.getElementById("shareNotice"); let shareNoticeTimer = null;
   function toast(t){ toastEl.textContent=t; toastEl.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove("show"), 1500); }
+  function showShareNotice(){
+    shareNotice.classList.add("show");
+    clearTimeout(shareNoticeTimer);
+    shareNoticeTimer = setTimeout(()=> shareNotice.classList.remove("show"), 1600);
+  }
 
   const modalWrap = document.getElementById("modalWrap");
   const modalTitle = document.getElementById("modalTitle");
@@ -1281,6 +1317,7 @@
       `Погнали?`;
     try{
       const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(text)}`;
+      showShareNotice();
       if(tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
       else window.open(shareUrl, "_blank");
     }catch(e){
