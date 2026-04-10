@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
+const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
 
 // Gate container: 360x280, zone grid: left=16, w=328, h=238 (85% of 280)
 // Zone cells: 164x119 each
@@ -151,11 +152,8 @@ const GamePage = () => {
       setPlayerName(tg.initDataUnsafe.user.first_name || 'Player');
     }
     tgInitDataRef.current = tg?.initData || '';
-    // Show Telegram back button
-    if (tg?.BackButton) {
-      tg.BackButton.show();
-      tg.BackButton.onClick(() => { window.history.back(); });
-    }
+    // Do not use Telegram BackButton in this game.
+    if (tg?.BackButton) tg.BackButton.hide();
   }, []);
 
   useEffect(() => {
@@ -655,7 +653,7 @@ const GamePage = () => {
           animate={resultMessage?.type === 'win' ? { x: [-5, 5, -5, 5, 0] } : {}}
           transition={{ duration: 0.3 }}
         >
-          <img src="/gate.png" alt="Gate" className="absolute inset-0 w-full h-full object-contain z-0 drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)]" />
+          <img src={`${ASSET_BASE}gate.png`} alt="Gate" className="absolute inset-0 w-full h-full object-contain z-0 drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)]" />
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[200px] h-[40px] bg-black/40 blur-xl rounded-[100%] z-0" />
 
           {/* Keeper */}
@@ -668,7 +666,7 @@ const GamePage = () => {
             }}
           >
             <img
-              src={keeperState === 'save' ? '/keeper_save.png' : '/keeper_idle.png'}
+              src={keeperState === 'save' ? `${ASSET_BASE}keeper_save.png` : `${ASSET_BASE}keeper_idle.png`}
               alt="Keeper"
               className="object-contain drop-shadow-2xl"
               style={{
@@ -681,7 +679,7 @@ const GamePage = () => {
 
           {/* Ball */}
           <div className="absolute bottom-[-40px] left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-            <img src="/ball.png" alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={ballStyle} />
+            <img src={`${ASSET_BASE}ball.png`} alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={ballStyle} />
           </div>
 
           {/* Zone buttons */}
