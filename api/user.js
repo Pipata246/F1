@@ -1478,6 +1478,25 @@ async function pvpLeaveRoom(initData, roomId) {
   return { left: false };
 }
 
+async function pvpCancelQueue(initData, roomId) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  const id = Number(roomId);
+  if (!Number.isInteger(id) || id <= 0) return { cancelled: false };
+  const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
+  const room = rows?.[0];
+  if (!room) return { cancelled: false };
+  if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
+  // Queue cancel must never forfeit a live match.
+  if (room.status !== "waiting") return { cancelled: false, status: room.status };
+  await sb(`pvp_rooms?id=eq.${id}&status=eq.waiting`, {
+    method: "DELETE",
+    prefer: "return=minimal",
+  });
+  return { cancelled: true };
+}
+
 async function recordMatchInternal(req) {
   assertInternalApiKey(req);
   const b = req.body || {};
@@ -1651,6 +1670,10 @@ module.exports = async (req, res) => {
     }
     if (action === "pvpLeaveRoom") {
       const result = await pvpLeaveRoom(req.body?.initData || "", req.body?.roomId || 0);
+      return res.status(200).json({ ok: true, result });
+    }
+    if (action === "pvpCancelQueue") {
+      const result = await pvpCancelQueue(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, result });
     }
 

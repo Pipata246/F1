@@ -373,6 +373,7 @@ const GamePage = () => {
     const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
     const mySide = meIsP1 ? 'p1' : 'p2';
     const myIdx = meIsP1 ? 0 : 1;
+    setScreen('game');
     setPlayerIndex(myIdx);
     playerIndexRef.current = myIdx;
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
@@ -562,24 +563,20 @@ const GamePage = () => {
       return;
     }
     setScreen('waiting');
-    const attemptFind = () => {
+    apiPost({
+      action: 'pvpFindMatch',
+      initData: tgInitDataRef.current || '',
+      gameKey: 'super_penalty',
+      playerName: name,
+    }).then((data) => {
       if (playModeRef.current !== 'pvp') return;
-      apiPost({
-        action: 'pvpFindMatch',
-        initData: tgInitDataRef.current || '',
-        gameKey: 'super_penalty',
-        playerName: name,
-      }).then((data) => {
-        if (playModeRef.current !== 'pvp') return;
-        if (!data?.ok || !data.room) throw new Error('matchmaking');
-        pvpRoomIdRef.current = data.room.id;
-        startPvpPolling();
-      }).catch(() => {
-        if (playModeRef.current !== 'pvp') return;
-        pvpFindRetryTimerRef.current = setTimeout(attemptFind, 1200);
-      });
-    };
-    attemptFind();
+      if (!data?.ok || !data.room) throw new Error('matchmaking');
+      pvpRoomIdRef.current = data.room.id;
+      startPvpPolling();
+    }).catch(() => {
+      playModeRef.current = 'idle';
+      setScreen('menu');
+    });
   };
 
   const handleCancelWait = () => {
@@ -597,7 +594,7 @@ const GamePage = () => {
       pvpRoomIdRef.current = null;
       if (rid && tgInitDataRef.current) {
         apiPost({
-          action: 'pvpLeaveRoom',
+          action: 'pvpCancelQueue',
           initData: tgInitDataRef.current,
           roomId: rid,
         }).catch(() => {});
