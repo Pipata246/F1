@@ -106,6 +106,11 @@ const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color }) => 
 });
 
 const GamePage = () => {
+  const safeFrameStyle = {
+    paddingTop: 'calc(env(safe-area-inset-top, 0px) + 88px)',
+    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+    boxSizing: 'border-box',
+  };
   const [screen, setScreen] = useState('menu');
   const [playerName, setPlayerName] = useState('');
   const [opponent, setOpponent] = useState('');
@@ -495,7 +500,7 @@ const GamePage = () => {
   // --- MENU ---
   if (screen === 'menu') {
     return (
-      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none relative`}>
+      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none relative`} style={safeFrameStyle}>
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,_rgba(59,130,246,0.08),_transparent_70%)] pointer-events-none" />
 
         <div className="z-10 flex flex-col items-center gap-6 w-full max-w-xs px-4">
@@ -530,7 +535,7 @@ const GamePage = () => {
   // --- WAITING ---
   if (screen === 'waiting') {
     return (
-      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`}>
+      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
         <div className="z-10 flex flex-col items-center gap-6">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-white text-xl font-bold">Ищем соперника...</p>
@@ -545,7 +550,7 @@ const GamePage = () => {
   // --- RESULT ---
   if (screen === 'result' && matchResult) {
     return (
-      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`}>
+      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
         <div className="z-10 flex flex-col items-center gap-6">
           {matchResult.opponentLeft ? (
             <>
@@ -594,7 +599,7 @@ const GamePage = () => {
   const oppScore = scores[1 - playerIndex] ?? 0;
 
   return (
-    <div className="h-screen bg-[#1a6b35] flex flex-col items-center overflow-hidden font-sans select-none relative">
+    <div className="h-screen bg-[#1a6b35] flex flex-col items-center overflow-hidden font-sans select-none relative" style={safeFrameStyle}>
       {/* Green field gradient */}
       <div className="absolute inset-0 bg-[linear-gradient(180deg,_#145a2a_0%,_#1a6b35_30%,_#1e7a3c_60%,_#196330_100%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_20%,_rgba(255,255,255,0.04),_transparent_50%)] pointer-events-none" />

@@ -48,6 +48,11 @@ const Ambient = React.memo(() => (
 
 // ============ COMPONENT ============
 const GamePage = () => {
+  const safeFrameStyle = {
+    paddingTop: 'calc(env(safe-area-inset-top, 0px) + 88px)',
+    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+    boxSizing: 'border-box',
+  };
   const [screen, setScreen] = useState('menu');
   const [playerName, setPlayerName] = useState('');
   const [opponent, setOpponent] = useState('');
@@ -306,7 +311,7 @@ const GamePage = () => {
   const myName=playerName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
 
   if(screen==='menu') return (
-    <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={ST}>
+    <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
       <div className="z-10 flex flex-col items-center gap-5 w-full max-w-sm px-5">
         <button onClick={()=>window.history.back()} className="self-start text-gray-400 hover:text-white text-sm uppercase tracking-wider" style={ST}>← Назад</button>
         <div className="text-8xl">🏀</div>
@@ -321,7 +326,7 @@ const GamePage = () => {
   );
 
   if(screen==='waiting') return (
-    <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={ST}>
+    <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
       <div className="w-20 h-20 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
       <p className="text-white text-3xl uppercase tracking-widest mt-6">ИЩЕМ...</p>
       <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>
@@ -332,7 +337,7 @@ const GamePage = () => {
     const ms=matchResult.scores[pi]??0, os=matchResult.scores[1-pi]??0;
     const myColor=pi===0?'text-blue-400':'text-red-400', opColor=pi===0?'text-red-400':'text-blue-400';
     return (
-      <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={ST}>
+      <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
         {matchResult.opponentLeft?<h1 className="text-4xl text-amber-400 uppercase tracking-widest">Соперник вышел</h1>
           :matchResult.youWon
             ?<div className="text-center"><div className="text-8xl mb-2">🏆</div><h1 className="text-7xl uppercase text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-green-500">WIN!</h1></div>
@@ -355,7 +360,7 @@ const GamePage = () => {
   const phaseLabel=gamePhase==='warmup'?'WARM UP':gamePhase==='overtime'?'OT':null;
 
   return (
-    <div className="h-screen relative overflow-hidden select-none" style={ST}>
+    <div className="h-screen relative overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
       {/* BG */}
       <img src={`${ASSET_BASE}bg.webp`} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover object-top z-0"
         style={{ imageRendering:'pixelated', transformOrigin:'top center', transform:'scale(1.15) translateY(8%)' }} />
