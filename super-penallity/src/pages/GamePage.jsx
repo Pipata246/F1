@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
-const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
+const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/dist/';
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 function appSettings() {
   try {
@@ -157,14 +157,14 @@ const GamePage = () => {
   const matchRef = useRef(null);
   const tgInitDataRef = useRef('');
   const matchSavedRef = useRef(false);
-  const isBotModeRef = useRef(false);
+  /** Как в frog-hunt: только один из режимов — онлайн (pvp) или локальный бот, никогда оба сразу. */
+  const playModeRef = useRef('idle');
   const pvpRoomIdRef = useRef(null);
   const pvpPollTimerRef = useRef(null);
   const pvpPollInFlightRef = useRef(false);
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
   const localFindTimerRef = useRef(null);
-  const onlineSearchActiveRef = useRef(false);
   const pvpFindRetryTimerRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
@@ -181,7 +181,7 @@ const GamePage = () => {
 
   useEffect(() => {
     return () => {
-      if (!isBotModeRef.current && pvpRoomIdRef.current && tgInitDataRef.current && navigator?.sendBeacon) {
+      if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current && navigator?.sendBeacon) {
         const payload = JSON.stringify({
           action: 'pvpLeaveRoom',
           initData: tgInitDataRef.current,
@@ -195,12 +195,6 @@ const GamePage = () => {
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
     };
-  }, []);
-
-  const connectWS = useCallback(() => {
-    const ws = { readyState: 1, close: () => {} };
-    wsRef.current = ws;
-    return ws;
   }, []);
 
   const apiPost = useCallback(async (payload) => {
@@ -264,7 +258,7 @@ const GamePage = () => {
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
-          if (isBotModeRef.current) {
+          if (playModeRef.current === 'bot') {
             saveMatchToBackend(msg.youWon, msg.scores, matchRef.current?.history || history);
           }
           if (msg.youWon) {
@@ -368,6 +362,13 @@ const GamePage = () => {
       setScreen('waiting');
       return;
     }
+    if (String(room.status) === 'active') {
+      const p2 = room.player2_tg_user_id;
+      if (p2 == null || p2 === '') {
+        setScreen('waiting');
+        return;
+      }
+    }
     const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
     const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
     const mySide = meIsP1 ? 'p1' : 'p2';
@@ -456,7 +457,7 @@ const GamePage = () => {
   }, [pvpPollState, stopPvpPolling]);
 
   const sendMessage = (type, data = {}) => {
-    if (!isBotModeRef.current) {
+    if (playModeRef.current === 'pvp') {
       if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
       if (type === 'cancel_wait') {
         const rid = pvpRoomIdRef.current;
@@ -488,6 +489,7 @@ const GamePage = () => {
       }
       return;
     }
+    if (playModeRef.current !== 'bot') return;
     const m = matchRef.current;
     if (!m || m.finished) return;
     if (type === 'cancel_wait') {
@@ -507,7 +509,8 @@ const GamePage = () => {
     }
   };
 
-  const handleFindGame = (bot = false) => {
+  /** Как startSearch(vsBot) в frog-hunt: онлайн — только pvpFindMatch + poll; бот — только локальный матч после таймаута. */
+  const startSearch = (vsBot) => {
     const name = playerName.trim() || 'Player';
     setPlayerName(name);
     matchSavedRef.current = false;
@@ -526,13 +529,11 @@ const GamePage = () => {
     const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
     matchRef.current = null;
 
-    if (bot) {
-      isBotModeRef.current = true;
-      onlineSearchActiveRef.current = false;
-      connectWS();
+    if (vsBot) {
+      playModeRef.current = 'bot';
       setScreen('waiting');
       localFindTimerRef.current = setTimeout(() => {
-        if (!isBotModeRef.current || onlineSearchActiveRef.current) return;
+        if (playModeRef.current !== 'bot') return;
         matchRef.current = {
           playerName: name,
           opponentName: 'Бот 🤖',
@@ -550,27 +551,31 @@ const GamePage = () => {
         handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
         localStartRound();
         localFindTimerRef.current = null;
-      }, 350);
+      }, 650);
       return;
     }
 
-    isBotModeRef.current = false;
-    onlineSearchActiveRef.current = true;
+    playModeRef.current = 'pvp';
+    if (!tgInitDataRef.current) {
+      playModeRef.current = 'idle';
+      setScreen('menu');
+      return;
+    }
     setScreen('waiting');
     const attemptFind = () => {
-      if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+      if (playModeRef.current !== 'pvp') return;
       apiPost({
         action: 'pvpFindMatch',
         initData: tgInitDataRef.current || '',
         gameKey: 'super_penalty',
         playerName: name,
       }).then((data) => {
-        if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+        if (playModeRef.current !== 'pvp') return;
         if (!data?.ok || !data.room) throw new Error('matchmaking');
         pvpRoomIdRef.current = data.room.id;
         startPvpPolling();
       }).catch(() => {
-        if (!onlineSearchActiveRef.current || isBotModeRef.current) return;
+        if (playModeRef.current !== 'pvp') return;
         pvpFindRetryTimerRef.current = setTimeout(attemptFind, 1200);
       });
     };
@@ -578,7 +583,6 @@ const GamePage = () => {
   };
 
   const handleCancelWait = () => {
-    onlineSearchActiveRef.current = false;
     if (pvpFindRetryTimerRef.current) {
       clearTimeout(pvpFindRetryTimerRef.current);
       pvpFindRetryTimerRef.current = null;
@@ -587,8 +591,23 @@ const GamePage = () => {
       clearTimeout(localFindTimerRef.current);
       localFindTimerRef.current = null;
     }
-    sendMessage('cancel_wait');
-    stopPvpPolling();
+    const mode = playModeRef.current;
+    if (mode === 'pvp') {
+      const rid = pvpRoomIdRef.current;
+      pvpRoomIdRef.current = null;
+      if (rid && tgInitDataRef.current) {
+        apiPost({
+          action: 'pvpLeaveRoom',
+          initData: tgInitDataRef.current,
+          roomId: rid,
+        }).catch(() => {});
+      }
+      stopPvpPolling();
+    }
+    if (mode === 'bot') {
+      matchRef.current = null;
+    }
+    playModeRef.current = 'idle';
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     setScreen('menu');
   };
@@ -599,7 +618,6 @@ const GamePage = () => {
   };
 
   const handlePlayAgain = () => {
-    onlineSearchActiveRef.current = false;
     if (pvpFindRetryTimerRef.current) {
       clearTimeout(pvpFindRetryTimerRef.current);
       pvpFindRetryTimerRef.current = null;
@@ -608,6 +626,8 @@ const GamePage = () => {
       clearTimeout(localFindTimerRef.current);
       localFindTimerRef.current = null;
     }
+    playModeRef.current = 'idle';
+    matchRef.current = null;
     setMatchResult(null);
     setHistory([]);
     stopPvpPolling();
@@ -754,10 +774,10 @@ const GamePage = () => {
             maxLength={20}
             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-center text-lg outline-none focus:border-yellow-400/50 transition-colors"
           />
-          <button onClick={() => handleFindGame(false)} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
+          <button onClick={() => startSearch(false)} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
             Онлайн
           </button>
-          <button onClick={() => handleFindGame(true)} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95">
+          <button onClick={() => startSearch(true)} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95">
             С ботом
           </button>
           <button onClick={() => { window.location.hash = '#/profile'; }} className="text-gray-500 hover:text-gray-300 text-sm mt-2 transition-colors">
