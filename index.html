@@ -1271,15 +1271,18 @@
   };
 
   shareRefBtn.onclick = ()=>{
-    const text = `Мой реф-код в F1 Duel: ${state.profile.myRefCode}`;
+    const appUrl = location.origin;
+    const text =
+      `Привет! Приглашаю тебя в F1 Duel 🏁\n` +
+      `Заходи в игру и используй мой код: ${state.profile.myRefCode}\n\n` +
+      `Играть: ${appUrl}`;
     try{
-      if(tg?.shareText) tg.shareText(text);
-      else {
-        navigator.clipboard?.writeText(text);
-        toast("Текст скопирован");
-      }
+      const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(text)}`;
+      if(tg?.openTelegramLink) tg.openTelegramLink(shareUrl);
+      else window.open(shareUrl, "_blank");
     }catch(e){
-      toast("Поделиться не получилось");
+      navigator.clipboard?.writeText(text);
+      toast("Текст приглашения скопирован");
     }
   };
 
