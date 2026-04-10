@@ -20,6 +20,9 @@ let revealedPoints = {};
 let xrayScanMode = false;
 let knownTrapsOnMyTrack = {};
 let overtimePlacing = false;
+let tgInitData = '';
+let localMatch = null;
+let matchSaved = false;
 
 const ABILITIES = {
     xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
@@ -69,6 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (user.first_name) $('player-name').value = user.first_name;
             window._tgUserId = String(user.id);
         }
+        tgInitData = tg.initData || '';
     }
     // Also check URL param (passed from F1 Duel)
     var urlParams = new URLSearchParams(window.location.search);
@@ -89,19 +93,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function connect(cb) {
-    const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
-    ws = new WebSocket(WS_URL);
-    ws.onopen = () => { if (cb) cb(); };
-    ws.onmessage = (e) => {
-        try {
-            var result = handleMessage(JSON.parse(e.data));
-            if (result && result.catch) result.catch(function(err) { console.error('async error:', err); });
-        } catch (err) { console.error('msg error:', err); }
-    };
-    ws.onclose = () => {};
+    if (cb) cb();
 }
 
-function sendMsg(m) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
+function sendMsg(m) { localServerOnClientMessage(m || {}); }
 
 function handleMessage(msg) {
     switch (msg.type) {
@@ -129,19 +124,14 @@ function startGame(vsBot) {
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
     clearInterval(timerInterval);
-
-    if (ws && ws.readyState === 1) {
-        sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId: window._tgUserId || null });
-        if (!vsBot) showScreen('waiting');
-    } else {
-        connect(() => {
-            sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId: window._tgUserId || null });
-            if (!vsBot) showScreen('waiting');
-        });
-    }
+    matchSaved = false;
+    connect(() => {
+        sendMsg({ type: 'find_bot', name: myName, tgUserId: window._tgUserId || null });
+        showScreen('waiting');
+    });
 }
 
-function cancelWait() { sendMsg({ type: 'cancel_wait' }); showScreen('start'); }
+function cancelWait() { localMatch = null; showScreen('start'); }
 
 function onGameFound(msg) {
     playSound('ping');
@@ -484,6 +474,188 @@ function makeMove(action) {
     $('move-wait').classList.remove('hidden');
 }
 
+function randomAbility() {
+    const r = Math.random() * 5;
+    if (r < 2) return 'xray';
+    if (r < 4) return 'sabotage';
+    return 'double';
+}
+
+function randomBotTraps(total, count) {
+    const set = new Set();
+    while (set.size < count) set.add(Math.floor(Math.random() * total));
+    return [...set];
+}
+
+function localServerOnClientMessage(msg) {
+    if (msg.type === 'find_bot' || msg.type === 'find_game') {
+        localMatch = {
+            tgUserId: msg.tgUserId ? String(msg.tgUserId) : null,
+            names: [myName, 'Бот 🤖'],
+            traps: [null, randomBotTraps(7, 3)],
+            scores: [0, 0],
+            currentStep: 0,
+            overtime: false,
+            overtimeRound: 0,
+            overtimeTraps: null,
+            moves: [null, null],
+            abilities: [randomAbility(), randomAbility()],
+            abilityUsed: [false, false],
+            phase: 'placing',
+            ended: false
+        };
+        setTimeout(() => handleMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 }), 450);
+        return;
+    }
+    if (!localMatch) return;
+    if (msg.type === 'cancel_wait') { localMatch = null; return; }
+
+    if (msg.type === 'place_traps') {
+        const needed = localMatch.phase === 'overtime_placing' ? 1 : 3;
+        if (!Array.isArray(msg.traps) || msg.traps.length !== needed) return;
+        if (localMatch.phase === 'overtime_placing') {
+            localMatch.overtimeTraps = [msg.traps.slice(), randomBotTraps(3, 1)];
+            localMatch.overtime = true;
+            localMatch.overtimeRound = 0;
+            localMatch.phase = 'running';
+            handleMessage({ type: 'overtime_start' });
+            setTimeout(localStartRound, 500);
+            return;
+        }
+        localMatch.traps[0] = msg.traps.slice();
+        localMatch.phase = 'running';
+        setTimeout(localStartRound, 500);
+        return;
+    }
+
+    if (msg.type === 'xray_scan') {
+        if (localMatch.abilityUsed[0] || localMatch.abilities[0] !== 'xray') return;
+        const point = Number(msg.point || 0);
+        const hasTrap = localMatch.overtime
+            ? localMatch.overtimeTraps[1].includes(point)
+            : localMatch.traps[1].includes(point);
+        localMatch.abilityUsed[0] = true;
+        handleMessage({ type: 'xray_result', point, hasTrap });
+        return;
+    }
+
+    if (msg.type === 'make_move') {
+        if (localMatch.ended) return;
+        localMatch.moves[0] = { action: msg.action, useAbility: !!msg.useAbility };
+        localChooseBotMove();
+        localResolveRound();
+    }
+}
+
+function localStartRound() {
+    if (!localMatch || localMatch.ended) return;
+    localMatch.moves = [null, null];
+    const step = localMatch.overtime ? localMatch.overtimeRound : localMatch.currentStep;
+    handleMessage({ type: 'round_start', step, ability: localMatch.abilities[0] });
+}
+
+function localChooseBotMove() {
+    if (!localMatch) return;
+    let useAbility = false;
+    if (!localMatch.overtime && !localMatch.abilityUsed[1] && Math.random() < 0.3) {
+        const ab = localMatch.abilities[1];
+        if (ab === 'sabotage') useAbility = true;
+        if (ab === 'double' && localMatch.currentStep <= 4) useAbility = true;
+    }
+    localMatch.moves[1] = { action: Math.random() > 0.5 ? 'run' : 'jump', useAbility };
+}
+
+function localResolveRound() {
+    const m = localMatch;
+    if (!m || !m.moves[0] || !m.moves[1]) return;
+    const step = m.overtime ? m.overtimeRound : m.currentStep;
+    const result = [null, null];
+
+    for (let i = 0; i < 2; i++) {
+        const opp = 1 - i;
+        const mv = m.moves[i];
+        const hasTrap = m.overtime ? m.overtimeTraps[opp].includes(step) : m.traps[opp].includes(step);
+        let usedAbility = null;
+        if (mv.useAbility && !m.abilityUsed[i] && !m.overtime) {
+            const ab = m.abilities[i];
+            if (!(ab === 'double' && step > 4)) { usedAbility = ab; m.abilityUsed[i] = true; }
+        }
+        const success = (mv.action === 'run' && !hasTrap) || (mv.action === 'jump' && hasTrap);
+        let points = success ? 1 : 0;
+        if (usedAbility === 'double') points = success ? 2 : -1;
+        let reason = '';
+        if (mv.action === 'run' && !hasTrap) reason = 'clear_run';
+        else if (mv.action === 'run' && hasTrap) reason = 'hit_trap';
+        else if (mv.action === 'jump' && hasTrap) reason = 'dodged_trap';
+        else reason = 'wasted_jump';
+        result[i] = { action: mv.action, hasTrap, success, reason, points, usedAbility, sabotaged: false, sabotageHit: false, sabotageBackfire: false };
+    }
+
+    const baseSuccess = [result[0].success, result[1].success];
+    for (let i = 0; i < 2; i++) {
+        if (result[i].usedAbility === 'sabotage') {
+            const opp = 1 - i;
+            if (baseSuccess[opp]) {
+                result[opp].sabotaged = true;
+                result[opp].points = 0;
+                result[i].sabotageHit = true;
+            } else result[i].sabotageBackfire = true;
+        }
+    }
+
+    m.scores[0] += result[0].points;
+    m.scores[1] += result[1].points;
+    if (m.overtime) m.overtimeRound++;
+    else m.currentStep++;
+
+    const WIN_SCORE = 5;
+    const MAIN_ROUNDS = 7;
+    const OT_ROUNDS = 3;
+    let gameOver = false;
+    let winner = null;
+    let startOvertime = false;
+
+    if (m.overtime) {
+        if (m.scores[0] !== m.scores[1]) {
+            gameOver = true;
+            winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
+        } else if (m.overtimeRound >= OT_ROUNDS) startOvertime = true;
+    } else {
+        if ((m.scores[0] >= WIN_SCORE || m.scores[1] >= WIN_SCORE) && m.scores[0] !== m.scores[1]) {
+            gameOver = true;
+            winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
+        } else if (m.currentStep >= MAIN_ROUNDS) {
+            if (m.scores[0] === m.scores[1]) startOvertime = true;
+            else {
+                gameOver = true;
+                winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
+            }
+        }
+    }
+
+    handleMessage({
+        type: 'round_result',
+        you: result[0],
+        opponent: result[1],
+        step,
+        scores: [m.scores[0], m.scores[1]],
+        winner,
+        gameOver,
+        round: m.overtime ? m.overtimeRound : m.currentStep,
+        totalRounds: MAIN_ROUNDS,
+        playerIndex: 0,
+        overtime: m.overtime,
+        startOvertime,
+        abilityUsed: [m.abilityUsed[0], m.abilityUsed[1]]
+    });
+
+    if (startOvertime) {
+        m.phase = 'overtime_placing';
+        m.overtimeTraps = [null, null];
+    }
+    if (gameOver) m.ended = true;
+}
+
 function startTimer() {
     const fill = $('timer-fill');
     fill.style.width = '100%';
@@ -799,6 +971,7 @@ function showGameOver(winner, serverScores) {
     $('fs-name-1').textContent = opponentName;
     $('fs-val-1').textContent = oppScore;
     showScreen('result');
+    saveMatchToBackend(winner, myScore, oppScore);
 }
 
 function onOpponentLeft() {
@@ -810,4 +983,30 @@ function onOpponentLeft() {
     $('fs-name-0').textContent = ''; $('fs-val-0').textContent = '';
     $('fs-name-1').textContent = ''; $('fs-val-1').textContent = '';
     showScreen('result');
+}
+
+function saveMatchToBackend(winner, myScore, oppScore) {
+    if (matchSaved || !tgInitData || !window.fetch) return;
+    matchSaved = true;
+    const youWon = winner === 'win';
+    const tgUserId = window._tgUserId ? String(window._tgUserId) : null;
+    fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'recordMatch',
+            initData: tgInitData,
+            payload: {
+                gameKey: 'obstacle_race',
+                mode: 'bot',
+                winnerTgUserId: youWon ? tgUserId : null,
+                players: [
+                    { tgUserId, name: myName || 'Игрок', score: myScore || 0, isWinner: !!youWon, isBot: false },
+                    { tgUserId: null, name: opponentName || 'Бот 🤖', score: oppScore || 0, isWinner: !youWon, isBot: true }
+                ],
+                score: { left: myScore || 0, right: oppScore || 0 },
+                details: { overtime: !!isOvertime, rounds: currentStep + 1 }
+            }
+        })
+    }).catch(() => { matchSaved = false; });
 }
