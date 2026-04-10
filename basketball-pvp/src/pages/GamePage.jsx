@@ -404,7 +404,7 @@ const GamePage = () => {
             left:`${positions[idx].x}%`,top:`${positions[idx].y}%`,
             transition:'left 0.3s ease-out, top 0.3s ease-out', willChange:'left,top',
           }}>
-            <img src="/Subway_Homeless_2_48x48.gif" alt="" draggable={false}
+            <img src={`${ASSET_BASE}Subway_Homeless_2_48x48.gif`} alt="" draggable={false}
               style={{width:CHAR_W,height:CHAR_H,imageRendering:'pixelated',transform:idx===1?'scaleX(-1)':'none'}} />
             <div className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap ${idx===0?'text-blue-400':'text-red-400'}`}
               style={{textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>{idx===0?p0Name:p1Name}</div>
@@ -413,7 +413,7 @@ const GamePage = () => {
 
         {/* Ball — framer-motion only for the arc (GPU transforms) */}
         {ballAnim && (
-          <motion.img key={ballAnim.id} src="/Ball.png" alt="" draggable={false} className="absolute z-20"
+          <motion.img key={ballAnim.id} src={`${ASSET_BASE}Ball.png`} alt="" draggable={false} className="absolute z-20"
             style={{left:0,top:0,width:BALL_SIZE,height:BALL_SIZE,imageRendering:'pixelated',willChange:'transform'}}
             initial={{x:ballAnim.kf.x[0],y:ballAnim.kf.y[0],opacity:1,scale:1,rotate:0}}
             animate={{x:ballAnim.kf.x,y:ballAnim.kf.y,opacity:ballAnim.kf.opacity,scale:ballAnim.kf.scale,rotate:ballAnim.kf.rotate}}
