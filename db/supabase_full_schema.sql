@@ -11,12 +11,13 @@ create table if not exists public.users (
   first_name text not null default '',
   last_name text not null default '',
   username text not null default '',
-  nickname text not null,
+  nickname text,
   referred_by text,
+  referral_asked_at timestamptz,
   rules_accepted_at timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint users_nickname_format check (nickname ~ '^[A-Za-z0-9_]{3,16}$')
+  constraint users_nickname_format check (nickname is null or nickname ~ '^[A-Za-z0-9_]{3,16}$')
 );
 
 create index if not exists idx_users_tg_user_id on public.users(tg_user_id);
@@ -68,3 +69,13 @@ using (false);
 -- Note:
 -- Your serverless API uses SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS.
 -- Client-side anon key cannot read/write users table directly.
+
+-- ---------------------------------------------
+-- Migration notes for already-created table:
+-- ---------------------------------------------
+-- alter table public.users alter column nickname drop not null;
+-- alter table public.users drop constraint if exists users_nickname_format;
+-- alter table public.users
+--   add constraint users_nickname_format
+--   check (nickname is null or nickname ~ '^[A-Za-z0-9_]{3,16}$');
+-- alter table public.users add column if not exists referral_asked_at timestamptz;

@@ -41,6 +41,7 @@ This project now stores first-login user data in Supabase with server-side valid
 - Telegram `initData` is verified on the server (`api/_lib/telegram.js`)
 - Supabase write/read is done only from serverless API with `SUPABASE_SERVICE_ROLE_KEY`
 - Direct anon access to `users` table is blocked by RLS policies
+- Rules acceptance is stored in DB with timestamp before nickname step (`api/users-accept-rules.js`)
 
 ### SQL migration (full portable schema)
 

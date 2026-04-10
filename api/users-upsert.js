@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
     }
 
     const existing = await sb(
-      `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=referred_by&limit=1`
+      `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=referred_by,rules_accepted_at&limit=1`
     );
     const prevRef = existing[0]?.referred_by || null;
 
@@ -40,7 +40,8 @@ module.exports = async (req, res) => {
       username: tg.username || "",
       nickname: cleanNick,
       referred_by: cleanRef || prevRef,
-      rules_accepted_at: new Date().toISOString(),
+      referral_asked_at: new Date().toISOString(),
+      rules_accepted_at: existing[0]?.rules_accepted_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 

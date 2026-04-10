@@ -17,25 +17,30 @@ module.exports = async (req, res) => {
 
     const tg = verified.user;
     const tgId = String(tg.id);
+    const nowIso = new Date().toISOString();
 
-    const rows = await sb(
-      `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,nickname,referred_by,referral_asked_at,rules_accepted_at,created_at,updated_at&limit=1`
+    const existing = await sb(
+      `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=rules_accepted_at&limit=1`
     );
 
-    if (!rows.length) {
-      return res.status(200).json({
-        ok: true,
-        exists: false,
-        user: {
-          tg_user_id: tgId,
-          first_name: tg.first_name || "",
-          last_name: tg.last_name || "",
-          username: tg.username || "",
-        },
-      });
-    }
+    const rulesAcceptedAt = existing[0]?.rules_accepted_at || nowIso;
 
-    return res.status(200).json({ ok: true, exists: true, user: rows[0] });
+    const payload = {
+      tg_user_id: tgId,
+      first_name: tg.first_name || "",
+      last_name: tg.last_name || "",
+      username: tg.username || "",
+      rules_accepted_at: rulesAcceptedAt,
+      updated_at: nowIso,
+    };
+
+    const rows = await sb("users", {
+      method: "POST",
+      body: payload,
+      prefer: "resolution=merge-duplicates,return=representation",
+    });
+
+    return res.status(200).json({ ok: true, user: rows?.[0] || payload });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message || "Internal error" });
   }
