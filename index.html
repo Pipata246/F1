@@ -1413,25 +1413,76 @@
     const m = { pending:"В обработке", confirming:"Подтверждение", completed:"Готово", failed:"Отклонено", cancelled:"Отменено" };
     return m[s] || s || "—";
   }
+  let tonConnectUILazy = null;
+  function parseTonToNano(input){
+    const s = String(input || "").replace(",",".").trim();
+    if(!s) return 0n;
+    const m = s.match(/^(\d+)(?:\.(\d+))?$/);
+    if(!m) return 0n;
+    const w = m[1] || "0";
+    const fracRaw = (m[2] || "") + "000000000";
+    const frac = fracRaw.slice(0, 9).padEnd(9, "0");
+    try{
+      return BigInt(w) * 1000000000n + BigInt(frac);
+    }catch(e){ return 0n; }
+  }
+  function loadTonConnectScript(){
+    return new Promise((resolve, reject)=>{
+      if(window.TON_CONNECT_UI && window.TON_CONNECT_UI.TonConnectUI) return resolve();
+      const s = document.createElement("script");
+      s.src = "https://unpkg.com/@tonconnect/ui@2.0.10/dist/tonconnect-ui.min.js";
+      s.async = true;
+      s.onload = ()=> resolve();
+      s.onerror = ()=> reject(new Error("Не удалось загрузить TonConnect"));
+      document.head.appendChild(s);
+    });
+  }
+  async function getTonConnectUI(twaReturnUrl){
+    const origin = location.origin.replace(/\/$/,"");
+    const manifestUrl = origin + "/api/tonconnect-manifest";
+    const TC = window.TON_CONNECT_UI?.TonConnectUI;
+    if(!TC) throw new Error("TonConnect UI недоступен");
+    if(!tonConnectUILazy){
+      const twa = twaReturnUrl && String(twaReturnUrl).trim().startsWith("https://t.me/")
+        ? String(twaReturnUrl).trim()
+        : "";
+      const opts = {
+        manifestUrl,
+        language: "ru",
+        uiPreferences: { theme: "DARK" },
+      };
+      if(twa) opts.actionsConfiguration = { twaReturnUrl: twa };
+      tonConnectUILazy = new TC(opts);
+    }
+    return tonConnectUILazy;
+  }
   document.getElementById("walletBtnTopup").onclick = async ()=>{
     hImpact("light");
     if(!hasTgAuth){ toast("Открой приложение из Telegram"); return; }
     try{
+      try{ tg?.expand?.(); }catch(e){}
       document.body.classList.add("booting");
       const data = await apiJson("/api/user", { action:"getWalletInfo", initData: tgInitData });
       document.body.classList.remove("booting");
       const addr = escapeHtml(data.depositAddress);
       const memo = escapeHtml(data.depositMemo);
+      const hasPayload = !!(data.depositPayloadBoc && String(data.depositPayloadBoc).length > 8);
       openWalletModal("Пополнение TON", `
-        <p style="margin:0 0 10px 0">Переведи TON на адрес ниже. В поле <b>комментария</b> к переводу укажи свой тег — так мы зачислим средства на твой аккаунт.</p>
+        ${hasPayload ? `
+        <p style="margin:0 0 8px 0"><b>Через кошелёк</b> — Tonkeeper и др.: подключи кошелёк и подтверди перевод (тег подставится автоматически).</p>
+        <label class="small" for="tcAmount">Сумма (TON)</label>
+        <input id="tcAmount" class="field" type="text" inputmode="decimal" placeholder="0.5" value="0.5" style="margin-top:6px;margin-bottom:10px"/>
+        <button type="button" class="btn primary" id="walletPayTonconnect" style="margin-bottom:14px">Оплатить в кошельке</button>
         <div class="divider"></div>
+        <p class="small" style="margin:0 0 8px 0"><b>Вручную</b> — перевод на адрес с комментарием-тегом.</p>
+        ` : `<p class="small" style="margin:0 0 8px 0">Оплата через TonConnect недоступна (обнови сервер). Ниже — ручной перевод.</p>`}
         <div class="small" style="margin-bottom:4px">Адрес</div>
         <div class="field" style="word-break:break-all;font-size:13px;margin-bottom:10px">${addr}</div>
         <button type="button" class="btn ghost" id="walletCopyAddr" style="margin-bottom:12px">Скопировать адрес</button>
         <div class="small" style="margin-bottom:4px">Тег (комментарий)</div>
         <div class="field" style="font-size:16px;font-weight:800;letter-spacing:.08em;margin-bottom:10px">${memo}</div>
         <button type="button" class="btn ghost" id="walletCopyMemo">Скопировать тег</button>
-        <p class="small" style="margin-top:12px">Зачисление делается после появления транзакции в сети (обычно 1–2 минуты).</p>
+        <p class="small" style="margin-top:12px">Зачисление на баланс — после подтверждения в сети (крон / воркер).</p>
       `);
       document.getElementById("walletCopyAddr")?.addEventListener("click", async ()=>{
         try{
@@ -1444,6 +1495,48 @@
           await navigator.clipboard.writeText(data.depositMemo);
           toast("Тег скопирован");
         }catch(e){ toast("Не удалось скопировать"); }
+      });
+      document.getElementById("walletPayTonconnect")?.addEventListener("click", async ()=>{
+        const errEl = document.getElementById("tcPayErr");
+        if(errEl){ errEl.style.display = "none"; errEl.textContent = ""; }
+        const amtRaw = document.getElementById("tcAmount")?.value || "";
+        const nano = parseTonToNano(amtRaw);
+        if(nano <= 0n){
+          toast("Укажи сумму");
+          return;
+        }
+        if(nano < 1000000n){
+          toast("Минимум ~0.001 TON");
+          return;
+        }
+        try{
+          document.body.classList.add("booting");
+          await loadTonConnectScript();
+          const twa = data.tonConnectTwaReturnUrl || "";
+          const ui = await getTonConnectUI(twa);
+          await ui.sendTransaction({
+            validUntil: Math.floor(Date.now() / 1000) + 600,
+            messages: [
+              {
+                address: data.depositAddress,
+                amount: nano.toString(),
+                payload: data.depositPayloadBoc,
+              },
+            ],
+          });
+          document.body.classList.remove("booting");
+          hNote("success");
+          toast("Платёж отправлен в сеть");
+          walletModalWrap.classList.remove("show");
+        }catch(e){
+          document.body.classList.remove("booting");
+          const msg = e?.message || String(e);
+          if(/[Cc]ancel|[Uu]ser reject|declined/i.test(msg)){
+            toast("Отменено");
+            return;
+          }
+          toast(msg.slice(0, 120) || "Ошибка TonConnect");
+        }
       });
     }catch(e){
       document.body.classList.remove("booting");
