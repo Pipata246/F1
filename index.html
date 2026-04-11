@@ -1019,6 +1019,22 @@
     return false;
   }
 
+  /** Не показывать в тосте служебные строки скана (счётчики tx и т.п.). */
+  function userFacingDepositScanHints(scanLog){
+    if(!Array.isArray(scanLog)) return [];
+    const skip = (t)=>{
+      const s = String(t);
+      return (
+        /^deposits:\s*TonCenter txs=\d+$/i.test(s) ||
+        /^deposits:\s*TonCenter 0 txs/i.test(s) ||
+        /^deposits:\s*TonAPI txs=\d+/i.test(s) ||
+        /^deposits:\s*credited\s/i.test(s) ||
+        /^deposits:\s*intent\s/i.test(s)
+      );
+    };
+    return scanLog.filter(Boolean).filter((x)=> !skip(x));
+  }
+
   let tonConnectUI = null;
   function getTonConnectUI(){
     if(tonConnectUI) return tonConnectUI;
@@ -1758,9 +1774,10 @@
       } else {
         toast("Платёж отправлен. Идёт проверка сети; баланс обновится через несколько секунд.", 4000);
         hNote("success");
-        if(submitScan && Array.isArray(submitScan.scanLog) && submitScan.scanLog.length){
-          const hint = submitScan.scanLog.filter(Boolean).slice(-2).join(" · ");
-          if(hint) toast(hint.slice(0, 200), 5000);
+        const hints = userFacingDepositScanHints(submitScan?.scanLog);
+        if(hints.length){
+          const hint = hints.slice(-2).join(" · ");
+          toast(hint.slice(0, 220), 5500);
         }
       }
       const ok = await pollServerBalanceUntilChanged(balBefore, { chainSyncWhileWaiting: true });
