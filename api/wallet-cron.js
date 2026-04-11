@@ -398,7 +398,21 @@ async function runWithdrawals(log) {
   return rows.length;
 }
 
-module.exports = async (req, res) => {
+/**
+ * Одна проходка очереди выводов (без auth). Вызывается после requestWithdrawal и из cron.
+ */
+async function runWithdrawalsPass() {
+  const log = [];
+  try {
+    const n = await runWithdrawals(log);
+    return { withdrawalsSeen: n, log };
+  } catch (e) {
+    log.push(`withdraw fatal: ${e.message}`);
+    return { withdrawalsSeen: 0, log };
+  }
+}
+
+async function walletCronHandler(req, res) {
   const log = [];
   try {
     if (req.method !== "GET" && req.method !== "POST") {
@@ -426,4 +440,7 @@ module.exports = async (req, res) => {
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message || "error", log });
   }
-};
+}
+
+walletCronHandler.runWithdrawalsPass = runWithdrawalsPass;
+module.exports = walletCronHandler;

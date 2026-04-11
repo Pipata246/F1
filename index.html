@@ -1939,7 +1939,7 @@
             const netHint = res && res.netTon != null
               ? ` На кошелёк уйдёт ~${formatBalanceAmountOnly(String(res.netTon))} TON.`
               : "";
-            toast("Заявка принята. Средства отправятся автоматически." + netHint, 5000);
+            toast("Заявка принята. Отправка в сеть запускается сразу; статус в истории обновится после подтверждения в TON." + netHint, 5200);
             hNote("success");
           }catch(e){
             toast(e.message || "Ошибка вывода", 3500);

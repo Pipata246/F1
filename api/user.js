@@ -345,6 +345,18 @@ async function requestWithdrawal(initData, toAddress, amountStr) {
     }
   }
 
+  /* Сразу пробуем отправить в сеть: иначе на Hobby cron только раз в сутки — tx «висит» в pending. */
+  if (opId && String(process.env.WITHDRAW_SKIP_IMMEDIATE_PROCESS || "").trim() !== "1") {
+    try {
+      const walletCronMod = require("./wallet-cron");
+      if (typeof walletCronMod.runWithdrawalsPass === "function") {
+        await walletCronMod.runWithdrawalsPass();
+      }
+    } catch (e) {
+      console.error("immediate withdraw process:", e?.message || e);
+    }
+  }
+
   return {
     operationId: opId,
     grossTon: br.grossTon,
