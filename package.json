@@ -1,0 +1,11 @@
+{
+  "name": "f1-duel",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^15.1.0"
+  }
+}

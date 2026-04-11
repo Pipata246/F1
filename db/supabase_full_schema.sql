@@ -82,3 +82,4 @@ using (false);
 -- where referral_code is null;
 -- alter table public.users alter column referral_code set not null;
 -- Баланс: см. db/supabase_users_balance_delta.sql (колонка balance).
+-- Кошелёк (операции, memo, RPC): см. db/supabase_wallet_delta.sql

@@ -62,3 +62,19 @@ At minimum:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `TELEGRAM_BOT_TOKEN`
 - `WEBAPP_URL`
+
+## Автопополнение и автовывод TON (Cron)
+
+В проекте есть `api/wallet-cron.js` и `vercel.json` с расписанием **раз в минуту**.
+
+1. Установи зависимости: в корне репозитория есть `package.json` (`@ton/ton`, `@ton/crypto`) — Vercel выполнит `npm install` при деплое.
+2. В Vercel → Settings → Environment variables задай как минимум:
+   - `CRON_SECRET` — длинная случайная строка (Vercel для Cron передаёт `Authorization: Bearer <CRON_SECRET>`).
+   - `TON_DEPOSIT_ADDRESS` — тот же адрес, что показывается пользователям.
+   - `TON_HOT_WALLET_MNEMONIC` — мнемоника **этого же** кошелька (для исходящих переводов по заявкам).
+   - При несовпадении адреса с мнемоникой проверь `TON_WALLET_VERSION` (`v4` или `v5`).
+3. Рекомендуется `TONCENTER_API_KEY` (см. [toncenter.com](https://toncenter.com)) — иначе возможны лимиты RPC.
+4. Опционально `TONAPI_KEY` для TonAPI при большом трафике чтения.
+5. На **Hobby** Vercel Cron может быть недоступен — нужен план с Cron; иначе вызывай `GET https://<твой-домен>/api/wallet-cron` вручную с заголовком `Authorization: Bearer <CRON_SECRET>` (или `x-wallet-cron-secret`).
+
+Подробные переменные — в `.env.example`.

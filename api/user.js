@@ -1,5 +1,48 @@
 const crypto = require("crypto");
 
+/** Сравнение секретов без утечки по времени (длины должны совпадать). */
+function safeSecretEqual(provided, expected) {
+  const a = String(provided || "");
+  const b = String(expected || "");
+  if (!a || !b || a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/** Лимит заявок на вывод на пользователя (in-memory; на serverless каждый инстанс свой). */
+const withdrawalRateBuckets = new Map();
+
+function touchWithdrawalRateLimit(tgId) {
+  const maxEnv = Number(process.env.WITHDRAWAL_RATE_LIMIT_MAX);
+  const windowEnv = Number(process.env.WITHDRAWAL_RATE_LIMIT_WINDOW_SEC);
+  const max = Number.isFinite(maxEnv) && maxEnv > 0 ? Math.min(100, Math.floor(maxEnv)) : 8;
+  const windowSec = Number.isFinite(windowEnv) && windowEnv > 0 ? Math.min(86400, Math.floor(windowEnv)) : 900;
+  const now = Date.now();
+  const windowMs = windowSec * 1000;
+  const cutoff = now - windowMs;
+
+  let arr = withdrawalRateBuckets.get(tgId);
+  if (!arr) arr = [];
+  arr = arr.filter((t) => t > cutoff);
+  if (arr.length >= max) {
+    throw new Error("Too many withdrawal requests. Try again later.");
+  }
+  arr.push(now);
+  withdrawalRateBuckets.set(tgId, arr);
+
+  if (withdrawalRateBuckets.size > 5000) {
+    const pruneCut = now - windowMs * 2;
+    for (const [id, ts] of [...withdrawalRateBuckets.entries()]) {
+      const f = ts.filter((t) => t > pruneCut);
+      if (f.length) withdrawalRateBuckets.set(id, f);
+      else withdrawalRateBuckets.delete(id);
+    }
+  }
+}
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -97,6 +140,190 @@ async function sb(path, { method = "GET", body, prefer, onConflict } = {}) {
   return data;
 }
 
+async function sbRpc(functionName, payload) {
+  assertSupabaseEnv();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${encodeURIComponent(functionName)}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const msg = data?.message || data?.hint || data?.error || `RPC error: ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function rpcScalar(data) {
+  if (data == null) return null;
+  if (Array.isArray(data) && data.length && typeof data[0] === "object" && data[0] !== null) {
+    const k = Object.keys(data[0])[0];
+    return k !== undefined ? data[0][k] : null;
+  }
+  return data;
+}
+
+function generateDepositMemoToken() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < 12; i++) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
+}
+
+async function ensureDepositMemoForUser(tgId) {
+  const rows = await sb(
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=deposit_memo&limit=1`
+  );
+  if (!rows?.length) throw new Error("User not found");
+  if (rows[0]?.deposit_memo) return String(rows[0].deposit_memo);
+
+  for (let i = 0; i < 25; i++) {
+    const memo = generateDepositMemoToken();
+    try {
+      await sb(`users?tg_user_id=eq.${encodeURIComponent(tgId)}&deposit_memo=is.null`, {
+        method: "PATCH",
+        body: { deposit_memo: memo, updated_at: new Date().toISOString() },
+        prefer: "return=minimal",
+      });
+      const check = await sb(
+        `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=deposit_memo&limit=1`
+      );
+      if (check?.[0]?.deposit_memo) return String(check[0].deposit_memo);
+    } catch {
+      /* collision or race */
+    }
+  }
+  throw new Error("Failed to assign deposit memo");
+}
+
+function tonDepositAddress() {
+  const raw = String(process.env.TON_DEPOSIT_ADDRESS || "").trim();
+  return raw;
+}
+
+function isPlausibleTonAddress(addr) {
+  const s = String(addr || "").trim();
+  if (s.length < 40 || s.length > 96) return false;
+  return /^(EQ|UQ|eq|uq)[A-Za-z0-9_-]+$/.test(s);
+}
+
+async function getWalletInfo(initData) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+
+  const depositAddress = tonDepositAddress();
+  if (!depositAddress) throw new Error("Deposit address is not configured");
+
+  const session = await authSession(initData);
+  if (!session.exists) {
+    throw new Error("Complete registration first");
+  }
+
+  const memo = await ensureDepositMemoForUser(tgId);
+  const bal = session.user?.balance != null ? String(session.user.balance) : "0";
+  return { depositAddress, depositMemo: memo, balance: bal };
+}
+
+async function requestWithdrawal(initData, toAddress, amountStr) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+
+  const addr = String(toAddress || "").trim();
+  if (!isPlausibleTonAddress(addr)) throw new Error("Invalid TON address");
+
+  const amount = Number(String(amountStr || "").replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid amount");
+
+  const minEnv = Number(process.env.MIN_WITHDRAWAL_TON);
+  const minW = Number.isFinite(minEnv) && minEnv > 0 ? minEnv : 0.05;
+  if (amount < minW) {
+    throw new Error(`Minimum withdrawal is ${minW} TON`);
+  }
+
+  const exists = await sb(
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id&limit=1`
+  );
+  if (!exists?.length) throw new Error("Complete registration first");
+
+  touchWithdrawalRateLimit(tgId);
+
+  const rpcRes = await sbRpc("wallet_request_withdrawal", {
+    p_tg_user_id: tgId,
+    p_amount: amount,
+    p_to_address: addr,
+  });
+  const opId = rpcScalar(rpcRes);
+  return { operationId: opId };
+}
+
+async function getWalletHistory(initData, limit) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const rows = await sb(
+    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at&order=created_at.desc&limit=${safeLimit}`
+  );
+  return rows || [];
+}
+
+async function walletCreditDepositInternal(req) {
+  assertWalletInternalApiKey(req);
+  const b = req.body || {};
+  const tgUserId = b.tgUserId != null ? String(b.tgUserId).trim() : "";
+  const amount = Number(b.amount);
+  const txHash = String(b.txHash || "").trim();
+  if (!tgUserId) throw new Error("Missing tgUserId");
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid amount");
+  if (txHash.length < 8) throw new Error("Invalid txHash");
+  const rpcRes = await sbRpc("wallet_credit_deposit", {
+    p_tg_user_id: tgUserId,
+    p_amount: amount,
+    p_tx_hash: txHash,
+  });
+  return { operationId: rpcScalar(rpcRes) };
+}
+
+async function walletCompleteWithdrawalInternal(req) {
+  assertWalletInternalApiKey(req);
+  const b = req.body || {};
+  const opId = b.operationId || b.opId;
+  const txHash = String(b.txHash || "").trim();
+  if (!opId) throw new Error("Missing operationId");
+  if (txHash.length < 8) throw new Error("Invalid txHash");
+  const rpcRes = await sbRpc("wallet_complete_withdrawal", {
+    p_op_id: opId,
+    p_tx_hash: txHash,
+  });
+  const ok = rpcScalar(rpcRes);
+  if (!ok) throw new Error("Operation not updated");
+  return { ok: true };
+}
+
+async function walletFailWithdrawalInternal(req) {
+  assertWalletInternalApiKey(req);
+  const b = req.body || {};
+  const opId = b.operationId || b.opId;
+  if (!opId) throw new Error("Missing operationId");
+  const rpcRes = await sbRpc("wallet_fail_withdrawal", { p_op_id: opId });
+  const ok = rpcScalar(rpcRes);
+  if (!ok) throw new Error("Operation not updated");
+  return { ok: true };
+}
+
 /** Публичное имя из полей Telegram (как в профиле TG). */
 function displayNameFromProfile(first_name, last_name, username) {
   const fn = String(first_name || "").trim();
@@ -191,7 +418,7 @@ async function authSession(initData) {
   touchPresenceTgId(tgId);
 
   const rows = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,referred_by,referral_asked_at,referral_code,rules_accepted_at,balance,created_at,updated_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,referred_by,referral_asked_at,referral_code,rules_accepted_at,balance,deposit_memo,created_at,updated_at&limit=1`
   );
 
   if (!rows.length) {
@@ -306,7 +533,18 @@ function assertInternalApiKey(req) {
   const expected = process.env.INTERNAL_API_KEY || "";
   if (!expected) throw new Error("Internal API key is not set");
   const provided = req.headers["x-internal-api-key"];
-  if (!provided || provided !== expected) throw new Error("Forbidden");
+  if (!provided || !safeSecretEqual(provided, expected)) throw new Error("Forbidden");
+}
+
+/** Кошелёк: если задан WALLET_INTERNAL_API_KEY — только он; иначе как раньше — INTERNAL_API_KEY. */
+function assertWalletInternalApiKey(req) {
+  const walletKey = String(process.env.WALLET_INTERNAL_API_KEY || "").trim();
+  if (walletKey) {
+    const provided = req.headers["x-internal-api-key"];
+    if (!provided || !safeSecretEqual(provided, walletKey)) throw new Error("Forbidden");
+    return;
+  }
+  assertInternalApiKey(req);
 }
 
 function normalizeGameKey(value) {
@@ -2077,35 +2315,76 @@ module.exports = async (req, res) => {
       const result = await pvpCancelQueue(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, result });
     }
+    if (action === "getWalletInfo") {
+      const data = await getWalletInfo(req.body?.initData || "");
+      return res.status(200).json({ ok: true, ...data });
+    }
+    if (action === "requestWithdrawal") {
+      const result = await requestWithdrawal(
+        req.body?.initData || "",
+        req.body?.toAddress || "",
+        req.body?.amount ?? req.body?.amountTon
+      );
+      return res.status(200).json({ ok: true, ...result });
+    }
+    if (action === "getWalletHistory") {
+      const operations = await getWalletHistory(req.body?.initData || "", req.body?.limit || 50);
+      return res.status(200).json({ ok: true, operations });
+    }
+    if (action === "walletCreditDepositInternal") {
+      const result = await walletCreditDepositInternal(req);
+      return res.status(200).json({ ok: true, result });
+    }
+    if (action === "walletCompleteWithdrawalInternal") {
+      const result = await walletCompleteWithdrawalInternal(req);
+      return res.status(200).json({ ok: true, result });
+    }
+    if (action === "walletFailWithdrawalInternal") {
+      const result = await walletFailWithdrawalInternal(req);
+      return res.status(200).json({ ok: true, result });
+    }
 
     return res.status(400).json({ ok: false, error: "Unknown action" });
   } catch (e) {
     const msg = e.message || "Internal error";
-    const code =
-      msg.includes("Invalid Telegram") || msg.includes("Expired Telegram") || msg.includes("No hash") || msg.includes("No Telegram user")
-        ? 401
-        : msg === "User not found"
-          ? 404
-          : msg === "Room not found"
-            ? 404
-          : msg.includes("Rules must be accepted")
-            ? 400
-            : msg.includes("Too many bot match records")
-              ? 429
-            : msg.includes("Client may only record bot matches") ||
-                msg.includes("Bot match must") ||
-                msg.includes("Current user must be the human") ||
-                msg.includes("Bot player must not") ||
-                msg.includes("Invalid winner for bot match") ||
-                msg.includes("Winner does not match") ||
-                msg.includes("Human and bot winner") ||
-                msg === "Invalid score"
-              ? 400
-            : msg === "Forbidden"
-              ? 403
-              : msg === "Room update conflict"
-                ? 409
-            : 500;
+    let code = 500;
+    if (msg.includes("Invalid Telegram") || msg.includes("Expired Telegram") || msg.includes("No hash") || msg.includes("No Telegram user")) {
+      code = 401;
+    } else if (msg === "User not found" || msg === "Room not found") {
+      code = 404;
+    } else if (msg.includes("Rules must be accepted")) {
+      code = 400;
+    } else if (msg.includes("Too many bot match records")) {
+      code = 429;
+    } else if (msg.includes("Too many withdrawal requests")) {
+      code = 429;
+    } else if (
+      msg.includes("Client may only record bot matches") ||
+      msg.includes("Bot match must") ||
+      msg.includes("Current user must be the human") ||
+      msg.includes("Bot player must not") ||
+      msg.includes("Invalid winner for bot match") ||
+      msg.includes("Winner does not match") ||
+      msg.includes("Human and bot winner") ||
+      msg === "Invalid score" ||
+      msg.includes("Insufficient balance") ||
+      msg.includes("Invalid amount") ||
+      msg.includes("Invalid address") ||
+      msg.includes("Invalid TON address") ||
+      msg.includes("Minimum withdrawal") ||
+      msg.includes("Complete registration first") ||
+      msg.includes("Deposit address is not configured") ||
+      msg.includes("Operation not updated") ||
+      msg.includes("Missing operationId") ||
+      msg.includes("Missing tgUserId") ||
+      msg.includes("Invalid txHash")
+    ) {
+      code = 400;
+    } else if (msg === "Forbidden") {
+      code = 403;
+    } else if (msg === "Room update conflict") {
+      code = 409;
+    }
     return res.status(code).json({ ok: false, error: msg });
   }
 };

@@ -905,6 +905,16 @@
     </div>
   </div>
 
+  <div id="walletModalWrap" class="modalWrap">
+    <div class="modal" style="max-height:88vh;overflow-y:auto">
+      <h3 id="walletModalTitle">Кошелёк</h3>
+      <div id="walletModalBody" class="muted" style="font-size:14px"></div>
+      <div class="row" style="margin-top:14px">
+        <button type="button" id="walletModalClose" class="btn ghost">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
 <script>
   const tg = window.Telegram?.WebApp;
   function applyViewport(){
@@ -1378,17 +1388,134 @@
     tonBalanceVal.textContent = str;
   }
 
-  document.getElementById("walletBtnTopup").onclick = ()=>{
+  const walletModalWrap = document.getElementById("walletModalWrap");
+  const walletModalTitle = document.getElementById("walletModalTitle");
+  const walletModalBody = document.getElementById("walletModalBody");
+  const walletModalClose = document.getElementById("walletModalClose");
+  function openWalletModal(title, html){
+    walletModalTitle.textContent = title;
+    walletModalBody.innerHTML = html;
+    walletModalWrap.classList.add("show");
+    walletModalClose.onclick = ()=> walletModalWrap.classList.remove("show");
+    walletModalWrap.onclick = (ev)=>{ if(ev.target === walletModalWrap) walletModalWrap.classList.remove("show"); };
+  }
+  function escapeHtml(s){
+    const d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+  function walletKindLabel(k){
+    if(k === "deposit") return "Пополнение";
+    if(k === "withdrawal") return "Вывод";
+    return k || "—";
+  }
+  function walletStatusLabel(s){
+    const m = { pending:"В обработке", confirming:"Подтверждение", completed:"Готово", failed:"Отклонено", cancelled:"Отменено" };
+    return m[s] || s || "—";
+  }
+  document.getElementById("walletBtnTopup").onclick = async ()=>{
     hImpact("light");
-    toast("Пополнение — скоро");
+    if(!hasTgAuth){ toast("Открой приложение из Telegram"); return; }
+    try{
+      document.body.classList.add("booting");
+      const data = await apiJson("/api/user", { action:"getWalletInfo", initData: tgInitData });
+      document.body.classList.remove("booting");
+      const addr = escapeHtml(data.depositAddress);
+      const memo = escapeHtml(data.depositMemo);
+      openWalletModal("Пополнение TON", `
+        <p style="margin:0 0 10px 0">Переведи TON на адрес ниже. В поле <b>комментария</b> к переводу укажи свой тег — так мы зачислим средства на твой аккаунт.</p>
+        <div class="divider"></div>
+        <div class="small" style="margin-bottom:4px">Адрес</div>
+        <div class="field" style="word-break:break-all;font-size:13px;margin-bottom:10px">${addr}</div>
+        <button type="button" class="btn ghost" id="walletCopyAddr" style="margin-bottom:12px">Скопировать адрес</button>
+        <div class="small" style="margin-bottom:4px">Тег (комментарий)</div>
+        <div class="field" style="font-size:16px;font-weight:800;letter-spacing:.08em;margin-bottom:10px">${memo}</div>
+        <button type="button" class="btn ghost" id="walletCopyMemo">Скопировать тег</button>
+        <p class="small" style="margin-top:12px">Зачисление делается после появления транзакции в сети (обычно 1–2 минуты).</p>
+      `);
+      document.getElementById("walletCopyAddr")?.addEventListener("click", async ()=>{
+        try{
+          await navigator.clipboard.writeText(data.depositAddress);
+          toast("Адрес скопирован");
+        }catch(e){ toast("Не удалось скопировать"); }
+      });
+      document.getElementById("walletCopyMemo")?.addEventListener("click", async ()=>{
+        try{
+          await navigator.clipboard.writeText(data.depositMemo);
+          toast("Тег скопирован");
+        }catch(e){ toast("Не удалось скопировать"); }
+      });
+    }catch(e){
+      document.body.classList.remove("booting");
+      toast(e.message || "Ошибка");
+    }
   };
   document.getElementById("walletBtnWithdraw").onclick = ()=>{
     hImpact("light");
-    toast("Вывод — скоро");
+    if(!hasTgAuth){ toast("Открой приложение из Telegram"); return; }
+    openWalletModal("Вывод TON", `
+      <p style="margin:0 0 10px 0">Сумма спишется с баланса сразу. Отправка TON на твой кошелёк выполняется вручную или скриптом администратора по очереди заявок.</p>
+      <label class="small" for="wdAmount">Сумма (TON)</label>
+      <input id="wdAmount" class="field" type="text" inputmode="decimal" placeholder="0.5" style="margin-top:6px;margin-bottom:10px"/>
+      <label class="small" for="wdAddr">Адрес TON (EQ… / UQ…)</label>
+      <input id="wdAddr" class="field" type="text" placeholder="UQ..." style="margin-top:6px;margin-bottom:12px"/>
+      <button type="button" class="btn primary" id="wdSubmit">Создать заявку</button>
+      <p class="small" id="wdErr" style="display:none;margin-top:10px;color:var(--danger)"></p>
+    `);
+    const errEl = document.getElementById("wdErr");
+    document.getElementById("wdSubmit")?.addEventListener("click", async ()=>{
+      errEl.style.display = "none";
+      const amount = document.getElementById("wdAmount")?.value || "";
+      const toAddress = document.getElementById("wdAddr")?.value || "";
+      try{
+        document.body.classList.add("booting");
+        await apiJson("/api/user", { action:"requestWithdrawal", initData: tgInitData, toAddress, amount });
+        document.body.classList.remove("booting");
+        walletModalWrap.classList.remove("show");
+        await hydrateUserFromServer();
+        renderTopbar(); renderWallet();
+        toast("Заявка на вывод создана");
+        hNote("success");
+      }catch(e){
+        document.body.classList.remove("booting");
+        errEl.textContent = e.message || "Ошибка";
+        errEl.style.display = "block";
+      }
+    });
   };
-  document.getElementById("walletBtnHistory").onclick = ()=>{
+  document.getElementById("walletBtnHistory").onclick = async ()=>{
     hImpact("light");
-    openModal("История операций", "Здесь появится список пополнений и выводов. Пока заглушка на фронте.", ()=>{});
+    if(!hasTgAuth){ toast("Открой приложение из Telegram"); return; }
+    try{
+      document.body.classList.add("booting");
+      const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 50 });
+      document.body.classList.remove("booting");
+      const ops = Array.isArray(data.operations) ? data.operations : [];
+      if(!ops.length){
+        openWalletModal("История операций", `<p style="margin:0">Пока нет операций.</p>`);
+        return;
+      }
+      const rows = ops.map((o)=>{
+        const amt = Number(o.amount);
+        const amtStr = Number.isFinite(amt) ? amt.toLocaleString("ru-RU", { maximumFractionDigits: 9 }) : String(o.amount);
+        const sign = o.kind === "deposit" ? "+" : "−";
+        const hash = o.ton_tx_hash ? `<div class="small" style="margin-top:4px;word-break:break-all">Tx: ${escapeHtml(o.ton_tx_hash)}</div>` : "";
+        const to = o.to_address ? `<div class="small" style="margin-top:4px;word-break:break-all">→ ${escapeHtml(o.to_address)}</div>` : "";
+        return `<div class="pill" style="display:block;margin-bottom:8px">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <span style="font-weight:800">${walletKindLabel(o.kind)}</span>
+            <span class="chip">${walletStatusLabel(o.status)}</span>
+          </div>
+          <div style="font-weight:900;margin-top:6px">${sign}${amtStr} TON</div>
+          <div class="small" style="margin-top:4px">${formatDateTime(o.created_at)}</div>
+          ${hash}${to}
+        </div>`;
+      }).join("");
+      openWalletModal("История операций", rows);
+    }catch(e){
+      document.body.classList.remove("booting");
+      toast(e.message || "Ошибка");
+    }
   };
 
   const profNick = document.getElementById("profNick");

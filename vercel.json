@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/wallet-cron",
+      "schedule": "* * * * *"
+    }
+  ],
+  "functions": {
+    "api/wallet-cron.js": {
+      "maxDuration": 60
+    }
+  }
+}
