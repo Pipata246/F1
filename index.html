@@ -1414,6 +1414,7 @@
     return m[s] || s || "—";
   }
   let tonConnectUILazy = null;
+  let tonConnectOptsKey = null;
   function parseTonToNano(input){
     const s = String(input || "").replace(",",".").trim();
     if(!s) return 0n;
@@ -1442,10 +1443,16 @@
     const manifestUrl = origin + "/api/tonconnect-manifest";
     const TC = window.TON_CONNECT_UI?.TonConnectUI;
     if(!TC) throw new Error("TonConnect UI недоступен");
+    const twa = twaReturnUrl && String(twaReturnUrl).trim().startsWith("https://t.me/")
+      ? String(twaReturnUrl).trim()
+      : "";
+    const optsKey = twa || "_notwa_";
+    if(tonConnectUILazy && tonConnectOptsKey !== optsKey){
+      try{ await tonConnectUILazy.disconnect(); }catch(_){}
+      tonConnectUILazy = null;
+    }
     if(!tonConnectUILazy){
-      const twa = twaReturnUrl && String(twaReturnUrl).trim().startsWith("https://t.me/")
-        ? String(twaReturnUrl).trim()
-        : "";
+      tonConnectOptsKey = optsKey;
       const opts = {
         manifestUrl,
         language: "ru",
@@ -1509,11 +1516,22 @@
           toast("Минимум ~0.001 TON");
           return;
         }
+        function tonConnectErrorText(e){
+          let m = (e && (e.message || e.reason)) || (e && e.cause && e.cause.message) || "";
+          if(!m && e) try{ m = JSON.stringify(e); }catch(_){ m = String(e); }
+          m = String(m || "Ошибка TonConnect");
+          if(/Connect wallet to send/i.test(m)) return "Сначала подключи кошелёк в списке TonConnect (откроется ниже).";
+          return m;
+        }
         try{
           document.body.classList.add("booting");
           await loadTonConnectScript();
           const twa = data.tonConnectTwaReturnUrl || "";
           const ui = await getTonConnectUI(twa);
+          await ui.connectionRestored;
+          if(!ui.connected){
+            await ui.connectWallet();
+          }
           await ui.sendTransaction({
             validUntil: Math.floor(Date.now() / 1000) + 600,
             messages: [
@@ -1530,12 +1548,13 @@
           walletModalWrap.classList.remove("show");
         }catch(e){
           document.body.classList.remove("booting");
-          const msg = e?.message || String(e);
-          if(/[Cc]ancel|[Uu]ser reject|declined/i.test(msg)){
+          const msg = tonConnectErrorText(e);
+          if(/[Cc]ancel|[Uu]ser reject|declined|aborted|Connection was aborted/i.test(msg)){
             toast("Отменено");
             return;
           }
-          toast(msg.slice(0, 120) || "Ошибка TonConnect");
+          console.error("TonConnect pay:", e);
+          toast(msg.length > 140 ? msg.slice(0, 140) + "…" : msg);
         }
       });
     }catch(e){
