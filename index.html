@@ -994,9 +994,15 @@
     const interval = opts?.interval ?? 3500;
     const start = Date.now();
     const prev = parseBalanceNum(prevStr);
+    let lastChainSync = 0;
     while(Date.now() - start < maxMs){
       await new Promise((r)=> setTimeout(r, interval));
       try{
+        const now = Date.now();
+        if(hasTgAuth && (lastChainSync === 0 || now - lastChainSync >= 11000)){
+          lastChainSync = now;
+          await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData }).catch(()=>{});
+        }
         await hydrateUserFromServer();
         renderTopbar();
         renderWallet();
@@ -1141,11 +1147,15 @@
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "wallet" && hasTgAuth){
-      hydrateUserFromServer().then(()=>{
-        renderTopbar();
-        renderWallet();
-        renderProfile();
-      }).catch(()=>{});
+      apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData })
+        .catch(()=>{})
+        .finally(()=>{
+          hydrateUserFromServer().then(()=>{
+            renderTopbar();
+            renderWallet();
+            renderProfile();
+          }).catch(()=>{});
+        });
     }
   }
 
@@ -1870,7 +1880,11 @@
         if(!hasTgAuth) return;
         const tab = (location.hash||"").slice(1);
         if(tab === "profile") loadExternalStats();
-        if(tab === "wallet") hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
+        if(tab === "wallet"){
+          apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData })
+            .catch(()=>{})
+            .finally(()=> hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{}));
+        }
       }, 12000);
     }
   })();
@@ -1893,7 +1907,11 @@
       refreshOnlineCount();
       const tab = (location.hash||"").slice(1);
       if(tab === "profile") loadExternalStats();
-      if(tab === "wallet") hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
+      if(tab === "wallet"){
+        apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData })
+          .catch(()=>{})
+          .finally(()=> hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{}));
+      }
     }
   });
   window.addEventListener("pageshow", (ev)=>{

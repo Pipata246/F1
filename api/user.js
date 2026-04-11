@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { runDeposits: scanChainDeposits } = require("./wallet-deposit-scan");
 
 /** Сравнение секретов без утечки по времени (длины должны совпадать). */
 function safeSecretEqual(provided, expected) {
@@ -14,6 +15,9 @@ function safeSecretEqual(provided, expected) {
 
 /** Лимит заявок на вывод на пользователя (in-memory; на serverless каждый инстанс свой). */
 const withdrawalRateBuckets = new Map();
+
+/** Не чаще одного syncMyDeposits на пользователя (секунды). */
+const depositSyncLastByTg = new Map();
 
 function touchWithdrawalRateLimit(tgId) {
   const maxEnv = Number(process.env.WITHDRAWAL_RATE_LIMIT_MAX);
@@ -422,6 +426,36 @@ async function submitDepositIntent(initData, intentId, boc) {
     prefer: "return=minimal",
   });
   return { ok: true };
+}
+
+function touchDepositSyncRateLimit(tgId) {
+  const minSec = Math.min(90, Math.max(8, Number(process.env.DEPOSIT_SYNC_MIN_INTERVAL_SEC) || 10));
+  const now = Date.now();
+  const prev = depositSyncLastByTg.get(tgId) || 0;
+  if (now - prev < minSec * 1000) {
+    throw new Error(`Подождите ${minSec} сек. перед следующей проверкой депозита`);
+  }
+  depositSyncLastByTg.set(tgId, now);
+  if (depositSyncLastByTg.size > 8000) {
+    const cut = now - 600000;
+    for (const [k, t] of [...depositSyncLastByTg.entries()]) {
+      if (t < cut) depositSyncLastByTg.delete(k);
+    }
+  }
+}
+
+/** Та же логика что cron: TonAPI → wallet_credit_deposit, только для текущего пользователя. */
+async function syncMyDeposits(initData) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const session = await authSession(initData);
+  if (!session.exists) throw new Error("Complete registration first");
+  touchDepositSyncRateLimit(tgId);
+  const log = [];
+  const credited = await scanChainDeposits(log, { onlyTgUserId: tgId });
+  return { credited, log: log.slice(-30) };
 }
 
 async function walletCreditDepositInternal(req) {
@@ -2489,6 +2523,10 @@ module.exports = async (req, res) => {
         req.body?.boc || ""
       );
       return res.status(200).json({ ok: true });
+    }
+    if (action === "syncMyDeposits") {
+      const result = await syncMyDeposits(req.body?.initData || "");
+      return res.status(200).json({ ok: true, ...result });
     }
     if (action === "walletCreditDepositInternal") {
       const result = await walletCreditDepositInternal(req);

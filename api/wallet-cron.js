@@ -13,6 +13,7 @@ const {
   toNano,
   SendMode,
 } = require("@ton/ton");
+const { runDeposits, runExpireDepositIntents } = require("./wallet-deposit-scan");
 
 function safeSecretEqual(a, b) {
   const x = String(a || "");
@@ -99,51 +100,6 @@ function rpcScalar(data) {
   return data;
 }
 
-async function runExpireDepositIntents(log) {
-  const nowIso = new Date().toISOString();
-  try {
-    await sb(
-      `deposit_intents?status=in.(pending,submitted)&wallet_operation_id=is.null&expires_at=lt.${encodeURIComponent(nowIso)}`,
-      {
-        method: "PATCH",
-        body: { status: "expired", updated_at: nowIso },
-        prefer: "return=minimal",
-      }
-    );
-  } catch (e) {
-    const m = String(e.message || "").toLowerCase();
-    if (!m.includes("deposit_intent") && !m.includes("schema cache")) log.push(`intents: expire ${e.message}`);
-  }
-}
-
-async function linkDepositIntentAfterCredit(tgUserId, tonNum, txHash, walletOpId, log) {
-  const rows = await sb(
-    `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgUserId)}&status=in.(pending,submitted)&wallet_operation_id=is.null&select=id,declared_amount_ton,status,created_at&order=created_at.desc&limit=15`
-  );
-  if (!rows?.length) return;
-  const withinTol = (declared, actual) => {
-    const d = Number(declared);
-    if (!Number.isFinite(d)) return false;
-    const tol = Math.max(d * 0.35, 0.12);
-    return Math.abs(d - actual) <= tol;
-  };
-  const submitted = rows.filter((r) => r.status === "submitted");
-  const pool = submitted.length ? submitted : rows;
-  let best = pool.find((r) => withinTol(r.declared_amount_ton, tonNum)) || pool[0];
-  if (!best) return;
-  await sb(`deposit_intents?id=eq.${encodeURIComponent(best.id)}`, {
-    method: "PATCH",
-    body: {
-      status: "completed",
-      wallet_operation_id: String(walletOpId),
-      ton_tx_hash: String(txHash),
-      updated_at: new Date().toISOString(),
-    },
-    prefer: "return=minimal",
-  });
-  log.push(`deposits: intent ${String(best.id).slice(0, 8)}… → op ${String(walletOpId).slice(0, 8)}…`);
-}
-
 function assertCronAuth(req) {
   const expected = String(process.env.CRON_SECRET || "").trim();
   if (!expected) return false;
@@ -168,141 +124,6 @@ async function tonapiGet(path) {
     throw new Error(`TonAPI ${res.status}: ${text.slice(0, 200)}`);
   }
   return text ? JSON.parse(text) : {};
-}
-
-function nanoToTonString(nano) {
-  try {
-    const n = BigInt(String(nano ?? "0"));
-    const whole = n / 1000000000n;
-    const frac = n % 1000000000n;
-    return `${whole}.${frac.toString().padStart(9, "0")}`.replace(/\.?0+$/, "") || "0";
-  } catch {
-    return "0";
-  }
-}
-
-/** Достаёт текст комментария из входящего сообщения TonAPI. */
-function extractDepositMemo(inMsg) {
-  if (!inMsg || typeof inMsg !== "object") return null;
-  const b = inMsg.decoded_body;
-  if (b && typeof b === "object") {
-    if (typeof b.text === "string" && b.text.trim()) return b.text.trim();
-    if (typeof b.comment === "string" && b.comment.trim()) return b.comment.trim();
-  }
-  if (typeof inMsg.comment === "string" && inMsg.comment.trim()) return inMsg.comment.trim();
-  if (inMsg.msg_data && typeof inMsg.msg_data.text === "string") return inMsg.msg_data.text.trim();
-  return null;
-}
-
-function normalizeMemoForLookup(raw) {
-  return String(raw || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-}
-
-async function runDeposits(log) {
-  if (String(process.env.WALLET_CRON_DISABLE_DEPOSITS || "").trim() === "1") {
-    log.push("deposits: disabled (WALLET_CRON_DISABLE_DEPOSITS=1)");
-    return 0;
-  }
-  const depositAddr = String(process.env.TON_DEPOSIT_ADDRESS || "").trim();
-  if (!depositAddr) {
-    log.push("deposits: skip (TON_DEPOSIT_ADDRESS empty)");
-    return 0;
-  }
-
-  const minTon = Number(process.env.MIN_AUTO_DEPOSIT_TON);
-  const min = Number.isFinite(minTon) && minTon > 0 ? minTon : 0.001;
-  const limit = Math.min(50, Math.max(5, Number(process.env.WALLET_CRON_DEPOSIT_TX_LIMIT) || 30));
-
-  let data;
-  try {
-    const enc = encodeURIComponent(depositAddr);
-    data = await tonapiGet(`/blockchain/accounts/${enc}/transactions?limit=${limit}`);
-  } catch (e) {
-    log.push(`deposits: TonAPI error ${e.message}`);
-    return 0;
-  }
-
-  const txs = Array.isArray(data.transactions) ? data.transactions : [];
-  let credited = 0;
-
-  for (const tx of txs) {
-    if (tx.success === false) continue;
-    const h = tx.hash || tx.event_id;
-    if (!h) continue;
-    const hashKey = String(h);
-
-    const inMsg = tx.in_msg || tx.inMessage;
-    if (!inMsg) continue;
-
-    const nano = inMsg.value != null ? inMsg.value : inMsg.value_raw;
-    if (nano == null) continue;
-    const tonStr = nanoToTonString(nano);
-    const tonNum = Number(tonStr);
-    if (!Number.isFinite(tonNum) || tonNum < min) continue;
-
-    const memoRaw = extractDepositMemo(inMsg);
-    if (!memoRaw) continue;
-
-    const memoCandidates = new Set();
-    const full = normalizeMemoForLookup(memoRaw);
-    if (full.length >= 6) memoCandidates.add(full);
-    for (const part of memoRaw.split(/\s+/)) {
-      const n = normalizeMemoForLookup(part);
-      if (n.length >= 6) memoCandidates.add(n);
-    }
-
-    let tgUserId = "";
-    for (const memo of memoCandidates) {
-      try {
-        let users = await sb(
-          `users?deposit_memo=eq.${encodeURIComponent(memo)}&select=tg_user_id&limit=1`
-        );
-        if (!users?.length) {
-          users = await sb(
-            `users?deposit_memo=ilike.${encodeURIComponent(memo)}&select=tg_user_id&limit=1`
-          );
-        }
-        if (users?.length) {
-          tgUserId = String(users[0].tg_user_id);
-          break;
-        }
-      } catch {
-        /* next candidate */
-      }
-    }
-    if (!tgUserId) {
-      log.push(`deposits: skip tx ${String(hashKey).slice(0, 12)}… (memo not matched to user)`);
-      continue;
-    }
-
-    try {
-      const rpcRaw = await sbRpc("wallet_credit_deposit", {
-        p_tg_user_id: tgUserId,
-        p_amount: tonNum,
-        p_tx_hash: hashKey,
-      });
-      const opId = rpcScalar(rpcRaw);
-      if (opId) {
-        try {
-          await linkDepositIntentAfterCredit(tgUserId, tonNum, hashKey, opId, log);
-        } catch (e2) {
-          log.push(`deposits: link intent ${e2.message}`);
-        }
-      }
-      credited += 1;
-      log.push(`deposits: credited ${tonStr} TON user=${tgUserId} hash=${hashKey.slice(0, 16)}…`);
-    } catch (e) {
-      if (String(e.message || "").includes("duplicate") || String(e.message || "").includes("unique")) {
-        continue;
-      }
-      log.push(`deposits: credit failed ${hashKey.slice(0, 12)} ${e.message}`);
-    }
-  }
-
-  return credited;
 }
 
 async function createHotWalletFromMnemonicAsync() {
