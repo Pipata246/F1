@@ -418,27 +418,6 @@ function userMemoMatchesDeposit(wantMemoNorm, memoRaw) {
   return cand.has(wantMemoNorm);
 }
 
-/** Входящее сообщение действительно на наш адрес приёма (если поле есть в ответе API). */
-function incomingDestMatchesOurWallet(inMsg, depositAddrRaw) {
-  const raw = String(depositAddrRaw || "").trim();
-  if (!raw || !inMsg || typeof inMsg !== "object") return true;
-  const dest = inMsg.destination;
-  const destStr =
-    dest == null
-      ? ""
-      : typeof dest === "string"
-        ? dest
-        : typeof dest === "object"
-          ? String(dest.account_address || dest.address || "")
-          : "";
-  if (!destStr) return true;
-  try {
-    return Address.parse(raw).equals(Address.parse(destStr));
-  } catch {
-    return true;
-  }
-}
-
 /** Нормализует адрес для запроса к TonAPI (все распространённые форматы). */
 function tonapiAccountPathVariants(depositAddrRaw) {
   const raw = String(depositAddrRaw || "").trim();
@@ -575,8 +554,6 @@ async function runDeposits(log, opts = {}) {
     const inMsg = tx.in_msg || tx.inMessage;
     if (!inMsg) continue;
 
-    if (onlyTgUserId && !incomingDestMatchesOurWallet(inMsg, depositAddr)) continue;
-
     const nano = inMsg.value != null ? inMsg.value : inMsg.value_raw;
     if (nano == null) continue;
     const tonStr = nanoToTonString(nano);
@@ -664,10 +641,68 @@ async function runDeposits(log, opts = {}) {
   return credited;
 }
 
+/**
+ * Диагностика: есть ли текст deposit_memo в boc, который вернул TonConnect (не зачисляет, только лог).
+ */
+function auditConnectBocForUserMemo(bocBase64, memoPlain, log) {
+  const memo = String(memoPlain || "").trim();
+  if (!memo) {
+    log.push("deposits: boc_audit: у пользователя нет deposit_memo");
+    return;
+  }
+  const b64 = String(bocBase64 || "").trim();
+  if (!b64 || b64.length < 24) {
+    log.push("deposits: boc_audit: кошелёк не прислал boc или он слишком короткий");
+    return;
+  }
+  let buf;
+  try {
+    buf = Buffer.from(b64, "base64");
+  } catch {
+    log.push("deposits: boc_audit: boc не является валидным base64");
+    return;
+  }
+  if (buf.toString("utf8").toLowerCase().includes(memo.toLowerCase())) {
+    log.push("deposits: boc_audit: тег найден в boc — комментарий с большой вероятностью ушёл в сеть");
+    return;
+  }
+  let roots;
+  try {
+    roots = Cell.fromBoc(buf);
+  } catch {
+    log.push("deposits: boc_audit: не разобрать boc как TON BoC");
+    return;
+  }
+  let hit = false;
+  function walk(cell, depth) {
+    if (hit || depth > 36 || !cell) return;
+    try {
+      const s = cell.beginParse();
+      if (s.remainingBits >= 32 && s.preloadUint(32) === 0) {
+        s.loadUint(32);
+        const t = s.loadStringTail();
+        if (t && String(t).includes(memo)) hit = true;
+      }
+    } catch {
+      /* */
+    }
+    for (const r of cell.refs || []) walk(r, depth + 1);
+  }
+  for (const root of roots) walk(root, 0);
+  if (hit) {
+    log.push("deposits: boc_audit: в ячейке найден text comment (op=0) с вашим тегом");
+    return;
+  }
+  log.push(
+    "deposits: boc_audit: в подписанном boc тега не видно — без комментария в цепочке зачисление по скану невозможно"
+  );
+}
+
 module.exports = {
   runDeposits,
   runExpireDepositIntents,
   extractDepositMemo,
   normalizeMemoForLookup,
   userMemoMatchesDeposit,
+  auditConnectBocForUserMemo,
 };

@@ -1,5 +1,8 @@
 const crypto = require("crypto");
-const { runDeposits: scanChainDeposits } = require("./wallet-deposit-scan");
+const {
+  runDeposits: scanChainDeposits,
+  auditConnectBocForUserMemo,
+} = require("./wallet-deposit-scan");
 
 /** Сравнение секретов без утечки по времени (длины должны совпадать). */
 function safeSecretEqual(provided, expected) {
@@ -402,10 +405,11 @@ async function submitDepositIntent(initData, intentId, boc) {
   const id = String(intentId || "").trim();
   if (!id) throw new Error("Missing intentId");
 
+  let memoPlain = "";
   try {
-    await ensureDepositMemoForUser(tgId);
+    memoPlain = await ensureDepositMemoForUser(tgId);
   } catch {
-    /* если мемо не создалось, скан всё равно попробует по текущей строке users */
+    /* */
   }
 
   const found = await sb(
@@ -448,6 +452,8 @@ async function submitDepositIntent(initData, intentId, boc) {
   });
 
   const scanLog = [];
+  if (bocStr.length > 20) auditConnectBocForUserMemo(bocStr, memoPlain, scanLog);
+
   let credited = 0;
   const passes = Math.min(15, Math.max(1, Number(process.env.DEPOSIT_SUBMIT_SCAN_PASSES) || 8));
   const delayMs = Math.min(4000, Math.max(350, Number(process.env.DEPOSIT_SUBMIT_SCAN_DELAY_MS) || 900));
