@@ -93,7 +93,7 @@
       display:flex;
       flex-direction:column;
       gap:12px;
-      padding:2px 0 8px 0;
+      padding:0 2px 12px 0;
     }
     .walletHistCard{
       border-radius:16px;
@@ -312,6 +312,45 @@
     }
     .modal h3{margin:0 0 6px 0}
     .modal .muted{font-size:13px}
+
+    .walletModalShell{
+      display:flex;
+      flex-direction:column;
+      max-height:min(560px, calc(var(--app-vh, 100vh) - 40px));
+      width:min(520px, 100%);
+      overflow:hidden;
+    }
+    .walletModalShell h3{
+      flex-shrink:0;
+      margin-bottom:10px;
+    }
+    .walletModalBody{
+      flex:1;
+      min-height:100px;
+      overflow-x:hidden;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+      font-size:14px;
+      color:var(--text);
+      overscroll-behavior:contain;
+    }
+    .walletModalFooter{
+      flex-shrink:0;
+      margin-top:12px;
+      padding-top:4px;
+    }
+    .walletHistLoading{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:12px;
+      padding:28px 16px 36px;
+      color:var(--text2);
+    }
+    .walletHistLoading .spinner{
+      margin:0;
+    }
 
     .field{
       width:100%;
@@ -945,10 +984,10 @@
   </div>
 
   <div id="walletModalWrap" class="modalWrap">
-    <div class="modal" style="max-height:88vh;overflow-y:auto">
+    <div class="modal walletModalShell">
       <h3 id="walletModalTitle">Кошелёк</h3>
-      <div id="walletModalBody" class="muted" style="font-size:14px"></div>
-      <div class="row" style="margin-top:14px">
+      <div id="walletModalBody" class="walletModalBody"></div>
+      <div class="walletModalFooter row">
         <button type="button" id="walletModalClose" class="btn ghost">Закрыть</button>
       </div>
     </div>
@@ -2050,22 +2089,37 @@
     renderStep1();
   });
 
+  function formatHistAmountLine(r){
+    const a = r.amount;
+    if(a == null || a === "") return "—";
+    const s = String(a).trim();
+    if(s === "") return "—";
+    const n = parseBalanceNum(s);
+    if(Number.isFinite(n)) return `${formatBalanceAmountOnly(String(n))} TON`;
+    return `${escapeHtml(s)} TON`;
+  }
+
   document.getElementById("walletBtnHistory")?.addEventListener("click", async ()=>{
     if(!hasTgAuth){ toast("Откройте приложение в Telegram"); return; }
     if(state.profile.serverBalanceTon == null){
       toast("Сначала завершите регистрацию");
       return;
     }
+    const loadingHtml = `<div class="walletHistLoading" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><div class="small" style="text-align:center">Загрузка истории…</div></div>`;
+    openWalletModal("История операций", loadingHtml);
     let rows;
     try{
       const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 50 });
       rows = Array.isArray(data.operations) ? data.operations : [];
     }catch(e){
-      toast(e.message || "Не удалось загрузить историю", 3200);
+      if(walletModalBody){
+        walletModalBody.innerHTML = `<div class="walletHistLoading"><p class="small" style="text-align:center;color:var(--text2);padding:0 8px">${escapeHtml(e.message || "Не удалось загрузить историю")}</p></div>`;
+      }
       return;
     }
+    if(!walletModalBody) return;
     if(!rows.length){
-      openWalletModal("История", `<p class="small">Операций пока нет.</p>`);
+      walletModalBody.innerHTML = `<p class="small" style="text-align:center;padding:24px 12px;color:var(--text2)">Операций пока нет.</p>`;
       return;
     }
     const lines = rows.map((r)=>{
@@ -2081,12 +2135,12 @@
         awaiting_confirm:"Ожидает зачисления в БД",
         expired:"Истекло / отменено",
       }[r.status] || escapeHtml(r.status);
-      const amt = r.amount != null ? escapeHtml(String(r.amount)) : "?";
+      const amtLine = formatHistAmountLine(r);
       const t = r.created_at ? escapeHtml(new Date(r.created_at).toLocaleString("ru-RU")) : "—";
       const blocks = [];
       if(r.kind === "withdrawal"){
         blocks.push(
-          `<div class="walletHistBlock"><div class="walletHistLabel">Списано с баланса</div><div class="walletHistValue walletHistValue--accent">${amt} TON</div></div>`
+          `<div class="walletHistBlock"><div class="walletHistLabel">Списано с баланса</div><div class="walletHistValue walletHistValue--accent">${amtLine}</div></div>`
         );
         if(r.meta && r.meta.withdraw_net_ton != null){
           const net = escapeHtml(formatBalanceAmountOnly(String(r.meta.withdraw_net_ton)));
@@ -2096,11 +2150,11 @@
         }
       }else if(isIntent){
         blocks.push(
-          `<div class="walletHistBlock"><div class="walletHistLabel">Сумма в заявке</div><div class="walletHistValue walletHistValue--accent">${amt} TON</div></div>`
+          `<div class="walletHistBlock"><div class="walletHistLabel">Сумма в заявке</div><div class="walletHistValue walletHistValue--accent">${amtLine}</div></div>`
         );
       }else{
         blocks.push(
-          `<div class="walletHistBlock"><div class="walletHistLabel">Сумма</div><div class="walletHistValue walletHistValue--accent">${amt} TON</div></div>`
+          `<div class="walletHistBlock"><div class="walletHistLabel">Сумма</div><div class="walletHistValue walletHistValue--accent">${amtLine}</div></div>`
         );
       }
       blocks.push(
@@ -2124,7 +2178,7 @@
         <div class="walletHistBody">${blocks.join("")}</div>
       </div>`;
     }).join("");
-    openWalletModal("История операций", `<div class="walletHistList" style="max-height:55vh;overflow:auto">${lines}</div>`);
+    walletModalBody.innerHTML = `<div class="walletHistList">${lines}</div>`;
   });
 
   (async ()=>{
