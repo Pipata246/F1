@@ -76,29 +76,6 @@
       flex-shrink:0;
       max-width:min(58vw, 280px);
     }
-    .topbarBalance{
-      font-variant-numeric: tabular-nums;
-      border-color: rgba(0,136,204,.35);
-      background: rgba(0,136,204,.12);
-      color: #9AE8FF;
-      display:none;
-      align-items:center;
-      gap:8px;
-      padding-left:8px;
-      padding-right:10px;
-    }
-    .topbarBalance .topbarTonIcon{
-      flex:0 0 auto;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      line-height:0;
-    }
-    .topbarBalance .topbarTonIcon svg{
-      width:22px;
-      height:22px;
-      display:block;
-    }
     .brand{display:flex; align-items:center; gap:10px; font-weight:900; letter-spacing:.2px}
     .brandLogo{
       width:20px; height:20px; display:block; flex:0 0 auto;
@@ -390,60 +367,6 @@
     }
     .matchFilterTab .gameIcon{align-self:center}
 
-    .tonBalanceCard{
-      display:flex;
-      align-items:center;
-      gap:16px;
-      padding:18px 16px;
-      border-radius:20px;
-      background: linear-gradient(135deg, rgba(0,136,204,.20), rgba(0,136,204,.06));
-      border:1px solid rgba(0,136,204,.32);
-      box-shadow: 0 0 28px rgba(0,136,204,.10);
-    }
-    .tonLogo{
-      width:56px; height:56px; flex:0 0 auto;
-      border-radius:50%;
-      background: transparent;
-      display:flex; align-items:center; justify-content:center;
-      line-height:0;
-    }
-    .tonLogo svg{ width:56px; height:56px; display:block; }
-    .tonBalanceMeta{ flex:1; min-width:0; }
-    .tonBalanceLabel{
-      font-size:12px;
-      font-weight:700;
-      color: var(--text2);
-      letter-spacing:.12em;
-      text-transform: uppercase;
-    }
-    .tonBalanceAmount{
-      margin-top:4px;
-      font-size:28px;
-      font-weight:950;
-      letter-spacing:.02em;
-      line-height:1.1;
-      font-variant-numeric: tabular-nums;
-    }
-    .tonBalanceUnit{
-      display:inline-flex;
-      align-items:center;
-      margin-left:8px;
-      vertical-align:middle;
-      line-height:0;
-    }
-    .tonBalanceUnit svg{
-      width:20px;
-      height:20px;
-      display:block;
-    }
-    .walletActions{
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      margin-top:4px;
-    }
-    .walletActions .btn{ width:100%; }
-
     .matchFilterRow{
       display:flex;
       flex-wrap:wrap;
@@ -501,15 +424,6 @@
         <span>F1 Duel</span>
       </div>
       <div class="topbarRight">
-        <div class="chip topbarBalance" id="headerBalanceWrap" aria-label="Баланс TON">
-          <span class="topbarTonIcon" aria-hidden="true">
-            <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/>
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C36.459 18.4844 37.0142 18.566 37.5944 18.8365C38.2899 19.1606 38.6587 19.6717 38.9171 20.0496C38.9372 20.079 38.956 20.1093 38.9734 20.1403C39.2772 20.6811 39.4338 21.265 39.4338 21.8931C39.4338 22.4899 39.2918 23.1401 38.9734 23.7068C38.9704 23.7122 38.9673 23.7176 38.9642 23.723L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C17.1915 23.7473 17.1887 23.7426 17.1859 23.738C16.963 23.3707 16.6183 22.8027 16.558 22.0696C16.5026 21.3956 16.6541 20.7202 16.9928 20.1346C17.3315 19.5489 17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199C19.7671 20.9192 19.6013 20.9458 19.4854 21C19.3251 21.0748 19.1905 21.1978 19.1005 21.3535C19.0105 21.5092 18.9698 21.6896 18.9846 21.8701C18.9931 21.9737 19.0353 22.0921 19.2842 22.5026C19.2894 22.5112 19.2945 22.5199 19.2995 22.5286L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.9405 22.3511 36.999 22.1245 36.999 21.8931C36.999 21.7054 36.9601 21.5424 36.8731 21.3743C36.7818 21.2431 36.7262 21.1736 36.6797 21.126C36.6398 21.0853 36.6091 21.0635 36.5657 21.0433C36.3849 20.959 36.1999 20.9192 35.9034 20.9192H29.2077Z" fill="white"/>
-            </svg>
-          </span>
-          <span id="headerBalanceVal">0</span>
-        </div>
         <div class="chip" id="userChip">Гость</div>
       </div>
     </div>
@@ -696,49 +610,6 @@
         </div>
       </section>
 
-
-      <!-- WALLET -->
-      <section id="page-wallet" class="hidden">
-        <div class="glass card">
-          <div class="row" style="align-items:center; justify-content:space-between;">
-            <div>
-              <h2 class="titleXL" style="margin:0">Баланс</h2>
-            </div>
-            <div class="chip" style="padding:6px 8px;line-height:0" aria-hidden="true">
-              <svg width="26" height="26" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/>
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C36.459 18.4844 37.0142 18.566 37.5944 18.8365C38.2899 19.1606 38.6587 19.6717 38.9171 20.0496C38.9372 20.079 38.956 20.1093 38.9734 20.1403C39.2772 20.6811 39.4338 21.265 39.4338 21.8931C39.4338 22.4899 39.2918 23.1401 38.9734 23.7068C38.9704 23.7122 38.9673 23.7176 38.9642 23.723L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C17.1915 23.7473 17.1887 23.7426 17.1859 23.738C16.963 23.3707 16.6183 22.8027 16.558 22.0696C16.5026 21.3956 16.6541 20.7202 16.9928 20.1346C17.3315 19.5489 17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199C19.7671 20.9192 19.6013 20.9458 19.4854 21C19.3251 21.0748 19.1905 21.1978 19.1005 21.3535C19.0105 21.5092 18.9698 21.6896 18.9846 21.8701C18.9931 21.9737 19.0353 22.0921 19.2842 22.5026C19.2894 22.5112 19.2945 22.5199 19.2995 22.5286L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.9405 22.3511 36.999 22.1245 36.999 21.8931C36.999 21.7054 36.9601 21.5424 36.8731 21.3743C36.7818 21.2431 36.7262 21.1736 36.6797 21.126C36.6398 21.0853 36.6091 21.0635 36.5657 21.0433C36.3849 20.959 36.1999 20.9192 35.9034 20.9192H29.2077Z" fill="white"/>
-              </svg>
-            </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="tonBalanceCard">
-            <div class="tonLogo" aria-hidden="true">
-              <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/>
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C36.459 18.4844 37.0142 18.566 37.5944 18.8365C38.2899 19.1606 38.6587 19.6717 38.9171 20.0496C38.9372 20.079 38.956 20.1093 38.9734 20.1403C39.2772 20.6811 39.4338 21.265 39.4338 21.8931C39.4338 22.4899 39.2918 23.1401 38.9734 23.7068C38.9704 23.7122 38.9673 23.7176 38.9642 23.723L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C17.1915 23.7473 17.1887 23.7426 17.1859 23.738C16.963 23.3707 16.6183 22.8027 16.558 22.0696C16.5026 21.3956 16.6541 20.7202 16.9928 20.1346C17.3315 19.5489 17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199C19.7671 20.9192 19.6013 20.9458 19.4854 21C19.3251 21.0748 19.1905 21.1978 19.1005 21.3535C19.0105 21.5092 18.9698 21.6896 18.9846 21.8701C18.9931 21.9737 19.0353 22.0921 19.2842 22.5026C19.2894 22.5112 19.2945 22.5199 19.2995 22.5286L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.9405 22.3511 36.999 22.1245 36.999 21.8931C36.999 21.7054 36.9601 21.5424 36.8731 21.3743C36.7818 21.2431 36.7262 21.1736 36.6797 21.126C36.6398 21.0853 36.6091 21.0635 36.5657 21.0433C36.3849 20.959 36.1999 20.9192 35.9034 20.9192H29.2077Z" fill="white"/>
-              </svg>
-            </div>
-            <div class="tonBalanceMeta">
-              <div class="tonBalanceLabel">Доступно</div>
-              <div>
-                <span class="tonBalanceAmount" id="tonBalanceVal">0.00</span><span class="tonBalanceUnit" aria-hidden="true"><svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C36.459 18.4844 37.0142 18.566 37.5944 18.8365C38.2899 19.1606 38.6587 19.6717 38.9171 20.0496C38.9372 20.079 38.956 20.1093 38.9734 20.1403C39.2772 20.6811 39.4338 21.265 39.4338 21.8931C39.4338 22.4899 39.2918 23.1401 38.9734 23.7068C38.9704 23.7122 38.9673 23.7176 38.9642 23.723L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C17.1915 23.7473 17.1887 23.7426 17.1859 23.738C16.963 23.3707 16.6183 22.8027 16.558 22.0696C16.5026 21.3956 16.6541 20.7202 16.9928 20.1346C17.3315 19.5489 17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199C19.7671 20.9192 19.6013 20.9458 19.4854 21C19.3251 21.0748 19.1905 21.1978 19.1005 21.3535C19.0105 21.5092 18.9698 21.6896 18.9846 21.8701C18.9931 21.9737 19.0353 22.0921 19.2842 22.5026C19.2894 22.5112 19.2945 22.5199 19.2995 22.5286L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.9405 22.3511 36.999 22.1245 36.999 21.8931C36.999 21.7054 36.9601 21.5424 36.8731 21.3743C36.7818 21.2431 36.7262 21.1736 36.6797 21.126C36.6398 21.0853 36.6091 21.0635 36.5657 21.0433C36.3849 20.959 36.1999 20.9192 35.9034 20.9192H29.2077Z" fill="white"/></svg></span>
-              </div>
-            </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="walletActions">
-            <button type="button" class="btn primary" id="walletBtnTopup">Пополнить</button>
-            <button type="button" class="btn ghost" id="walletBtnWithdraw">Вывести</button>
-            <button type="button" class="btn ghost" id="walletBtnHistory">История операций</button>
-          </div>
-        </div>
-      </section>
-
       <!-- MATCHES -->
       <section id="page-matches" class="hidden">
         <div class="glass card">
@@ -849,15 +720,6 @@
       </div>
       <div>Игры</div>
     </button>
-    <button id="tab-wallet" onclick="go('wallet')">
-      <div class="icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="6" width="18" height="12" rx="2"></rect>
-          <path d="M16 10h5v4h-5a2 2 0 1 1 0-4z"></path>
-        </svg>
-      </div>
-      <div>Баланс</div>
-    </button>
     <button id="tab-matches" onclick="go('matches')">
       <div class="icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -901,16 +763,6 @@
       <div class="row" style="margin-top:14px">
         <button id="modalOk" class="btn danger">Ок</button>
         <button id="modalCancel" class="btn ghost">Отмена</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="walletModalWrap" class="modalWrap">
-    <div class="modal" style="max-height:88vh;overflow-y:auto">
-      <h3 id="walletModalTitle">Кошелёк</h3>
-      <div id="walletModalBody" class="muted" style="font-size:14px"></div>
-      <div class="row" style="margin-top:14px">
-        <button type="button" id="walletModalClose" class="btn ghost">Закрыть</button>
       </div>
     </div>
   </div>
@@ -971,11 +823,8 @@
       myRefCode: "",
       referredBy: "",
       refStatus: "none",
-      balanceTon: null,
     },
-    wallet: { tonBalance: "0.00" },
     settings: { sound:true, haptic:true },
-    tx: [],
   };
 
   const state = (()=> {
@@ -987,9 +836,7 @@
       return {
         ...defaultState,
         ...s,
-        wallet:{...defaultState.wallet, ...(s.wallet||{})},
         settings:{...defaultState.settings, ...(s.settings||{}), ...(globalSettings||{})},
-        tx: Array.isArray(s.tx)? s.tx : []
       };
     }catch(e){
       return structuredClone(defaultState);
@@ -998,9 +845,7 @@
 
   function save(){
     const persist = {
-      wallet: state.wallet,
       settings: state.settings,
-      tx: state.tx,
     };
     localStorage.setItem(KEY, JSON.stringify(persist));
     renderAll();
@@ -1017,28 +862,12 @@
     return data;
   }
 
-  function formatBalanceDisplay(raw){
-    if(raw == null || raw === "") return "0,00";
-    const n = Number(raw);
-    if(!Number.isFinite(n)) return "0,00";
-    return n.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 9 });
-  }
-
-  function applyBalanceFromUserPayload(user){
-    if(user && user.balance != null && user.balance !== ""){
-      state.profile.balanceTon = String(user.balance);
-    }else if(user){
-      state.profile.balanceTon = "0";
-    }
-  }
-
   async function hydrateUserFromServer(){
     if(!hasTgAuth) return;
     try{
       const data = await apiJson("/api/user", { action:"authSession", initData: tgInitData });
       const tgId = data.user?.tg_user_id ? String(data.user.tg_user_id) : "";
       state.profile.tgUserId = tgId;
-      applyBalanceFromUserPayload(data.user);
       if(data.user?.rules_accepted_at){
         state.profile.rulesAcceptedAt = new Date(data.user.rules_accepted_at).getTime();
       }
@@ -1097,13 +926,13 @@
     modalCancel.onclick = ()=> modalWrap.classList.remove("show");
   }
 
-  const pages = ["onb-rules","onb-ref","games","wallet","matches","profile"];
+  const pages = ["onb-rules","onb-ref","games","matches","profile"];
   function go(page){
     pages.forEach(p=>{
       const el = document.getElementById("page-"+p);
       if(el) el.classList.toggle("hidden", p!==page);
     });
-    ["games","wallet","matches","profile"].forEach(t=>{
+    ["games","matches","profile"].forEach(t=>{
       const tab = document.getElementById("tab-"+t);
       if(tab) tab.classList.toggle("active", t===page);
     });
@@ -1114,9 +943,6 @@
     }
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
-    if(page === "wallet" && hasTgAuth){
-      hydrateUserFromServer().then(()=>{ renderTopbar(); renderWallet(); }).catch(()=>{});
-    }
   }
 
   function needsOnboarding(){
@@ -1126,21 +952,11 @@
   }
 
   const userChip = document.getElementById("userChip");
-  const headerBalanceWrap = document.getElementById("headerBalanceWrap");
-  const headerBalanceVal = document.getElementById("headerBalanceVal");
   const displayNick = ()=> (state.profile.displayName || "Player");
   function displayMe(){ return displayNick(); }
 
   function renderTopbar(){
     userChip.textContent = displayMe();
-    if(headerBalanceWrap && headerBalanceVal){
-      if(hasTgAuth){
-        headerBalanceWrap.style.display = "flex";
-        headerBalanceVal.textContent = formatBalanceDisplay(state.profile.balanceTon);
-      }else{
-        headerBalanceWrap.style.display = "none";
-      }
-    }
   }
 
   const onlineNow = document.getElementById("onlineNow");
@@ -1369,267 +1185,6 @@
     }catch(e){}
   }
 
-  const tonBalanceVal = document.getElementById("tonBalanceVal");
-
-  function addTx(label, amount=0){
-    state.tx.unshift({ts: now(), label, amount});
-    state.tx = state.tx.slice(0, 30);
-  }
-
-  function renderWallet(){
-    if(!tonBalanceVal) return;
-    let str;
-    if(hasTgAuth && state.profile.balanceTon != null){
-      str = formatBalanceDisplay(state.profile.balanceTon);
-    }else{
-      const raw = state.wallet?.tonBalance;
-      str = raw != null && String(raw).trim() !== "" ? String(raw).trim() : "0,00";
-    }
-    tonBalanceVal.textContent = str;
-  }
-
-  const walletModalWrap = document.getElementById("walletModalWrap");
-  const walletModalTitle = document.getElementById("walletModalTitle");
-  const walletModalBody = document.getElementById("walletModalBody");
-  const walletModalClose = document.getElementById("walletModalClose");
-  function openWalletModal(title, html){
-    walletModalTitle.textContent = title;
-    walletModalBody.innerHTML = html;
-    walletModalWrap.classList.add("show");
-    walletModalClose.onclick = ()=> walletModalWrap.classList.remove("show");
-    walletModalWrap.onclick = (ev)=>{ if(ev.target === walletModalWrap) walletModalWrap.classList.remove("show"); };
-  }
-  function escapeHtml(s){
-    const d = document.createElement("div");
-    d.textContent = s == null ? "" : String(s);
-    return d.innerHTML;
-  }
-  function walletKindLabel(k){
-    if(k === "deposit") return "Пополнение";
-    if(k === "withdrawal") return "Вывод";
-    return k || "—";
-  }
-  function walletStatusLabel(s){
-    const m = { pending:"В обработке", confirming:"Подтверждение", completed:"Готово", failed:"Отклонено", cancelled:"Отменено" };
-    return m[s] || s || "—";
-  }
-  let tonConnectUILazy = null;
-  let tonConnectOptsKey = null;
-  function parseTonToNano(input){
-    const s = String(input || "").replace(",",".").trim();
-    if(!s) return 0n;
-    const m = s.match(/^(\d+)(?:\.(\d+))?$/);
-    if(!m) return 0n;
-    const w = m[1] || "0";
-    const fracRaw = (m[2] || "") + "000000000";
-    const frac = fracRaw.slice(0, 9).padEnd(9, "0");
-    try{
-      return BigInt(w) * 1000000000n + BigInt(frac);
-    }catch(e){ return 0n; }
-  }
-  function loadTonConnectScript(){
-    return new Promise((resolve, reject)=>{
-      if(window.TON_CONNECT_UI && window.TON_CONNECT_UI.TonConnectUI) return resolve();
-      const s = document.createElement("script");
-      s.src = "https://unpkg.com/@tonconnect/ui@2.0.10/dist/tonconnect-ui.min.js";
-      s.async = true;
-      s.onload = ()=> resolve();
-      s.onerror = ()=> reject(new Error("Не удалось загрузить TonConnect"));
-      document.head.appendChild(s);
-    });
-  }
-  async function getTonConnectUI(twaReturnUrl){
-    const origin = location.origin.replace(/\/$/,"");
-    const manifestUrl = origin + "/api/tonconnect-manifest";
-    const TC = window.TON_CONNECT_UI?.TonConnectUI;
-    if(!TC) throw new Error("TonConnect UI недоступен");
-    const twa = twaReturnUrl && String(twaReturnUrl).trim().startsWith("https://t.me/")
-      ? String(twaReturnUrl).trim()
-      : "";
-    const optsKey = twa || "_notwa_";
-    if(tonConnectUILazy && tonConnectOptsKey !== optsKey){
-      try{ await tonConnectUILazy.disconnect(); }catch(_){}
-      tonConnectUILazy = null;
-    }
-    if(!tonConnectUILazy){
-      tonConnectOptsKey = optsKey;
-      const opts = {
-        manifestUrl,
-        language: "ru",
-        uiPreferences: { theme: "DARK" },
-      };
-      if(twa) opts.actionsConfiguration = { twaReturnUrl: twa };
-      tonConnectUILazy = new TC(opts);
-    }
-    return tonConnectUILazy;
-  }
-  document.getElementById("walletBtnTopup").onclick = async ()=>{
-    hImpact("light");
-    if(!hasTgAuth){ toast("Открой приложение из Telegram"); return; }
-    try{
-      try{ tg?.expand?.(); }catch(e){}
-      document.body.classList.add("booting");
-      const data = await apiJson("/api/user", { action:"getWalletInfo", initData: tgInitData });
-      document.body.classList.remove("booting");
-      const addr = escapeHtml(data.depositAddress);
-      const memo = escapeHtml(data.depositMemo);
-      const hasPayload = !!(data.depositPayloadBoc && String(data.depositPayloadBoc).length > 8);
-      openWalletModal("Пополнение TON", `
-        ${hasPayload ? `
-        <p style="margin:0 0 8px 0"><b>Через кошелёк</b> — Tonkeeper и др.: подключи кошелёк и подтверди перевод (тег подставится автоматически).</p>
-        <label class="small" for="tcAmount">Сумма (TON)</label>
-        <input id="tcAmount" class="field" type="text" inputmode="decimal" placeholder="0.5" value="0.5" style="margin-top:6px;margin-bottom:10px"/>
-        <button type="button" class="btn primary" id="walletPayTonconnect" style="margin-bottom:14px">Оплатить в кошельке</button>
-        <div class="divider"></div>
-        <p class="small" style="margin:0 0 8px 0"><b>Вручную</b> — перевод на адрес с комментарием-тегом.</p>
-        ` : `<p class="small" style="margin:0 0 8px 0">Оплата через TonConnect недоступна (обнови сервер). Ниже — ручной перевод.</p>`}
-        <div class="small" style="margin-bottom:4px">Адрес</div>
-        <div class="field" style="word-break:break-all;font-size:13px;margin-bottom:10px">${addr}</div>
-        <button type="button" class="btn ghost" id="walletCopyAddr" style="margin-bottom:12px">Скопировать адрес</button>
-        <div class="small" style="margin-bottom:4px">Тег (комментарий)</div>
-        <div class="field" style="font-size:16px;font-weight:800;letter-spacing:.08em;margin-bottom:10px">${memo}</div>
-        <button type="button" class="btn ghost" id="walletCopyMemo">Скопировать тег</button>
-        <p class="small" style="margin-top:12px">Зачисление на баланс — после подтверждения в сети (крон / воркер).</p>
-      `);
-      document.getElementById("walletCopyAddr")?.addEventListener("click", async ()=>{
-        try{
-          await navigator.clipboard.writeText(data.depositAddress);
-          toast("Адрес скопирован");
-        }catch(e){ toast("Не удалось скопировать"); }
-      });
-      document.getElementById("walletCopyMemo")?.addEventListener("click", async ()=>{
-        try{
-          await navigator.clipboard.writeText(data.depositMemo);
-          toast("Тег скопирован");
-        }catch(e){ toast("Не удалось скопировать"); }
-      });
-      document.getElementById("walletPayTonconnect")?.addEventListener("click", async ()=>{
-        const errEl = document.getElementById("tcPayErr");
-        if(errEl){ errEl.style.display = "none"; errEl.textContent = ""; }
-        const amtRaw = document.getElementById("tcAmount")?.value || "";
-        const nano = parseTonToNano(amtRaw);
-        if(nano <= 0n){
-          toast("Укажи сумму");
-          return;
-        }
-        if(nano < 1000000n){
-          toast("Минимум ~0.001 TON");
-          return;
-        }
-        function tonConnectErrorText(e){
-          let m = (e && (e.message || e.reason)) || (e && e.cause && e.cause.message) || "";
-          if(!m && e) try{ m = JSON.stringify(e); }catch(_){ m = String(e); }
-          m = String(m || "Ошибка TonConnect");
-          if(/Connect wallet to send/i.test(m)) return "Сначала подключи кошелёк в списке TonConnect (откроется ниже).";
-          return m;
-        }
-        try{
-          document.body.classList.add("booting");
-          await loadTonConnectScript();
-          const twa = data.tonConnectTwaReturnUrl || "";
-          const ui = await getTonConnectUI(twa);
-          await ui.connectionRestored;
-          if(!ui.connected){
-            await ui.connectWallet();
-          }
-          await ui.sendTransaction({
-            validUntil: Math.floor(Date.now() / 1000) + 600,
-            messages: [
-              {
-                address: data.depositAddress,
-                amount: nano.toString(),
-                payload: data.depositPayloadBoc,
-              },
-            ],
-          });
-          document.body.classList.remove("booting");
-          hNote("success");
-          toast("Платёж отправлен в сеть");
-          walletModalWrap.classList.remove("show");
-        }catch(e){
-          document.body.classList.remove("booting");
-          const msg = tonConnectErrorText(e);
-          if(/[Cc]ancel|[Uu]ser reject|declined|aborted|Connection was aborted/i.test(msg)){
-            toast("Отменено");
-            return;
-          }
-          console.error("TonConnect pay:", e);
-          toast(msg.length > 140 ? msg.slice(0, 140) + "…" : msg);
-        }
-      });
-    }catch(e){
-      document.body.classList.remove("booting");
-      toast(e.message || "Ошибка");
-    }
-  };
-  document.getElementById("walletBtnWithdraw").onclick = ()=>{
-    hImpact("light");
-    if(!hasTgAuth){ toast("Открой приложение из Telegram"); return; }
-    openWalletModal("Вывод TON", `
-      <p style="margin:0 0 10px 0">Сумма спишется с баланса сразу. Отправка TON на твой кошелёк выполняется вручную или скриптом администратора по очереди заявок.</p>
-      <label class="small" for="wdAmount">Сумма (TON)</label>
-      <input id="wdAmount" class="field" type="text" inputmode="decimal" placeholder="0.5" style="margin-top:6px;margin-bottom:10px"/>
-      <label class="small" for="wdAddr">Адрес TON (EQ… / UQ…)</label>
-      <input id="wdAddr" class="field" type="text" placeholder="UQ..." style="margin-top:6px;margin-bottom:12px"/>
-      <button type="button" class="btn primary" id="wdSubmit">Создать заявку</button>
-      <p class="small" id="wdErr" style="display:none;margin-top:10px;color:var(--danger)"></p>
-    `);
-    const errEl = document.getElementById("wdErr");
-    document.getElementById("wdSubmit")?.addEventListener("click", async ()=>{
-      errEl.style.display = "none";
-      const amount = document.getElementById("wdAmount")?.value || "";
-      const toAddress = document.getElementById("wdAddr")?.value || "";
-      try{
-        document.body.classList.add("booting");
-        await apiJson("/api/user", { action:"requestWithdrawal", initData: tgInitData, toAddress, amount });
-        document.body.classList.remove("booting");
-        walletModalWrap.classList.remove("show");
-        await hydrateUserFromServer();
-        renderTopbar(); renderWallet();
-        toast("Заявка на вывод создана");
-        hNote("success");
-      }catch(e){
-        document.body.classList.remove("booting");
-        errEl.textContent = e.message || "Ошибка";
-        errEl.style.display = "block";
-      }
-    });
-  };
-  document.getElementById("walletBtnHistory").onclick = async ()=>{
-    hImpact("light");
-    if(!hasTgAuth){ toast("Открой приложение из Telegram"); return; }
-    try{
-      document.body.classList.add("booting");
-      const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 50 });
-      document.body.classList.remove("booting");
-      const ops = Array.isArray(data.operations) ? data.operations : [];
-      if(!ops.length){
-        openWalletModal("История операций", `<p style="margin:0">Пока нет операций.</p>`);
-        return;
-      }
-      const rows = ops.map((o)=>{
-        const amt = Number(o.amount);
-        const amtStr = Number.isFinite(amt) ? amt.toLocaleString("ru-RU", { maximumFractionDigits: 9 }) : String(o.amount);
-        const sign = o.kind === "deposit" ? "+" : "−";
-        const hash = o.ton_tx_hash ? `<div class="small" style="margin-top:4px;word-break:break-all">Tx: ${escapeHtml(o.ton_tx_hash)}</div>` : "";
-        const to = o.to_address ? `<div class="small" style="margin-top:4px;word-break:break-all">→ ${escapeHtml(o.to_address)}</div>` : "";
-        return `<div class="pill" style="display:block;margin-bottom:8px">
-          <div class="row" style="justify-content:space-between;align-items:center">
-            <span style="font-weight:800">${walletKindLabel(o.kind)}</span>
-            <span class="chip">${walletStatusLabel(o.status)}</span>
-          </div>
-          <div style="font-weight:900;margin-top:6px">${sign}${amtStr} TON</div>
-          <div class="small" style="margin-top:4px">${formatDateTime(o.created_at)}</div>
-          ${hash}${to}
-        </div>`;
-      }).join("");
-      openWalletModal("История операций", rows);
-    }catch(e){
-      document.body.classList.remove("booting");
-      toast(e.message || "Ошибка");
-    }
-  };
-
   const profNick = document.getElementById("profNick");
   const rulesAcceptedLine = document.getElementById("rulesAcceptedLine");
   const myRefCode = document.getElementById("myRefCode");
@@ -1850,7 +1405,6 @@
   function renderAll(){
     renderTopbar();
     renderOnlineLabel();
-    renderWallet();
     renderMatches();
     renderProfile();
   }
@@ -1883,13 +1437,13 @@
   })();
 
   window.addEventListener("focus", ()=>{
-    if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); renderWallet(); }).catch(()=>{});
+    if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); }).catch(()=>{});
     loadExternalStats(); loadMatchHistory();
     presencePing(); refreshOnlineCount();
   });
   document.addEventListener("visibilitychange", ()=>{
     if(document.visibilityState === "visible"){
-      if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); renderWallet(); }).catch(()=>{});
+      if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); }).catch(()=>{});
       loadExternalStats(); loadMatchHistory();
       presencePing(); refreshOnlineCount();
     }

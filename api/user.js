@@ -209,14 +209,6 @@ function tonDepositAddress() {
   return raw;
 }
 
-/** BOC base64 для text comment в TonConnect sendTransaction (opcode 0 + текст). */
-function tonTextCommentPayloadBocBase64(text) {
-  const { beginCell } = require("@ton/ton");
-  const t = String(text || "");
-  const cell = beginCell().storeUint(0, 32).storeStringTail(t).endCell();
-  return Buffer.from(cell.toBoc({ idx: false })).toString("base64");
-}
-
 function isPlausibleTonAddress(addr) {
   const s = String(addr || "").trim();
   if (s.length < 40 || s.length > 96) return false;
@@ -239,19 +231,10 @@ async function getWalletInfo(initData) {
 
   const memo = await ensureDepositMemoForUser(tgId);
   const bal = session.user?.balance != null ? String(session.user.balance) : "0";
-  let depositPayloadBoc = "";
-  try {
-    depositPayloadBoc = tonTextCommentPayloadBocBase64(memo);
-  } catch {
-    depositPayloadBoc = "";
-  }
-  const twaReturnUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").trim();
   return {
     depositAddress,
     depositMemo: memo,
-    depositPayloadBoc,
     balance: bal,
-    ...(twaReturnUrl ? { tonConnectTwaReturnUrl: twaReturnUrl } : {}),
   };
 }
 
