@@ -1766,9 +1766,10 @@
         toast((msg || "Ошибка отправки").slice(0, 140), 3500);
         return;
       }
+      let submitScan = null;
       if(intentId){
         try{
-          await apiJson("/api/user", {
+          submitScan = await apiJson("/api/user", {
             action:"submitDepositIntent",
             initData: tgInitData,
             intentId,
@@ -1779,14 +1780,25 @@
         }
       }
       closeWalletModal();
-      toast("Платёж отправлен. Зачисление в баланс только после проверки сети (cron).", 4000);
-      hNote("success");
+      if(submitScan && Number(submitScan.credited) > 0){
+        toast("Зачислено в баланс.", 3500);
+        hNote("success");
+        await hydrateUserFromServer().catch(()=>{});
+        refreshBalanceUiAfterHydrate();
+      } else {
+        toast("Платёж отправлен. Идёт проверка сети; баланс обновится через несколько секунд.", 4000);
+        hNote("success");
+        if(submitScan && Array.isArray(submitScan.scanLog) && submitScan.scanLog.length){
+          const hint = submitScan.scanLog.filter(Boolean).slice(-2).join(" · ");
+          if(hint) toast(hint.slice(0, 200), 5000);
+        }
+      }
       const ok = await pollServerBalanceUntilChanged(balBefore);
       if(ok){
         toast("Баланс пополнен в базе", 4000);
         hNote("success");
-      } else {
-        toast("Если TON дошли на адрес приёма, баланс обновится после cron (проверь CRON_SECRET и расписание).", 5000);
+      } else if(!(submitScan && Number(submitScan.credited) > 0)) {
+        toast("Если TON на адресе приёма, откройте вкладку «Кошелёк» ещё раз или подождите — сервер опросит TonAPI.", 5200);
       }
     });
   });

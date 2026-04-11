@@ -4,7 +4,7 @@
  */
 "use strict";
 
-const { Address } = require("@ton/ton");
+const { Address, Cell } = require("@ton/ton");
 
 function parseJwtPayload(token) {
   try {
@@ -115,6 +115,61 @@ function normalizeMemoForLookup(raw) {
     .replace(/[^A-Z0-9]/g, "");
 }
 
+/** Разбор text_comment из hex BoC тела сообщения (TonAPI raw_body). */
+function extractMemoFromRawBodyHex(hexStr) {
+  const hex = String(hexStr || "").replace(/\s+/g, "").trim();
+  if (hex.length < 16) return null;
+  try {
+    const buf = Buffer.from(hex, "hex");
+    if (buf.length < 4) return null;
+    const roots = Cell.fromBoc(buf);
+    for (const root of roots) {
+      try {
+        const s = root.beginParse();
+        const op = s.loadUint(32);
+        if (op === 0) {
+          const t = s.loadStringTail();
+          if (t && String(t).trim()) return String(t).trim();
+        }
+      } catch {
+        /* next root */
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function deepFindMemoInObject(obj, depth) {
+  if (depth > 10 || obj == null) return null;
+  if (typeof obj === "string") {
+    const t = obj.trim();
+    if (t.length >= 4 && t.length <= 256) return t;
+    return null;
+  }
+  if (typeof obj !== "object") return null;
+  if (Array.isArray(obj)) {
+    for (const x of obj) {
+      const r = deepFindMemoInObject(x, depth + 1);
+      if (r) return r;
+    }
+    return null;
+  }
+  const typ = obj.type;
+  if (typ === "text_comment" && typeof obj.text === "string" && obj.text.trim()) return obj.text.trim();
+  if ((typ === "text" || typ === "comment") && typeof obj.comment === "string" && obj.comment.trim()) {
+    return obj.comment.trim();
+  }
+  if (typeof obj.text === "string" && obj.text.trim()) return obj.text.trim();
+  if (typeof obj.comment === "string" && obj.comment.trim()) return obj.comment.trim();
+  for (const v of Object.values(obj)) {
+    const r = deepFindMemoInObject(v, depth + 1);
+    if (r) return r;
+  }
+  return null;
+}
+
 /** Текст комментария из входящего сообщения (TonAPI / TonConnect text_comment). */
 function extractDepositMemo(inMsg) {
   if (!inMsg || typeof inMsg !== "object") return null;
@@ -123,6 +178,8 @@ function extractDepositMemo(inMsg) {
     if (b.type === "text_comment" && typeof b.text === "string" && b.text.trim()) return b.text.trim();
     if (typeof b.text === "string" && b.text.trim()) return b.text.trim();
     if (typeof b.comment === "string" && b.comment.trim()) return b.comment.trim();
+    const deep = deepFindMemoInObject(b, 0);
+    if (deep) return deep;
   }
   const mc = inMsg.message_content;
   if (mc && typeof mc === "object") {
@@ -130,11 +187,21 @@ function extractDepositMemo(inMsg) {
     const dec = mc.decoded;
     if (dec && typeof dec === "object") {
       if (dec.type === "text_comment" && typeof dec.text === "string" && dec.text.trim()) return dec.text.trim();
+      if (dec.type === "text" && typeof dec.comment === "string" && dec.comment.trim()) return dec.comment.trim();
       if (typeof dec.text === "string" && dec.text.trim()) return dec.text.trim();
+      if (typeof dec.comment === "string" && dec.comment.trim()) return dec.comment.trim();
+      const d2 = deepFindMemoInObject(dec, 0);
+      if (d2) return d2;
     }
+    const d3 = deepFindMemoInObject(mc, 0);
+    if (d3) return d3;
   }
   if (typeof inMsg.comment === "string" && inMsg.comment.trim()) return inMsg.comment.trim();
   if (inMsg.msg_data && typeof inMsg.msg_data.text === "string") return inMsg.msg_data.text.trim();
+  if (typeof inMsg.raw_body === "string" && inMsg.raw_body.length > 10) {
+    const fromBoc = extractMemoFromRawBodyHex(inMsg.raw_body);
+    if (fromBoc) return fromBoc;
+  }
   return null;
 }
 
@@ -147,19 +214,40 @@ function addMemoCandidatesFromRaw(memoRaw, memoCandidates) {
   }
 }
 
-/** Нормализует адрес для запроса к TonAPI (пробуем оба bounceable). */
+/** Совпадение memo пользователя с текстом из сети (подстрока, разный регистр). */
+function userMemoMatchesDeposit(wantMemoNorm, memoRaw) {
+  if (!wantMemoNorm || wantMemoNorm.length < 6 || !memoRaw) return false;
+  const full = normalizeMemoForLookup(memoRaw);
+  if (full === wantMemoNorm) return true;
+  if (full.includes(wantMemoNorm)) return true;
+  if (wantMemoNorm.includes(full) && full.length >= 6) return true;
+  const cand = new Set();
+  addMemoCandidatesFromRaw(memoRaw, cand);
+  return cand.has(wantMemoNorm);
+}
+
+/** Нормализует адрес для запроса к TonAPI (все распространённые форматы). */
 function tonapiAccountPathVariants(depositAddrRaw) {
   const raw = String(depositAddrRaw || "").trim();
-  const out = new Set();
-  out.add(raw);
+  const out = [];
+  const seen = new Set();
+  function add(x) {
+    const s = String(x || "").trim();
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  add(raw);
   try {
     const a = Address.parse(raw);
-    out.add(a.toString({ bounceable: true, urlSafe: true }));
-    out.add(a.toString({ bounceable: false, urlSafe: true }));
+    add(a.toString({ bounceable: true, urlSafe: true }));
+    add(a.toString({ bounceable: false, urlSafe: true }));
+    add(a.toRawString());
   } catch {
-    /* оставляем как в env */
+    /* как в env */
   }
-  return [...out];
+  return out;
 }
 
 async function runExpireDepositIntents(log) {
@@ -242,24 +330,38 @@ async function runDeposits(log, opts = {}) {
 
   let data = { transactions: [] };
   let lastErr = null;
+  let usedAddr = "";
   for (const addrVariant of tonapiAccountPathVariants(depositAddr)) {
     try {
       const enc = encodeURIComponent(addrVariant);
-      data = await tonapiGet(`/blockchain/accounts/${enc}/transactions?limit=${limit}`);
+      const attempt = await tonapiGet(
+        `/blockchain/accounts/${enc}/transactions?limit=${limit}&sort_order=desc`
+      );
+      const tlist = Array.isArray(attempt.transactions) ? attempt.transactions : [];
+      if (tlist.length > 0) {
+        data = attempt;
+        usedAddr = addrVariant;
+        lastErr = null;
+        break;
+      }
+      data = attempt;
+      usedAddr = addrVariant;
       lastErr = null;
-      break;
     } catch (e) {
       lastErr = e;
     }
   }
-  if (lastErr) {
+  if (lastErr && (!data.transactions || !data.transactions.length)) {
     log.push(`deposits: TonAPI error ${lastErr.message}`);
     return 0;
   }
 
   const txs = Array.isArray(data.transactions) ? data.transactions : [];
+  if (onlyTgUserId) {
+    log.push(`deposits: TonAPI txs=${txs.length} addr=${String(usedAddr || depositAddr).slice(0, 12)}…`);
+  }
   if (onlyTgUserId && txs.length === 0) {
-    log.push("deposits: TonAPI returned 0 transactions for deposit address");
+    log.push("deposits: 0 transactions — проверьте TON_DEPOSIT_ADDRESS или подождите индексацию TonAPI");
   }
 
   let credited = 0;
@@ -294,7 +396,7 @@ async function runDeposits(log, opts = {}) {
 
     let tgUserId = "";
     if (onlyTgUserId) {
-      if (!memoCandidates.has(wantMemoNorm)) continue;
+      if (!userMemoMatchesDeposit(wantMemoNorm, memoRaw)) continue;
       tgUserId = onlyTgUserId;
     } else {
       for (const memo of memoCandidates) {
@@ -331,12 +433,14 @@ async function runDeposits(log, opts = {}) {
         p_tx_hash: hashKey,
       });
       const opId = rpcScalar(rpcRaw);
-      if (opId) {
-        try {
-          await linkDepositIntentAfterCredit(tgUserId, tonNum, hashKey, opId, log);
-        } catch (e2) {
-          log.push(`deposits: link intent ${e2.message}`);
-        }
+      if (!opId) {
+        log.push(`deposits: wallet_credit_deposit returned no id tx=${hashKey.slice(0, 12)}…`);
+        continue;
+      }
+      try {
+        await linkDepositIntentAfterCredit(tgUserId, tonNum, hashKey, opId, log);
+      } catch (e2) {
+        log.push(`deposits: link intent ${e2.message}`);
       }
       credited += 1;
       log.push(`deposits: credited ${tonStr} TON user=${tgUserId} hash=${hashKey.slice(0, 16)}…`);
@@ -356,4 +460,5 @@ module.exports = {
   runExpireDepositIntents,
   extractDepositMemo,
   normalizeMemoForLookup,
+  userMemoMatchesDeposit,
 };

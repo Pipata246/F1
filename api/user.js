@@ -425,11 +425,19 @@ async function submitDepositIntent(initData, intentId, boc) {
     },
     prefer: "return=minimal",
   });
-  return { ok: true };
+
+  const scanLog = [];
+  let credited = 0;
+  try {
+    credited = await scanChainDeposits(scanLog, { onlyTgUserId: tgId });
+  } catch (e) {
+    scanLog.push(`deposits: submit-scan error ${String(e?.message || e)}`);
+  }
+  return { ok: true, credited, scanLog: scanLog.slice(-30) };
 }
 
 function touchDepositSyncRateLimit(tgId) {
-  const minSec = Math.min(90, Math.max(8, Number(process.env.DEPOSIT_SYNC_MIN_INTERVAL_SEC) || 10));
+  const minSec = Math.min(90, Math.max(3, Number(process.env.DEPOSIT_SYNC_MIN_INTERVAL_SEC) || 5));
   const now = Date.now();
   const prev = depositSyncLastByTg.get(tgId) || 0;
   if (now - prev < minSec * 1000) {
@@ -2517,12 +2525,12 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, ...data });
     }
     if (action === "submitDepositIntent") {
-      await submitDepositIntent(
+      const data = await submitDepositIntent(
         req.body?.initData || "",
         req.body?.intentId || req.body?.id || "",
         req.body?.boc || ""
       );
-      return res.status(200).json({ ok: true });
+      return res.status(200).json({ ok: true, ...data });
     }
     if (action === "syncMyDeposits") {
       const result = await syncMyDeposits(req.body?.initData || "");
