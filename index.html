@@ -546,7 +546,10 @@
       gap:8px;
       padding-left:8px;
       padding-right:10px;
+      cursor:pointer;
+      transition: transform .12s ease;
     }
+    .topbarBalance:active{ transform: scale(.98); }
     .topbarBalance .topbarTonIcon{ flex:0 0 auto; display:flex; align-items:center; justify-content:center; line-height:0; }
     .topbarBalance .topbarTonIcon svg{ width:22px; height:22px; display:block; }
     .tonBalanceCard{
@@ -595,7 +598,7 @@
         <span>F1 Duel</span>
       </div>
       <div class="topbarRight">
-        <div class="chip topbarBalance" id="headerBalanceWrap" aria-label="Баланс TON">
+        <div class="chip topbarBalance" id="headerBalanceWrap" role="button" tabindex="-1" aria-label="Баланс TON, открыть вкладку">
           <span class="topbarTonIcon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m20.661 7.22l-7.846 12.494a1.06 1.06 0 0 1-1.794-.006L3.328 7.214A2.2 2.2 0 0 1 3 6.05a2.29 2.29 0 0 1 2.324-2.255h13.362C19.963 3.794 21 4.8 21 6.044c0 .413-.116.82-.339 1.175M5.218 6.8l5.723 8.826V5.912H5.816c-.592 0-.857.392-.598.89m7.84 8.826L18.783 6.8c.265-.497-.006-.89-.599-.89H13.06z"/></svg>
           </span>
@@ -1354,11 +1357,28 @@
       if(hasTgAuth && state.profile.serverBalanceTon != null){
         headerBalanceVal.textContent = formatBalanceDisplay(state.profile.serverBalanceTon);
         headerBalanceWrap.style.display = "flex";
+        headerBalanceWrap.setAttribute("tabindex", "0");
       } else {
         headerBalanceWrap.style.display = "none";
+        headerBalanceWrap.setAttribute("tabindex", "-1");
       }
     }
   }
+
+  function goToWalletFromTopbar(){
+    const o = needsOnboarding();
+    if(o){ go(o); return; }
+    go("wallet");
+  }
+  headerBalanceWrap?.addEventListener("click", (e)=>{
+    e.preventDefault();
+    goToWalletFromTopbar();
+  });
+  headerBalanceWrap?.addEventListener("keydown", (e)=>{
+    if(e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    goToWalletFromTopbar();
+  });
 
   function renderWallet(){
     const el = tonBalanceVal;
