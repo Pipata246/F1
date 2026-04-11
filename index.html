@@ -44,7 +44,6 @@
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --app-vh: 100dvh;
-      --tg-ui-offset: 88px;
     }
 
     body:before{
@@ -57,13 +56,12 @@
 
     .app{
       min-height:var(--app-vh);
-      padding-top:var(--safe-top);
       padding-bottom:calc(86px + var(--safe-bottom));
     }
     .topbar{
       position:sticky; top:0; z-index:20;
-      padding: calc(14px + var(--safe-top) + var(--tg-ui-offset)) 16px 14px;
-      min-height: calc(72px + var(--safe-top) + var(--tg-ui-offset));
+      padding: calc(10px + var(--safe-top)) 16px 10px;
+      min-height: calc(48px + var(--safe-top));
       display:flex; align-items:center; justify-content:space-between; gap:12px;
       background: rgba(10,12,18,.45);
       backdrop-filter: blur(18px);
