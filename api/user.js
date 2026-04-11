@@ -1,8 +1,8 @@
 const crypto = require("crypto");
 const {
-  runDeposits: scanChainDeposits,
-  auditConnectBocForUserMemo,
-} = require("./wallet-deposit-scan");
+  tryFinalizeDepositFromBoc,
+  processSubmittedIntentsForUser,
+} = require("./wallet-deposit-verify");
 
 /** Сравнение секретов без утечки по времени (длины должны совпадать). */
 function safeSecretEqual(provided, expected) {
@@ -405,19 +405,23 @@ async function submitDepositIntent(initData, intentId, boc) {
   const id = String(intentId || "").trim();
   if (!id) throw new Error("Missing intentId");
 
-  let memoPlain = "";
-  try {
-    memoPlain = await ensureDepositMemoForUser(tgId);
-  } catch {
-    /* */
-  }
+  const memoPlain = await ensureDepositMemoForUser(tgId).catch(() => "");
+  if (!memoPlain) throw new Error("Не удалось получить тег пополнения (deposit_memo)");
+
+  const depositAddress = tonDepositAddress();
+  if (!depositAddress) throw new Error("Deposit address is not configured");
 
   const found = await sb(
-    `deposit_intents?id=eq.${encodeURIComponent(id)}&tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,status,expires_at,meta&limit=1`
+    `deposit_intents?id=eq.${encodeURIComponent(id)}&tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,status,expires_at,meta,declared_amount_ton,wallet_operation_id&limit=1`
   );
   if (!found?.length) throw new Error("Intent not found");
   const cur = found[0];
-  if (cur.status !== "pending") throw new Error("Intent is not awaiting payment");
+  if (cur.wallet_operation_id) {
+    return { ok: true, credited: false, alreadyCompleted: true, scanLog: [] };
+  }
+  if (cur.status !== "pending" && cur.status !== "submitted") {
+    throw new Error("Intent is not awaiting payment");
+  }
   if (new Date(cur.expires_at).getTime() < Date.now()) {
     await sb(`deposit_intents?id=eq.${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -427,63 +431,63 @@ async function submitDepositIntent(initData, intentId, boc) {
     throw new Error("Intent expired — create a new top-up");
   }
 
+  const bocStr = String(boc || "").trim();
+  if (bocStr.length < 24) throw new Error("Кошелёк не вернул BOC транзакции — попробуйте ещё раз");
+
   const extMin = Math.min(
     7 * 24 * 60,
     Math.max(120, Number(process.env.DEPOSIT_INTENT_SUBMIT_TTL_MIN) || 2880)
   );
   const newExpires = new Date(Date.now() + extMin * 60_000).toISOString();
   const prevMeta = cur.meta && typeof cur.meta === "object" && !Array.isArray(cur.meta) ? cur.meta : {};
-  const bocStr = String(boc || "").trim();
-  const meta =
-    bocStr.length > 0
-      ? { ...prevMeta, tx_boc_tail: bocStr.slice(-500) }
-      : prevMeta;
+  const meta = {
+    ...prevMeta,
+    connect_boc: bocStr.slice(0, 120000),
+    tx_boc_tail: bocStr.slice(-500),
+  };
 
-  await sb(`deposit_intents?id=eq.${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: {
-      status: "submitted",
-      submitted_at: new Date().toISOString(),
-      expires_at: newExpires,
-      meta,
-      updated_at: new Date().toISOString(),
-    },
-    prefer: "return=minimal",
-  });
+  const nowIso = new Date().toISOString();
+  if (cur.status === "pending") {
+    await sb(`deposit_intents?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: {
+        status: "submitted",
+        submitted_at: nowIso,
+        expires_at: newExpires,
+        meta,
+        updated_at: nowIso,
+      },
+      prefer: "return=minimal",
+    });
+  } else {
+    await sb(`deposit_intents?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: { meta, expires_at: newExpires, updated_at: nowIso },
+      prefer: "return=minimal",
+    });
+  }
 
   const scanLog = [];
-  if (bocStr.length > 20) auditConnectBocForUserMemo(bocStr, memoPlain, scanLog);
+  const submitAttempts = Math.min(10, Math.max(2, Number(process.env.DEPOSIT_SUBMIT_TX_ATTEMPTS) || 4));
+  const submitDelay = Math.min(2500, Math.max(350, Number(process.env.DEPOSIT_SUBMIT_TX_DELAY_MS) || 550));
 
-  let credited = 0;
-  /* Vercel Hobby ~10s function limit: длинный цикл обрывается после PATCH submitted → «зависший» submitted без зачисления. */
-  const budgetMs = Math.min(
-    120000,
-    Math.max(4000, Number(process.env.DEPOSIT_SUBMIT_SCAN_BUDGET_MS) || 8200)
-  );
-  const scanDeadline = Date.now() + budgetMs;
-  const maxPasses = Math.min(15, Math.max(1, Number(process.env.DEPOSIT_SUBMIT_SCAN_PASSES) || 6));
-  const delayMs = Math.min(3000, Math.max(200, Number(process.env.DEPOSIT_SUBMIT_SCAN_DELAY_MS) || 500));
+  const api = { sb, sbRpc, rpcScalar };
+  const fin = await tryFinalizeDepositFromBoc(api, {
+    tgId,
+    intentId: id,
+    bocBase64: bocStr,
+    depositAddress,
+    memoPlain,
+    declaredTon: cur.declared_amount_ton,
+    waitOpts: { maxAttempts: submitAttempts, delayMs: submitDelay, log: scanLog },
+    log: scanLog,
+  });
 
-  for (let p = 0; p < maxPasses; p++) {
-    if (Date.now() > scanDeadline) {
-      scanLog.push(
-        "deposits: submit-scan стоп по лимиту времени — дальше syncMyDeposits / cron (Hobby ~10s на функцию)"
-      );
-      break;
-    }
-    try {
-      credited = await scanChainDeposits(scanLog, { onlyTgUserId: tgId });
-      if (credited > 0) break;
-    } catch (e) {
-      scanLog.push(`deposits: submit-scan error ${String(e?.message || e)}`);
-      break;
-    }
-    const room = scanDeadline - Date.now();
-    if (p < maxPasses - 1 && room > delayMs + 400) {
-      await new Promise((r) => setTimeout(r, Math.min(delayMs, room - 300)));
-    }
-  }
-  return { ok: true, credited, scanLog: scanLog.slice(-40) };
+  return {
+    credited: fin.credited ? 1 : 0,
+    depositReason: fin.reason || null,
+    scanLog: scanLog.slice(-40),
+  };
 }
 
 /** @returns {boolean} false — слишком рано, пропускаем скан (без ошибки для клиента). */
@@ -504,7 +508,7 @@ function touchDepositSyncRateLimit(tgId) {
   return true;
 }
 
-/** Та же логика что cron: TonAPI → wallet_credit_deposit, только для текущего пользователя. */
+/** Дожим submitted-заявки по сохранённому connect_boc (TonConnect + TEP-467). */
 async function syncMyDeposits(initData) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -516,7 +520,8 @@ async function syncMyDeposits(initData) {
     return { credited: 0, log: [], rateLimited: true };
   }
   const log = [];
-  const credited = await scanChainDeposits(log, { onlyTgUserId: tgId });
+  const api = { sb, sbRpc, rpcScalar };
+  const { credited } = await processSubmittedIntentsForUser(api, tgId, { log });
   return { credited, log: log.slice(-30), rateLimited: false };
 }
 

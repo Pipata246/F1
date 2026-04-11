@@ -1,6 +1,7 @@
 /**
- * Vercel Cron: авто-зачисление входящих TON (TonAPI) + авто-отправка выводов (@ton/ton).
- * Защита: заголовок Authorization: Bearer CRON_SECRET (задай в Vercel + env CRON_SECRET).
+ * Vercel Cron: просрочка заявок на пополнение + авто-отправка выводов (@ton/ton).
+ * Зачисление депозитов — через BOC TonConnect (api/wallet-deposit-verify.js), не через этот cron.
+ * Защита: Authorization: Bearer CRON_SECRET.
  */
 const crypto = require("crypto");
 const { mnemonicToPrivateKey } = require("@ton/crypto");
@@ -13,7 +14,7 @@ const {
   toNano,
   SendMode,
 } = require("@ton/ton");
-const { runDeposits, runExpireDepositIntents } = require("./wallet-deposit-scan");
+const { runExpireDepositIntents } = require("./wallet-deposit-verify");
 
 function safeSecretEqual(a, b) {
   const x = String(a || "");
@@ -392,15 +393,9 @@ module.exports = async (req, res) => {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    await runExpireDepositIntents(log);
+    await runExpireDepositIntents(sb, log);
 
-    let deposits = 0;
     let withdrawTouched = 0;
-    try {
-      deposits = await runDeposits(log);
-    } catch (e) {
-      log.push(`deposits fatal: ${e.message}`);
-    }
     try {
       withdrawTouched = await runWithdrawals(log);
     } catch (e) {
@@ -409,7 +404,7 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({
       ok: true,
-      depositsCredited: deposits,
+      depositsCredited: 0,
       withdrawalsSeen: withdrawTouched,
       log,
     });

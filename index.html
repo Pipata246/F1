@@ -1020,17 +1020,14 @@
     return false;
   }
 
-  /** Не показывать в тосте служебные строки скана (счётчики tx и т.п.). */
+  /** Строки лога зачисления для тоста (убираем «успех» и шум). */
   function userFacingDepositScanHints(scanLog){
     if(!Array.isArray(scanLog)) return [];
     const skip = (t)=>{
       const s = String(t);
       return (
-        /^deposits:\s*TonCenter txs=\d+$/i.test(s) ||
-        /^deposits:\s*TonCenter 0 txs/i.test(s) ||
-        /^deposits:\s*TonAPI txs=\d+/i.test(s) ||
-        /^deposits:\s*credited\s/i.test(s) ||
-        /^deposits:\s*intent\s/i.test(s)
+        /^deposit: зачислено/i.test(s) ||
+        /^ton: getTransactions/i.test(s)
       );
     };
     return scanLog.filter(Boolean).filter((x)=> !skip(x));
@@ -1813,6 +1810,12 @@
         await hydrateUserFromServer().catch(()=>{});
         refreshBalanceUiAfterHydrate();
       } else {
+        const dr = submitScan && submitScan.depositReason;
+        if(dr === "tx_not_on_chain_yet"){
+          toast("Транзакция ещё подтверждается в сети…", 3200);
+        } else if(dr === "no_matching_out_msg" || dr === "amount_mismatch"){
+          toast("Сервер не нашёл перевод на кассу с вашим комментарием. Проверьте сумму и что оплата через кнопку в приложении.", 6000);
+        }
         const hints = userFacingDepositScanHints(submitScan?.scanLog);
         if(hints.length){
           const hint = hints.slice(-2).join(" · ");
