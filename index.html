@@ -411,17 +411,19 @@
     .topbarBalance .topbarTonIcon svg{ width:22px; height:22px; display:block; }
     .tonBalanceCard{
       display:flex; align-items:center; gap:16px; padding:18px 16px; border-radius:20px;
-      background: linear-gradient(135deg, rgba(0,136,204,.20), rgba(0,136,204,.06));
-      border:1px solid rgba(0,136,204,.32);
-      box-shadow: 0 0 28px rgba(0,136,204,.10);
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.10);
     }
-    .tonLogo{ width:56px; height:56px; flex:0 0 auto; border-radius:50%; display:flex; align-items:center; justify-content:center; line-height:0; }
+    .tonLogo{
+      width:56px; height:56px; flex:0 0 auto;
+      display:flex; align-items:center; justify-content:center;
+      line-height:0; color:#0098EA;
+    }
     .tonLogo svg{ width:56px; height:56px; display:block; }
     .tonBalanceMeta{ flex:1; min-width:0; }
     .tonBalanceLabel{ font-size:12px; font-weight:700; color: var(--text2); letter-spacing:.12em; text-transform: uppercase; }
     .tonBalanceAmount{ margin-top:4px; font-size:28px; font-weight:950; letter-spacing:.02em; line-height:1.1; font-variant-numeric: tabular-nums; }
-    .tonBalanceUnit{ display:inline-flex; align-items:center; margin-left:8px; vertical-align:middle; line-height:0; }
-    .tonBalanceUnit svg{ width:20px; height:20px; display:block; }
+    .tonBalanceCurrency{ font-size:18px; font-weight:800; color: var(--text2); margin-left:6px; vertical-align:middle; }
     .walletActions{ display:flex; flex-direction:column; gap:10px; margin-top:4px; }
     .walletActions .btn{ width:100%; }
 
@@ -453,9 +455,9 @@
         <span>F1 Duel</span>
       </div>
       <div class="topbarRight">
-        <div class="chip topbarBalance" id="headerBalanceWrap" aria-label="Баланс TON с сервера">
+        <div class="chip topbarBalance" id="headerBalanceWrap" aria-label="Баланс TON">
           <span class="topbarTonIcon" aria-hidden="true">
-            <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C36.459 18.4844 37.0142 18.566 37.5944 18.8365C38.2899 19.1606 38.6587 19.6717 38.9171 20.0496C38.9372 20.079 38.956 20.1093 38.9734 20.1403C39.2772 20.6811 39.4338 21.265 39.4338 21.8931C39.4338 22.4899 39.2918 23.1401 38.9734 23.7068L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.963 23.3707 16.6183 22.8027 16.558 22.0696C16.5026 21.3956 16.6541 20.7202 16.9928 20.1346C17.3315 19.5489 17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199C19.7671 20.9192 19.6013 20.9458 19.4854 21C19.3251 21.0748 19.1905 21.1978 19.1005 21.3535C19.0105 21.5092 18.9698 21.6896 18.9846 21.8701L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 22.1245 36.999 21.8931 36.999 21.8931C36.999 21.7054 36.9601 21.5424 36.8731 21.3743C36.7818 21.2431 36.7262 21.1736 36.6797 21.126C36.6398 21.0853 36.6091 21.0635 36.5657 21.0433C36.3849 20.959 36.1999 20.9192 35.9034 20.9192H29.2077Z" fill="white"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m20.661 7.22l-7.846 12.494a1.06 1.06 0 0 1-1.794-.006L3.328 7.214A2.2 2.2 0 0 1 3 6.05a2.29 2.29 0 0 1 2.324-2.255h13.362C19.963 3.794 21 4.8 21 6.044c0 .413-.116.82-.339 1.175M5.218 6.8l5.723 8.826V5.912H5.816c-.592 0-.857.392-.598.89m7.84 8.826L18.783 6.8c.265-.497-.006-.89-.599-.89H13.06z"/></svg>
           </span>
           <span id="headerBalanceVal">—</span>
         </div>
@@ -648,24 +650,16 @@
       <!-- WALLET -->
       <section id="page-wallet" class="hidden">
         <div class="glass card">
-          <div class="row" style="align-items:center; justify-content:space-between;">
-            <div>
-              <h2 class="titleXL" style="margin:0">Баланс</h2>
-              <p class="small muted" style="margin:6px 0 0 0">Данные с сервера, после операций обновляются автоматически</p>
-            </div>
-            <div class="chip" style="padding:6px 8px;line-height:0" aria-hidden="true">
-              <svg width="26" height="26" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C38.9734 23.7068L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.558 22.0696C16.6541 20.7202 16.9928 20.1346C17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 22.1245 36.999 21.8931 36.999 21.8931C36.999 21.7054 36.8731 21.3743C36.3849 20.959 35.9034 20.9192H29.2077Z" fill="white"/></svg>
-            </div>
-          </div>
+          <h2 class="titleXL" style="margin:0">Баланс</h2>
           <div class="divider"></div>
           <div class="tonBalanceCard">
             <div class="tonLogo" aria-hidden="true">
-              <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.558 22.0696C16.9928 20.1346C18.4547 18.7941C20.199 18.4844ZM26.7729 20.9192H20.199L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 21.8931 36.999 21.8931C36.7818 21.2431 35.9034 20.9192H29.2077Z" fill="white"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="56" height="56"><path fill="currentColor" d="m20.661 7.22l-7.846 12.494a1.06 1.06 0 0 1-1.794-.006L3.328 7.214A2.2 2.2 0 0 1 3 6.05a2.29 2.29 0 0 1 2.324-2.255h13.362C19.963 3.794 21 4.8 21 6.044c0 .413-.116.82-.339 1.175M5.218 6.8l5.723 8.826V5.912H5.816c-.592 0-.857.392-.598.89m7.84 8.826L18.783 6.8c.265-.497-.006-.89-.599-.89H13.06z"/></svg>
             </div>
             <div class="tonBalanceMeta">
-              <div class="tonBalanceLabel">Доступно (с сервера)</div>
+              <div class="tonBalanceLabel">Доступно</div>
               <div>
-                <span class="tonBalanceAmount" id="tonBalanceVal">—</span><span class="tonBalanceUnit" aria-hidden="true"><svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.558 22.0696C16.9928 20.1346C18.4547 18.7941C20.199 18.4844ZM26.7729 20.9192H20.199L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 21.8931 36.7818 21.2431 35.9034 20.9192H29.2077Z" fill="white"/></svg></span>
+                <span class="tonBalanceAmount" id="tonBalanceVal">—</span><span class="tonBalanceCurrency">TON</span>
               </div>
             </div>
           </div>
