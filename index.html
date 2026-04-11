@@ -2179,11 +2179,6 @@
           `<div class="walletHistBlock"><div class="walletHistLabel">Адрес получателя</div><div class="walletHistMono">${escapeHtml(String(r.to_address))}</div></div>`
         );
       }
-      if(r.ton_tx_hash){
-        blocks.push(
-          `<div class="walletHistBlock"><div class="walletHistLabel">Хеш в блокчейне</div><div class="walletHistMono">${escapeHtml(String(r.ton_tx_hash))}</div></div>`
-        );
-      }
       return `<div class="walletHistCard">
         <div class="walletHistHead">
           <div class="walletHistType">${escapeHtml(kind)}</div>
