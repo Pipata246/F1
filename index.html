@@ -396,6 +396,35 @@
       color: var(--text);
     }
 
+    .topbarBalance{
+      font-variant-numeric: tabular-nums;
+      border-color: rgba(0,136,204,.35);
+      background: rgba(0,136,204,.12);
+      color: #9AE8FF;
+      display:none;
+      align-items:center;
+      gap:8px;
+      padding-left:8px;
+      padding-right:10px;
+    }
+    .topbarBalance .topbarTonIcon{ flex:0 0 auto; display:flex; align-items:center; justify-content:center; line-height:0; }
+    .topbarBalance .topbarTonIcon svg{ width:22px; height:22px; display:block; }
+    .tonBalanceCard{
+      display:flex; align-items:center; gap:16px; padding:18px 16px; border-radius:20px;
+      background: linear-gradient(135deg, rgba(0,136,204,.20), rgba(0,136,204,.06));
+      border:1px solid rgba(0,136,204,.32);
+      box-shadow: 0 0 28px rgba(0,136,204,.10);
+    }
+    .tonLogo{ width:56px; height:56px; flex:0 0 auto; border-radius:50%; display:flex; align-items:center; justify-content:center; line-height:0; }
+    .tonLogo svg{ width:56px; height:56px; display:block; }
+    .tonBalanceMeta{ flex:1; min-width:0; }
+    .tonBalanceLabel{ font-size:12px; font-weight:700; color: var(--text2); letter-spacing:.12em; text-transform: uppercase; }
+    .tonBalanceAmount{ margin-top:4px; font-size:28px; font-weight:950; letter-spacing:.02em; line-height:1.1; font-variant-numeric: tabular-nums; }
+    .tonBalanceUnit{ display:inline-flex; align-items:center; margin-left:8px; vertical-align:middle; line-height:0; }
+    .tonBalanceUnit svg{ width:20px; height:20px; display:block; }
+    .walletActions{ display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+    .walletActions .btn{ width:100%; }
+
     /* Game surface blocks */
     .gameSurface{
       border-radius: 22px;
@@ -424,6 +453,12 @@
         <span>F1 Duel</span>
       </div>
       <div class="topbarRight">
+        <div class="chip topbarBalance" id="headerBalanceWrap" aria-label="Баланс TON с сервера">
+          <span class="topbarTonIcon" aria-hidden="true">
+            <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C36.459 18.4844 37.0142 18.566 37.5944 18.8365C38.2899 19.1606 38.6587 19.6717 38.9171 20.0496C38.9372 20.079 38.956 20.1093 38.9734 20.1403C39.2772 20.6811 39.4338 21.265 39.4338 21.8931C39.4338 22.4899 39.2918 23.1401 38.9734 23.7068L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.963 23.3707 16.6183 22.8027 16.558 22.0696C16.5026 21.3956 16.6541 20.7202 16.9928 20.1346C17.3315 19.5489 17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199C19.7671 20.9192 19.6013 20.9458 19.4854 21C19.3251 21.0748 19.1905 21.1978 19.1005 21.3535C19.0105 21.5092 18.9698 21.6896 18.9846 21.8701L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 22.1245 36.999 21.8931 36.999 21.8931C36.999 21.7054 36.9601 21.5424 36.8731 21.3743C36.7818 21.2431 36.7262 21.1736 36.6797 21.126C36.6398 21.0853 36.6091 21.0635 36.5657 21.0433C36.3849 20.959 36.1999 20.9192 35.9034 20.9192H29.2077Z" fill="white"/></svg>
+          </span>
+          <span id="headerBalanceVal">—</span>
+        </div>
         <div class="chip" id="userChip">Гость</div>
       </div>
     </div>
@@ -610,6 +645,39 @@
         </div>
       </section>
 
+      <!-- WALLET -->
+      <section id="page-wallet" class="hidden">
+        <div class="glass card">
+          <div class="row" style="align-items:center; justify-content:space-between;">
+            <div>
+              <h2 class="titleXL" style="margin:0">Баланс</h2>
+              <p class="small muted" style="margin:6px 0 0 0">Данные с сервера, после операций обновляются автоматически</p>
+            </div>
+            <div class="chip" style="padding:6px 8px;line-height:0" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034C38.9734 23.7068L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.558 22.0696C16.6541 20.7202 16.9928 20.1346C17.8414 19.0807 18.4547 18.7941C19.1123 18.4868 19.7787 18.4844 20.199 18.4844ZM26.7729 20.9192H20.199L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 22.1245 36.999 21.8931 36.999 21.8931C36.999 21.7054 36.8731 21.3743C36.3849 20.959 35.9034 20.9192H29.2077Z" fill="white"/></svg>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="tonBalanceCard">
+            <div class="tonLogo" aria-hidden="true">
+              <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.558 22.0696C16.9928 20.1346C18.4547 18.7941C20.199 18.4844ZM26.7729 20.9192H20.199L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 21.8931 36.999 21.8931C36.7818 21.2431 35.9034 20.9192H29.2077Z" fill="white"/></svg>
+            </div>
+            <div class="tonBalanceMeta">
+              <div class="tonBalanceLabel">Доступно (с сервера)</div>
+              <div>
+                <span class="tonBalanceAmount" id="tonBalanceVal">—</span><span class="tonBalanceUnit" aria-hidden="true"><svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 56C43.464 56 56 43.464 56 28C56 12.536 43.464 0 28 0C12.536 0 0 12.536 0 28C0 43.464 12.536 56 28 56Z" fill="#0088CC"/><path fill-rule="evenodd" clip-rule="evenodd" d="M20.199 18.4844H35.9034L29.0424 40.7665C28.8236 41.1423 28.4209 41.3729 27.986 41.3714C27.5511 41.3698 27.15 41.1364 26.9339 40.759L17.1943 23.7518C16.558 22.0696C16.9928 20.1346C18.4547 18.7941C20.199 18.4844ZM26.7729 20.9192H20.199L26.7729 35.5785V20.9192ZM29.2077 20.9192V35.643L36.8542 22.5079C36.999 21.8931 36.7818 21.2431 35.9034 20.9192H29.2077Z" fill="white"/></svg></span>
+              </div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="walletActions">
+            <button type="button" class="btn primary" id="walletBtnTopup">Пополнить (Tonkeeper)</button>
+            <button type="button" class="btn ghost" id="walletBtnWithdraw">Вывести</button>
+            <button type="button" class="btn ghost" id="walletBtnHistory">История операций</button>
+          </div>
+        </div>
+      </section>
+
       <!-- MATCHES -->
       <section id="page-matches" class="hidden">
         <div class="glass card">
@@ -642,6 +710,13 @@
           <div>
             <div class="titleXL" id="profNick">—</div>
           </div>
+          <div class="row" style="margin-top:12px">
+            <div class="pill" style="flex:1">
+              <span class="text2">Баланс TON</span>
+              <strong id="profileBalanceTon">—</strong>
+            </div>
+          </div>
+          <p class="small muted" style="margin:8px 0 0 0">Сумма с сервера (нельзя подделать в приложении)</p>
 
           <div class="divider"></div>
 
@@ -720,6 +795,15 @@
       </div>
       <div>Игры</div>
     </button>
+    <button id="tab-wallet" onclick="go('wallet')">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+          <path d="M16 10h5v4h-5a2 2 0 1 1 0-4z"></path>
+        </svg>
+      </div>
+      <div>Баланс</div>
+    </button>
     <button id="tab-matches" onclick="go('matches')">
       <div class="icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -767,6 +851,17 @@
     </div>
   </div>
 
+  <div id="walletModalWrap" class="modalWrap">
+    <div class="modal" style="max-height:88vh;overflow-y:auto">
+      <h3 id="walletModalTitle">Кошелёк</h3>
+      <div id="walletModalBody" class="muted" style="font-size:14px"></div>
+      <div class="row" style="margin-top:14px">
+        <button type="button" id="walletModalClose" class="btn ghost">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+<script src="https://unpkg.com/@tonconnect/ui@2.0.11/dist/tonconnect-ui.min.js"></script>
 <script>
   const tg = window.Telegram?.WebApp;
   function applyViewport(){
@@ -823,6 +918,7 @@
       myRefCode: "",
       referredBy: "",
       refStatus: "none",
+      serverBalanceTon: null,
     },
     settings: { sound:true, haptic:true },
   };
@@ -833,9 +929,14 @@
       if(!raw) return structuredClone(defaultState);
       const s = JSON.parse(raw);
       const globalSettings = readGlobalSettings();
+      const persistedProfile = s.profile && typeof s.profile === "object" ? { ...s.profile } : {};
+      delete persistedProfile.serverBalanceTon;
+      delete persistedProfile.balanceTon;
+      delete persistedProfile.balance;
       return {
         ...defaultState,
         ...s,
+        profile: { ...defaultState.profile, ...persistedProfile, serverBalanceTon: null },
         settings:{...defaultState.settings, ...(s.settings||{}), ...(globalSettings||{})},
       };
     }catch(e){
@@ -862,6 +963,101 @@
     return data;
   }
 
+  function parseBalanceNum(s){
+    return Number(String(s == null ? "0" : s).replace(",", "."));
+  }
+  function formatBalanceDisplay(str){
+    if(str == null || str === "") return "—";
+    const n = parseBalanceNum(str);
+    if(!Number.isFinite(n)) return String(str) + " TON";
+    const t = n.toLocaleString("ru-RU", { maximumFractionDigits: 9, minimumFractionDigits: 0 });
+    return t + " TON";
+  }
+  function formatBalanceAmountOnly(str){
+    if(str == null || str === "") return "—";
+    const n = parseBalanceNum(str);
+    if(!Number.isFinite(n)) return String(str);
+    return n.toLocaleString("ru-RU", { maximumFractionDigits: 9, minimumFractionDigits: 0 });
+  }
+  function escapeHtml(s){
+    return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  function tonStringToNano(amountStr){
+    const n = Number(String(amountStr || "").trim().replace(",", "."));
+    if(!Number.isFinite(n) || n <= 0) throw new Error("Укажите корректную сумму");
+    const nano = Math.round(n * 1e9);
+    if(nano < 1) throw new Error("Сумма слишком мала");
+    return String(nano);
+  }
+  async function refreshWalletUiFromServer(){
+    await hydrateUserFromServer();
+    renderTopbar();
+    renderWallet();
+    renderProfile();
+  }
+  async function pollServerBalanceUntilChanged(prevStr, opts){
+    const maxMs = opts?.maxMs ?? 120000;
+    const interval = opts?.interval ?? 3500;
+    const start = Date.now();
+    const prev = parseBalanceNum(prevStr);
+    while(Date.now() - start < maxMs){
+      await new Promise((r)=> setTimeout(r, interval));
+      try{
+        await hydrateUserFromServer();
+        renderTopbar();
+        renderWallet();
+        renderProfile();
+        const cur = parseBalanceNum(state.profile.serverBalanceTon);
+        if(Number.isFinite(cur) && cur > prev + 1e-12) return true;
+      }catch(e){ /* continue */ }
+    }
+    return false;
+  }
+
+  let tonConnectUI = null;
+  function getTonConnectUI(){
+    if(tonConnectUI) return tonConnectUI;
+    const Ctor = window.TON_CONNECT_UI?.TonConnectUI || window.TonConnectUI;
+    if(typeof Ctor !== "function"){
+      toast("Не загрузился TonConnect (проверьте сеть)", 3500);
+      return null;
+    }
+    const manifestUrl = `${window.location.origin}/api/tonconnect-manifest`;
+    tonConnectUI = new Ctor({
+      manifestUrl,
+      language: "ru",
+      walletsListConfiguration: {
+        includeWallets: [
+          {
+            appName: "tonkeeper",
+            name: "Tonkeeper",
+            imageUrl: "https://tonkeeper.com/assets/tonconnect-icon.png",
+            aboutUrl: "https://tonkeeper.com",
+            universalLink: "https://app.tonkeeper.com/ton-connect",
+            deepLink: "tonkeeper-tc://",
+            jsBridgeKey: "tonkeeper",
+            bridgeUrl: "https://bridge.tonapi.io/bridge",
+            platforms: ["ios", "android", "macos", "windows", "linux"],
+          },
+        ],
+      },
+    });
+    return tonConnectUI;
+  }
+
+  const walletModalWrap = document.getElementById("walletModalWrap");
+  const walletModalTitle = document.getElementById("walletModalTitle");
+  const walletModalBody = document.getElementById("walletModalBody");
+  const walletModalClose = document.getElementById("walletModalClose");
+  function openWalletModal(title, html){
+    if(walletModalTitle) walletModalTitle.textContent = title;
+    if(walletModalBody) walletModalBody.innerHTML = html;
+    walletModalWrap?.classList.add("show");
+  }
+  function closeWalletModal(){ walletModalWrap?.classList.remove("show"); }
+  walletModalClose?.addEventListener("click", closeWalletModal);
+  walletModalWrap?.addEventListener("click", (e)=>{ if(e.target === walletModalWrap) closeWalletModal(); });
+
   async function hydrateUserFromServer(){
     if(!hasTgAuth) return;
     try{
@@ -877,6 +1073,8 @@
         state.profile.myRefCode = data.user.referral_code || "";
         state.onboarding.rulesAccepted = !!data.user.rules_accepted_at;
         state.onboarding.referralAsked = true;
+        const b = data.user?.balance;
+        state.profile.serverBalanceTon = b != null && b !== "" ? String(b) : "0";
         if(!data.user.referral_asked_at){
           apiJson("/api/user", { action:"markReferralAsked", initData: tgInitData }).catch(()=>{});
         }
@@ -885,6 +1083,7 @@
         state.onboarding.referralAsked = false;
         state.profile.displayName = data.user.display_name || "Player";
         state.profile.myRefCode = "";
+        state.profile.serverBalanceTon = null;
       }
     }catch(e){
       console.error("hydrateUserFromServer:", e);
@@ -898,7 +1097,11 @@
 
   const toastEl = document.getElementById("toast"); let toastTimer=null;
   const shareNotice = document.getElementById("shareNotice"); let shareNoticeTimer = null;
-  function toast(t){ toastEl.textContent=t; toastEl.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove("show"), 1500); }
+  function toast(t, ms){
+    const dur = Number(ms);
+    const d = Number.isFinite(dur) && dur > 0 ? dur : 2200;
+    toastEl.textContent=t; toastEl.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove("show"), d);
+  }
   function showShareNotice(title="Готово!", sub="Операция выполнена успешно"){
     const t = shareNotice.querySelector(".title");
     const s = shareNotice.querySelector(".sub");
@@ -926,13 +1129,13 @@
     modalCancel.onclick = ()=> modalWrap.classList.remove("show");
   }
 
-  const pages = ["onb-rules","onb-ref","games","matches","profile"];
+  const pages = ["onb-rules","onb-ref","games","wallet","matches","profile"];
   function go(page){
     pages.forEach(p=>{
       const el = document.getElementById("page-"+p);
       if(el) el.classList.toggle("hidden", p!==page);
     });
-    ["games","matches","profile"].forEach(t=>{
+    ["games","wallet","matches","profile"].forEach(t=>{
       const tab = document.getElementById("tab-"+t);
       if(tab) tab.classList.toggle("active", t===page);
     });
@@ -943,6 +1146,13 @@
     }
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
+    if(page === "wallet" && hasTgAuth){
+      hydrateUserFromServer().then(()=>{
+        renderTopbar();
+        renderWallet();
+        renderProfile();
+      }).catch(()=>{});
+    }
   }
 
   function needsOnboarding(){
@@ -952,11 +1162,37 @@
   }
 
   const userChip = document.getElementById("userChip");
+  const headerBalanceWrap = document.getElementById("headerBalanceWrap");
+  const headerBalanceVal = document.getElementById("headerBalanceVal");
+  const tonBalanceVal = document.getElementById("tonBalanceVal");
+  const profileBalanceTon = document.getElementById("profileBalanceTon");
   const displayNick = ()=> (state.profile.displayName || "Player");
   function displayMe(){ return displayNick(); }
 
   function renderTopbar(){
     userChip.textContent = displayMe();
+    if(headerBalanceWrap && headerBalanceVal){
+      if(hasTgAuth && state.profile.serverBalanceTon != null){
+        headerBalanceVal.textContent = formatBalanceDisplay(state.profile.serverBalanceTon);
+        headerBalanceWrap.style.display = "flex";
+      } else {
+        headerBalanceWrap.style.display = "none";
+      }
+    }
+  }
+
+  function renderWallet(){
+    const el = tonBalanceVal;
+    if(!el) return;
+    if(!hasTgAuth){
+      el.textContent = "—";
+      return;
+    }
+    if(state.profile.serverBalanceTon == null){
+      el.textContent = "Завершите регистрацию";
+      return;
+    }
+    el.textContent = formatBalanceAmountOnly(state.profile.serverBalanceTon);
   }
 
   const onlineNow = document.getElementById("onlineNow");
@@ -1311,6 +1547,13 @@
 
   function renderProfile(){
     profNick.textContent = displayNick();
+    if(profileBalanceTon){
+      if(hasTgAuth && state.profile.serverBalanceTon != null){
+        profileBalanceTon.textContent = formatBalanceDisplay(state.profile.serverBalanceTon);
+      } else {
+        profileBalanceTon.textContent = "—";
+      }
+    }
     rulesAcceptedLine.textContent = state.profile.rulesAcceptedAt ? `Приняты: ${formatDate(state.profile.rulesAcceptedAt)}` : "—";
     myRefCode.textContent = state.profile.myRefCode;
 
@@ -1406,6 +1649,7 @@
     renderTopbar();
     renderOnlineLabel();
     renderMatches();
+    renderWallet();
     renderProfile();
   }
 
@@ -1416,6 +1660,175 @@
     if(pages.includes(hash)) go(hash);
     else go("games");
   }
+
+  function refreshBalanceUiAfterHydrate(){
+    renderTopbar();
+    renderWallet();
+    renderProfile();
+  }
+
+  document.getElementById("walletBtnTopup")?.addEventListener("click", async ()=>{
+    if(!hasTgAuth){ toast("Откройте приложение в Telegram"); return; }
+    if(state.profile.serverBalanceTon == null){
+      toast("Сначала завершите регистрацию");
+      return;
+    }
+    let info;
+    try{
+      info = await apiJson("/api/user", { action:"getWalletInfo", initData: tgInitData });
+    }catch(e){
+      toast(e.message || "Не удалось получить реквизиты", 3200);
+      return;
+    }
+    const addr = info.depositAddress || "";
+    const memo = info.depositMemo || "";
+    const payloadBoc = info.depositPayloadBoc || "";
+    if(info.balance != null){
+      state.profile.serverBalanceTon = String(info.balance);
+      refreshBalanceUiAfterHydrate();
+    }
+    openWalletModal("Пополнение", `
+      <p class="small">Сумма в TON (сеть <b>mainnet</b>).</p>
+      <input type="text" class="field" id="depAmount" placeholder="Например 0.5" inputmode="decimal" autocomplete="off" />
+      <p class="small muted" style="margin-top:10px">Адрес приёма:</p>
+      <code style="display:block;word-break:break-all;font-size:12px;margin-top:4px">${escapeHtml(addr)}</code>
+      <p class="small muted" style="margin-top:8px">Комментарий к переводу:</p>
+      <code style="display:block;word-break:break-all;font-size:12px;margin-top:4px">${escapeHtml(memo)}</code>
+      <div class="row" style="margin-top:12px;flex-direction:column;gap:8px">
+        <button type="button" class="btn primary" id="depTonconnect">Отправить через Tonkeeper</button>
+        <button type="button" class="btn ghost" id="depCopyAddr">Скопировать адрес</button>
+        <button type="button" class="btn ghost" id="depCopyMemo">Скопировать комментарий</button>
+      </div>
+    `);
+    document.getElementById("depCopyAddr")?.addEventListener("click", async ()=>{
+      try{
+        await navigator.clipboard.writeText(addr);
+        toast("Адрес скопирован", 2000);
+        hNote("success");
+      }catch(e){ toast("Не удалось скопировать"); }
+    });
+    document.getElementById("depCopyMemo")?.addEventListener("click", async ()=>{
+      try{
+        await navigator.clipboard.writeText(memo);
+        toast("Комментарий скопирован", 2000);
+        hNote("success");
+      }catch(e){ toast("Не удалось скопировать"); }
+    });
+    document.getElementById("depTonconnect")?.addEventListener("click", async ()=>{
+      const raw = document.getElementById("depAmount")?.value || "";
+      let nano;
+      try{
+        nano = tonStringToNano(raw);
+      }catch(e){
+        toast(e.message || "Неверная сумма");
+        return;
+      }
+      if(!payloadBoc){
+        toast("Нет payload с сервера — переведите вручную и укажите комментарий из поля выше", 4500);
+        return;
+      }
+      const ui = getTonConnectUI();
+      if(!ui) return;
+      if(info.tonConnectTwaReturnUrl){
+        try{ ui.uiOptions = { twaReturnUrl: info.tonConnectTwaReturnUrl }; }catch(e){}
+      }
+      try{
+        if(!ui.connected) await ui.connectWallet();
+      }catch(e){
+        toast("Подключение отменено");
+        return;
+      }
+      const balBefore = state.profile.serverBalanceTon;
+      try{
+        await ui.sendTransaction({
+          validUntil: Math.floor(Date.now() / 1000) + 600,
+          messages: [{ address: addr, amount: nano, payload: payloadBoc }],
+        });
+      }catch(e){
+        const msg = e?.message || String(e);
+        if(/reject|cancel|denied|закр/i.test(msg)){
+          toast("Отменено");
+          return;
+        }
+        toast((msg || "Ошибка отправки").slice(0, 140), 3500);
+        return;
+      }
+      closeWalletModal();
+      toast("Платёж отправлен. Ждём зачисления на сервер…", 3500);
+      hNote("success");
+      const ok = await pollServerBalanceUntilChanged(balBefore);
+      if(ok){
+        toast("Баланс пополнен", 4000);
+        hNote("success");
+      } else {
+        toast("Если TON уже отправлены, баланс обновится после обработки (обычно 1–3 мин)", 4500);
+      }
+    });
+  });
+
+  document.getElementById("walletBtnWithdraw")?.addEventListener("click", ()=>{
+    if(!hasTgAuth){ toast("Откройте приложение в Telegram"); return; }
+    if(state.profile.serverBalanceTon == null){
+      toast("Сначала завершите регистрацию");
+      return;
+    }
+    openWalletModal("Вывод TON", `
+      <p class="small">Адрес кошелька (UQ… / EQ…)</p>
+      <input type="text" class="field" id="wdTo" placeholder="UQ..." autocomplete="off" />
+      <p class="small" style="margin-top:10px">Сумма TON</p>
+      <input type="text" class="field" id="wdAmt" placeholder="0.1" inputmode="decimal" autocomplete="off" />
+      <p class="small muted" style="margin-top:10px">После заявки сумма сразу списывается с баланса в базе; перевод в сеть выполняет сервер.</p>
+      <button type="button" class="btn primary" id="wdSubmit" style="margin-top:12px;width:100%">Запросить вывод</button>
+    `);
+    document.getElementById("wdSubmit")?.addEventListener("click", async ()=>{
+      const to = document.getElementById("wdTo")?.value?.trim() || "";
+      const amt = document.getElementById("wdAmt")?.value?.trim() || "";
+      try{
+        await apiJson("/api/user", { action:"requestWithdrawal", initData: tgInitData, toAddress: to, amount: amt });
+      }catch(e){
+        toast(e.message || "Ошибка вывода", 3500);
+        return;
+      }
+      closeWalletModal();
+      await refreshWalletUiFromServer();
+      toast("Вывод запрошен. Баланс обновлён.", 4000);
+      hNote("success");
+    });
+  });
+
+  document.getElementById("walletBtnHistory")?.addEventListener("click", async ()=>{
+    if(!hasTgAuth){ toast("Откройте приложение в Telegram"); return; }
+    if(state.profile.serverBalanceTon == null){
+      toast("Сначала завершите регистрацию");
+      return;
+    }
+    let rows;
+    try{
+      const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 50 });
+      rows = Array.isArray(data.operations) ? data.operations : [];
+    }catch(e){
+      toast(e.message || "Не удалось загрузить историю", 3200);
+      return;
+    }
+    if(!rows.length){
+      openWalletModal("История", `<p class="small">Операций пока нет.</p>`);
+      return;
+    }
+    const lines = rows.map((r)=>{
+      const kind = r.kind === "deposit" ? "Пополнение" : "Вывод";
+      const st = { pending:"В обработке", confirming:"Подтверждение", completed:"Готово", failed:"Ошибка", cancelled:"Отмена" }[r.status] || escapeHtml(r.status);
+      const amt = r.amount != null ? escapeHtml(String(r.amount)) : "?";
+      const t = r.created_at ? escapeHtml(new Date(r.created_at).toLocaleString("ru-RU")) : "";
+      const hash = r.ton_tx_hash ? `<div class="small muted" style="word-break:break-all">tx: ${escapeHtml(r.ton_tx_hash)}</div>` : "";
+      const to = r.to_address ? `<div class="small muted" style="word-break:break-all">→ ${escapeHtml(r.to_address)}</div>` : "";
+      return `<div class="pill" style="display:block;margin-bottom:8px">
+        <div class="row" style="justify-content:space-between"><b>${kind}</b><span class="chip">${st}</span></div>
+        <div style="margin-top:4px;font-weight:800">${amt} TON</div>
+        <div class="small muted" style="margin-top:4px">${t}</div>${to}${hash}
+      </div>`;
+    }).join("");
+    openWalletModal("История операций", `<div style="max-height:55vh;overflow:auto">${lines}</div>`);
+  });
 
   (async ()=>{
     try{
@@ -1431,19 +1844,21 @@
       setInterval(refreshOnlineCount, 14000);
       setInterval(()=>{
         if(!hasTgAuth) return;
-        if((location.hash||"").slice(1) === "profile") loadExternalStats();
+        const tab = (location.hash||"").slice(1);
+        if(tab === "profile") loadExternalStats();
+        if(tab === "wallet") hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
       }, 12000);
     }
   })();
 
   window.addEventListener("focus", ()=>{
-    if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); }).catch(()=>{});
+    if(hasTgAuth) hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
     loadExternalStats(); loadMatchHistory();
     presencePing(); refreshOnlineCount();
   });
   document.addEventListener("visibilitychange", ()=>{
     if(document.visibilityState === "visible"){
-      if(hasTgAuth) hydrateUserFromServer().then(()=>{ renderTopbar(); }).catch(()=>{});
+      if(hasTgAuth) hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
       loadExternalStats(); loadMatchHistory();
       presencePing(); refreshOnlineCount();
     }
@@ -1452,11 +1867,17 @@
     if(hasTgAuth){
       presencePing();
       refreshOnlineCount();
-      if((location.hash||"").slice(1) === "profile") loadExternalStats();
+      const tab = (location.hash||"").slice(1);
+      if(tab === "profile") loadExternalStats();
+      if(tab === "wallet") hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
     }
   });
   window.addEventListener("pageshow", (ev)=>{
-    if(ev.persisted && hasTgAuth){ presencePing(); refreshOnlineCount(); }
+    if(ev.persisted && hasTgAuth){
+      presencePing();
+      refreshOnlineCount();
+      hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
+    }
   });
   window.addEventListener("pagehide", ()=>{ presenceLeaveNet(); });
   window.addEventListener("beforeunload", ()=>{ presenceLeaveNet(); });

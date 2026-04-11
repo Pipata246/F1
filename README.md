@@ -70,16 +70,16 @@ At minimum:
 ### Важно: план Vercel Hobby
 
 На **Hobby** Vercel **запрещает** cron чаще **одного раза в сутки** — иначе деплой падает с ошибкой про daily cron.  
-В репозитории по умолчанию стоит **`0 0 * * *`** (один раз в сутки, около **00:00 UTC**).
+В репозитории по умолчанию стоит `**0 0 * * *`** (один раз в сутки, около **00:00 UTC**).
 
-- Нужно **чаще** (например раз в минуту): либо план **Pro**, и в `vercel.json` поменяй `schedule` на `* * * * *`, либо бесплатный внешний cron ([cron-job.org](https://cron-job.org) и т.п.) — `GET https://<твой-домен>/api/wallet-cron` с заголовком `Authorization: Bearer <CRON_SECRET>`.
+- Нужно **чаще** (например раз в минуту): либо план **Pro**, и в `vercel.json` поменяй `schedule` на `* * * * `*, либо бесплатный внешний cron ([cron-job.org](https://cron-job.org) и т.п.) — `GET https://<твой-домен>/api/wallet-cron` с заголовком `Authorization: Bearer <CRON_SECRET>`.
 
 ### Настройка
 
 1. Зависимости: корневой `package.json` (`@ton/ton`, `@ton/crypto`) — Vercel ставит при деплое.
 2. Vercel → Environment variables:
-   - `CRON_SECRET` — длинная случайная строка (Vercel Cron подставляет `Authorization: Bearer <CRON_SECRET>`).
-   - `TON_DEPOSIT_ADDRESS`, `TON_HOT_WALLET_MNEMONIC`, при необходимости `TON_WALLET_VERSION` (`v4` / `v5`).
+  - `CRON_SECRET` — длинная случайная строка (Vercel Cron подставляет `Authorization: Bearer <CRON_SECRET>`).
+  - `TON_DEPOSIT_ADDRESS`, `TON_HOT_WALLET_MNEMONIC`, при необходимости `TON_WALLET_VERSION` (`v4` / `v5`).
 3. Рекомендуется `TONCENTER_API_KEY` ([toncenter.com](https://toncenter.com)); опционально `TONAPI_KEY`.
 
 Подробнее — в `.env.example`.

@@ -1,10 +1,34 @@
--- =============================================
--- F1 Duel — кошелёк TON: депозит (memo), вывод, история
--- Выполни в Supabase SQL Editor после users + balance.
+-- =============================================================================
+-- F1 Duel — установка кошелька TON (Supabase)
+-- =============================================================================
 --
--- Для одной цельной установки (с функцией set_updated_at и без дублирования
--- инструкций) используй файл: supabase_wallet_install.sql
--- =============================================
+-- Когда выполнять: один раз, когда таблица public.users УЖЕ существует
+-- и колонка users.balance УЖЕ есть (как у вас).
+--
+-- Этот файл НЕ добавляет колонку balance — только deposit_memo, wallet_operations
+-- и функции RPC для сервера (service_role).
+--
+-- Порядок: SQL Editor → вставить весь файл → Run.
+-- Если ошибка про set_updated_at — блок ниже создаст функцию.
+--
+-- =============================================================================
+
+create extension if not exists pgcrypto;
+
+-- Триггер wallet_operations ссылается на эту функцию (часто уже есть от users).
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Пользователь: уникальный memo для входящих переводов (комментарий в TON)
+-- ---------------------------------------------------------------------------
 
 alter table public.users
   add column if not exists deposit_memo text;
@@ -13,11 +37,12 @@ create unique index if not exists idx_users_deposit_memo_unique
   on public.users(deposit_memo)
   where deposit_memo is not null;
 
-comment on column public.users.deposit_memo is 'Уникальный тег для входящих TON (указать в комментарии к переводу, если кошелёк поддерживает)';
+comment on column public.users.deposit_memo is
+  'Уникальный тег для входящих TON (комментарий к переводу в кошельке)';
 
--- ---------------------------------------------
--- Операции кошелька (сервер пишет через service role)
--- ---------------------------------------------
+-- ---------------------------------------------------------------------------
+-- История операций (читает/пишет только бэкенд через service_role; RLS закрыт)
+-- ---------------------------------------------------------------------------
 
 create table if not exists public.wallet_operations (
   id uuid primary key default gen_random_uuid(),
@@ -55,7 +80,10 @@ to public
 using (false)
 with check (false);
 
--- Атомарная заявка на вывод: списание с balance + строка pending
+-- ---------------------------------------------------------------------------
+-- RPC: заявка на вывод (атомарно balance -= amount + строка withdrawal pending)
+-- ---------------------------------------------------------------------------
+
 create or replace function public.wallet_request_withdrawal(
   p_tg_user_id text,
   p_amount numeric,
@@ -106,7 +134,10 @@ begin
 end;
 $$;
 
--- Зачисление депозита (вызывать только с бэкенда по факту транзакции в сети). Идемпотентность по ton_tx_hash.
+-- ---------------------------------------------------------------------------
+-- RPC: зачисление депозита (только бэкенд/cron после подтверждения tx в сети)
+-- ---------------------------------------------------------------------------
+
 create or replace function public.wallet_credit_deposit(
   p_tg_user_id text,
   p_amount numeric,
@@ -157,7 +188,10 @@ begin
 end;
 $$;
 
--- Отметить вывод выполненным (после отправки TON в сеть)
+-- ---------------------------------------------------------------------------
+-- RPC: вывод отправлен в сеть
+-- ---------------------------------------------------------------------------
+
 create or replace function public.wallet_complete_withdrawal(
   p_op_id uuid,
   p_tx_hash text
@@ -184,7 +218,10 @@ begin
 end;
 $$;
 
--- Отмена вывода: вернуть сумму на balance
+-- ---------------------------------------------------------------------------
+-- RPC: отмена вывода — вернуть сумму на balance
+-- ---------------------------------------------------------------------------
+
 create or replace function public.wallet_fail_withdrawal(p_op_id uuid)
 returns boolean
 language plpgsql
@@ -220,7 +257,12 @@ begin
 end;
 $$;
 
+-- Только service_role (ключ с бэкенда Vercel), не anon.
 grant execute on function public.wallet_request_withdrawal(text, numeric, text) to service_role;
 grant execute on function public.wallet_credit_deposit(text, numeric, text) to service_role;
 grant execute on function public.wallet_complete_withdrawal(uuid, text) to service_role;
 grant execute on function public.wallet_fail_withdrawal(uuid) to service_role;
+
+-- =============================================================================
+-- Готово. Дальше: переменные окружения на Vercel + см. docs/WALLET_AND_TESTING.md
+-- =============================================================================
