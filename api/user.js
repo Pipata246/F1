@@ -298,7 +298,130 @@ async function getWalletHistory(initData, limit) {
   const rows = await sb(
     `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at&order=created_at.desc&limit=${safeLimit}`
   );
-  return rows || [];
+  let intentsRaw = [];
+  try {
+    intentsRaw = await sb(
+      `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,declared_amount_ton,status,wallet_operation_id,ton_tx_hash,created_at,expires_at,submitted_at&order=created_at.desc&limit=${safeLimit}`
+    );
+  } catch {
+    /* таблица deposit_intents ещё не создана — только ledger */
+  }
+  const opRows = (rows || []).map((r) => ({ ...r, is_deposit_intent: false }));
+  const intentRows = (intentsRaw || [])
+    .filter((r) => !(r.status === "completed" && r.wallet_operation_id))
+    .map((r) => ({
+      id: r.id,
+      kind: "deposit",
+      amount: String(r.declared_amount_ton ?? ""),
+      status:
+        r.status === "pending"
+          ? "awaiting_payment"
+          : r.status === "submitted"
+            ? "awaiting_confirm"
+            : r.status,
+      ton_tx_hash: r.ton_tx_hash || null,
+      to_address: null,
+      created_at: r.created_at,
+      is_deposit_intent: true,
+      intent_status: r.status,
+      expires_at: r.expires_at,
+    }));
+  const combined = [...intentRows, ...opRows].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  return combined.slice(0, safeLimit);
+}
+
+async function createDepositIntent(initData, amountStr) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const session = await authSession(initData);
+  if (!session.exists) throw new Error("Complete registration first");
+
+  const amount = Number(String(amountStr || "").replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid amount");
+  const minAuto = Number(process.env.MIN_AUTO_DEPOSIT_TON);
+  const minDeclared = Number.isFinite(minAuto) && minAuto > 0 ? minAuto : 0.001;
+  if (amount < minDeclared) {
+    throw new Error(`Minimum deposit is ${minDeclared} TON`);
+  }
+
+  const open = await sb(
+    `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&status=in.(pending,submitted)&wallet_operation_id=is.null&select=id`
+  );
+  const maxOpen = Math.min(20, Math.max(3, Number(process.env.DEPOSIT_INTENT_MAX_OPEN) || 8));
+  if ((open || []).length >= maxOpen) {
+    throw new Error("Too many open top-ups. Wait until they expire or complete.");
+  }
+
+  const ttlMin = Math.min(180, Math.max(15, Number(process.env.DEPOSIT_INTENT_TTL_MIN) || 45));
+  const expiresAt = new Date(Date.now() + ttlMin * 60_000).toISOString();
+
+  const inserted = await sb("deposit_intents", {
+    method: "POST",
+    body: {
+      tg_user_id: tgId,
+      declared_amount_ton: amount,
+      status: "pending",
+      expires_at: expiresAt,
+      meta: {},
+    },
+    prefer: "return=representation",
+  });
+  const row = Array.isArray(inserted) ? inserted[0] : inserted;
+  if (!row?.id) throw new Error("Failed to create deposit intent");
+  return { intentId: row.id, expiresAt: row.expires_at };
+}
+
+async function submitDepositIntent(initData, intentId, boc) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const id = String(intentId || "").trim();
+  if (!id) throw new Error("Missing intentId");
+
+  const found = await sb(
+    `deposit_intents?id=eq.${encodeURIComponent(id)}&tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,status,expires_at,meta&limit=1`
+  );
+  if (!found?.length) throw new Error("Intent not found");
+  const cur = found[0];
+  if (cur.status !== "pending") throw new Error("Intent is not awaiting payment");
+  if (new Date(cur.expires_at).getTime() < Date.now()) {
+    await sb(`deposit_intents?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: { status: "expired", updated_at: new Date().toISOString() },
+      prefer: "return=minimal",
+    });
+    throw new Error("Intent expired — create a new top-up");
+  }
+
+  const extMin = Math.min(
+    7 * 24 * 60,
+    Math.max(120, Number(process.env.DEPOSIT_INTENT_SUBMIT_TTL_MIN) || 2880)
+  );
+  const newExpires = new Date(Date.now() + extMin * 60_000).toISOString();
+  const prevMeta = cur.meta && typeof cur.meta === "object" && !Array.isArray(cur.meta) ? cur.meta : {};
+  const bocStr = String(boc || "").trim();
+  const meta =
+    bocStr.length > 0
+      ? { ...prevMeta, tx_boc_tail: bocStr.slice(-500) }
+      : prevMeta;
+
+  await sb(`deposit_intents?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: {
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+      expires_at: newExpires,
+      meta,
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=minimal",
+  });
+  return { ok: true };
 }
 
 async function walletCreditDepositInternal(req) {
@@ -2351,6 +2474,21 @@ module.exports = async (req, res) => {
     if (action === "getWalletHistory") {
       const operations = await getWalletHistory(req.body?.initData || "", req.body?.limit || 50);
       return res.status(200).json({ ok: true, operations });
+    }
+    if (action === "createDepositIntent") {
+      const data = await createDepositIntent(
+        req.body?.initData || "",
+        req.body?.amount ?? req.body?.amountTon ?? ""
+      );
+      return res.status(200).json({ ok: true, ...data });
+    }
+    if (action === "submitDepositIntent") {
+      await submitDepositIntent(
+        req.body?.initData || "",
+        req.body?.intentId || req.body?.id || "",
+        req.body?.boc || ""
+      );
+      return res.status(200).json({ ok: true });
     }
     if (action === "walletCreditDepositInternal") {
       const result = await walletCreditDepositInternal(req);

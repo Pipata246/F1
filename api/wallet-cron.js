@@ -88,11 +88,60 @@ async function sbRpc(name, payload) {
 
 function rpcScalar(data) {
   if (data == null) return null;
+  if (typeof data === "string") return data;
   if (Array.isArray(data) && data.length && typeof data[0] === "object" && data[0] !== null) {
     const k = Object.keys(data[0])[0];
     return k !== undefined ? data[0][k] : null;
   }
+  if (typeof data === "object" && data !== null && typeof data.wallet_credit_deposit === "string") {
+    return data.wallet_credit_deposit;
+  }
   return data;
+}
+
+async function runExpireDepositIntents(log) {
+  const nowIso = new Date().toISOString();
+  try {
+    await sb(
+      `deposit_intents?status=in.(pending,submitted)&wallet_operation_id=is.null&expires_at=lt.${encodeURIComponent(nowIso)}`,
+      {
+        method: "PATCH",
+        body: { status: "expired", updated_at: nowIso },
+        prefer: "return=minimal",
+      }
+    );
+  } catch (e) {
+    const m = String(e.message || "").toLowerCase();
+    if (!m.includes("deposit_intent") && !m.includes("schema cache")) log.push(`intents: expire ${e.message}`);
+  }
+}
+
+async function linkDepositIntentAfterCredit(tgUserId, tonNum, txHash, walletOpId, log) {
+  const rows = await sb(
+    `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgUserId)}&status=in.(pending,submitted)&wallet_operation_id=is.null&select=id,declared_amount_ton,status,created_at&order=created_at.desc&limit=15`
+  );
+  if (!rows?.length) return;
+  const withinTol = (declared, actual) => {
+    const d = Number(declared);
+    if (!Number.isFinite(d)) return false;
+    const tol = Math.max(d * 0.35, 0.12);
+    return Math.abs(d - actual) <= tol;
+  };
+  const submitted = rows.filter((r) => r.status === "submitted");
+  const pool = submitted.length ? submitted : rows;
+  let best = pool.find((r) => withinTol(r.declared_amount_ton, tonNum)) || pool[0];
+  if (!best) return;
+  await sb(`deposit_intents?id=eq.${encodeURIComponent(best.id)}`, {
+    method: "PATCH",
+    body: {
+      status: "completed",
+      wallet_operation_id: String(walletOpId),
+      ton_tx_hash: String(txHash),
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=minimal",
+  });
+  log.push(`deposits: intent ${String(best.id).slice(0, 8)}… → op ${String(walletOpId).slice(0, 8)}…`);
 }
 
 function assertCronAuth(req) {
@@ -208,9 +257,14 @@ async function runDeposits(log) {
     let tgUserId = "";
     for (const memo of memoCandidates) {
       try {
-        const users = await sb(
+        let users = await sb(
           `users?deposit_memo=eq.${encodeURIComponent(memo)}&select=tg_user_id&limit=1`
         );
+        if (!users?.length) {
+          users = await sb(
+            `users?deposit_memo=ilike.${encodeURIComponent(memo)}&select=tg_user_id&limit=1`
+          );
+        }
         if (users?.length) {
           tgUserId = String(users[0].tg_user_id);
           break;
@@ -219,14 +273,25 @@ async function runDeposits(log) {
         /* next candidate */
       }
     }
-    if (!tgUserId) continue;
+    if (!tgUserId) {
+      log.push(`deposits: skip tx ${String(hashKey).slice(0, 12)}… (memo not matched to user)`);
+      continue;
+    }
 
     try {
-      await sbRpc("wallet_credit_deposit", {
+      const rpcRaw = await sbRpc("wallet_credit_deposit", {
         p_tg_user_id: tgUserId,
         p_amount: tonNum,
         p_tx_hash: hashKey,
       });
+      const opId = rpcScalar(rpcRaw);
+      if (opId) {
+        try {
+          await linkDepositIntentAfterCredit(tgUserId, tonNum, hashKey, opId, log);
+        } catch (e2) {
+          log.push(`deposits: link intent ${e2.message}`);
+        }
+      }
       credited += 1;
       log.push(`deposits: credited ${tonStr} TON user=${tgUserId} hash=${hashKey.slice(0, 16)}…`);
     } catch (e) {
@@ -492,6 +557,8 @@ module.exports = async (req, res) => {
     if (!assertCronAuth(req)) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
+
+    await runExpireDepositIntents(log);
 
     let deposits = 0;
     let withdrawTouched = 0;

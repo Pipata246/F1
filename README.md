@@ -70,9 +70,9 @@ At minimum:
 ### Важно: план Vercel Hobby
 
 На **Hobby** Vercel **запрещает** cron чаще **одного раза в сутки** — иначе деплой падает с ошибкой про daily cron.  
-В репозитории по умолчанию стоит `**0 0 * * *`** (один раз в сутки, около **00:00 UTC**).
+В репозитории по умолчанию стоит `**0 0 * * `*** (один раз в сутки, около **00:00 UTC**).
 
-- Нужно **чаще** (например раз в минуту): либо план **Pro**, и в `vercel.json` поменяй `schedule` на `* * * * `*, либо бесплатный внешний cron ([cron-job.org](https://cron-job.org) и т.п.) — `GET https://<твой-домен>/api/wallet-cron` с заголовком `Authorization: Bearer <CRON_SECRET>`.
+- Нужно **чаще** (например раз в минуту): либо план **Pro**, и в `vercel.json` поменяй `schedule` на `* * * `* *, либо бесплатный внешний cron ([cron-job.org](https://cron-job.org) и т.п.) — `GET https://<твой-домен>/api/wallet-cron` с заголовком `Authorization: Bearer <CRON_SECRET>`.
 
 ### Настройка
 

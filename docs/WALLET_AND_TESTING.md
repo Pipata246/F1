@@ -17,6 +17,18 @@
 3. **Вывод:** `requestWithdrawal` → RPC `wallet_request_withdrawal` **атомарно** уменьшает `balance` и создаёт запись в `wallet_operations`.
 4. **Пополнение:** после перевода в сеть cron (`/api/wallet-cron`) находит входящую транзакцию на `TON_DEPOSIT_ADDRESS`, сопоставляет **комментарий** с `users.deposit_memo` и вызывает RPC `wallet_credit_deposit` (идемпотентно по хешу tx).
 
+### Заявки на пополнение (`deposit_intents`)
+
+Это **отдельная запись в БД на бэке**, а не «красивость на фронте»:
+
+1. Пользователь нажимает пополнить и вводит сумму → `createDepositIntent` (проверка `initData`) создаёт строку со статусом `pending` и сроком `expires_at`.
+2. После успешной отправки транзакции из кошелька → `submitDepositIntent` ставит `submitted` и продлевает срок ожидания зачисления (по умолчанию до ~48 ч, настраивается `DEPOSIT_INTENT_SUBMIT_TTL_MIN`).
+3. **Баланс `users.balance` увеличивается только внутри** `wallet_credit_deposit`, которую вызывает **только cron** с `service_role`, когда видит реальную входящую транзакцию в сети.
+4. Если пользователь не оплатил и время вышло → cron помечает заявку `expired`, **баланс не трогается**.
+5. После зачисления cron связывает заявку с операцией в `wallet_operations`; в истории остаётся одна завершённая операция по кошельку (заявка `completed` с привязкой скрывается из дублирования в `getWalletHistory`).
+
+Если TON ушли с кошелька, а баланс в БД не вырос — значит cron не отработал или не сопоставил memo/адрес: смотри лог ответа `/api/wallet-cron` (строки `deposits:`), переменные `CRON_SECRET`, `TON_DEPOSIT_ADDRESS`, `TONAPI_KEY` и **расписание cron** (раз в сутки может быть слишком редко для тестов).
+
 Итог: «нарисовать» баланс в интерфейсе можно только локально у себя в браузере; **истинное значение** всегда определяется сервером при следующем запросе.
 
 ---
@@ -28,7 +40,10 @@
 - `deposit_memo`;
 - таблицу `wallet_operations` + RLS «всё запрещено для public»;
 - функции `wallet_request_withdrawal`, `wallet_credit_deposit`, `wallet_complete_withdrawal`, `wallet_fail_withdrawal`;
-- при необходимости — `set_updated_at()` для триггера.
+- при необходимости — `set_updated_at()` для триггера;
+- таблицу `deposit_intents` (заявки на пополнение).
+
+Если кошелёк уже ставился раньше без `deposit_intents`, выполните отдельно **`db/supabase_deposit_intents.sql`**.
 
 Выполните файл целиком в **Supabase → SQL Editor**.
 

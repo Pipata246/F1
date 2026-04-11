@@ -1727,6 +1727,14 @@
         toast("Нет payload с сервера — переведите вручную и укажите комментарий из поля выше", 4500);
         return;
       }
+      let intentId = null;
+      try{
+        const ir = await apiJson("/api/user", { action:"createDepositIntent", initData: tgInitData, amount: raw });
+        intentId = ir.intentId || null;
+      }catch(e){
+        toast(e.message || "Не удалось создать заявку на пополнение в базе", 3800);
+        return;
+      }
       const ui = getTonConnectUI();
       if(!ui) return;
       if(info.tonConnectTwaReturnUrl){
@@ -1739,29 +1747,42 @@
         return;
       }
       const balBefore = state.profile.serverBalanceTon;
+      let txResult = null;
       try{
-        await ui.sendTransaction({
+        txResult = await ui.sendTransaction({
           validUntil: Math.floor(Date.now() / 1000) + 600,
           messages: [{ address: addr, amount: nano, payload: payloadBoc }],
         });
       }catch(e){
         const msg = e?.message || String(e);
         if(/reject|cancel|denied|закр/i.test(msg)){
-          toast("Отменено");
+          toast("Отменено. Заявка в базе истечёт сама, баланс не изменится.");
           return;
         }
         toast((msg || "Ошибка отправки").slice(0, 140), 3500);
         return;
       }
+      if(intentId){
+        try{
+          await apiJson("/api/user", {
+            action:"submitDepositIntent",
+            initData: tgInitData,
+            intentId,
+            boc: txResult?.boc || "",
+          });
+        }catch(e){
+          toast("Перевод ушёл, но не удалось отметить на сервере: " + (e.message || "").slice(0, 80), 4500);
+        }
+      }
       closeWalletModal();
-      toast("Платёж отправлен. Ждём зачисления на сервер…", 3500);
+      toast("Платёж отправлен. Зачисление в баланс только после проверки сети (cron).", 4000);
       hNote("success");
       const ok = await pollServerBalanceUntilChanged(balBefore);
       if(ok){
-        toast("Баланс пополнен", 4000);
+        toast("Баланс пополнен в базе", 4000);
         hNote("success");
       } else {
-        toast("Если TON уже отправлены, баланс обновится после обработки (обычно 1–3 мин)", 4500);
+        toast("Если TON дошли на адрес приёма, баланс обновится после cron (проверь CRON_SECRET и расписание).", 5000);
       }
     });
   });
@@ -1815,8 +1836,17 @@
       return;
     }
     const lines = rows.map((r)=>{
-      const kind = r.kind === "deposit" ? "Пополнение" : "Вывод";
-      const st = { pending:"В обработке", confirming:"Подтверждение", completed:"Готово", failed:"Ошибка", cancelled:"Отмена" }[r.status] || escapeHtml(r.status);
+      const kind = r.kind === "deposit" && r.is_deposit_intent ? "Пополнение (заявка)" : (r.kind === "deposit" ? "Пополнение" : "Вывод");
+      const st = {
+        pending:"В обработке",
+        confirming:"Подтверждение",
+        completed:"Готово",
+        failed:"Ошибка",
+        cancelled:"Отмена",
+        awaiting_payment:"Ожидает оплату",
+        awaiting_confirm:"Ожидает зачисления в БД",
+        expired:"Истекло / отменено",
+      }[r.status] || escapeHtml(r.status);
       const amt = r.amount != null ? escapeHtml(String(r.amount)) : "?";
       const t = r.created_at ? escapeHtml(new Date(r.created_at).toLocaleString("ru-RU")) : "";
       const hash = r.ton_tx_hash ? `<div class="small muted" style="word-break:break-all">tx: ${escapeHtml(r.ton_tx_hash)}</div>` : "";
