@@ -399,6 +399,12 @@ async function submitDepositIntent(initData, intentId, boc) {
   const id = String(intentId || "").trim();
   if (!id) throw new Error("Missing intentId");
 
+  try {
+    await ensureDepositMemoForUser(tgId);
+  } catch {
+    /* если мемо не создалось, скан всё равно попробует по текущей строке users */
+  }
+
   const found = await sb(
     `deposit_intents?id=eq.${encodeURIComponent(id)}&tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,status,expires_at,meta&limit=1`
   );
@@ -633,7 +639,15 @@ async function authSession(initData) {
     };
   }
   await patchUserTelegramNames(tgId, tg).catch(() => {});
-  const user = rows[0];
+  let user = rows[0];
+  if (!user.deposit_memo) {
+    try {
+      const memo = await ensureDepositMemoForUser(tgId);
+      user = { ...user, deposit_memo: memo };
+    } catch {
+      /* строка users есть, но мемо не выдалось — getWalletInfo попробует снова */
+    }
+  }
   const referralCode = await ensureReferralCode(tg, user);
   const merged = {
     ...user,
@@ -683,8 +697,15 @@ async function upsertUser(initData, referredBy, rulesAcceptedAtMs) {
     prefer: "resolution=merge-duplicates,return=representation",
   });
   const row = rows?.[0] || payload;
+  let deposit_memo = row.deposit_memo;
+  try {
+    if (!deposit_memo) deposit_memo = await ensureDepositMemoForUser(tgId);
+  } catch {
+    /* мемо подтянется при следующем authSession / getWalletInfo */
+  }
   return {
     ...row,
+    deposit_memo: deposit_memo || row.deposit_memo,
     display_name: displayNameFromProfile(row.first_name, row.last_name, row.username),
   };
 }
