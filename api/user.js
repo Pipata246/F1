@@ -449,12 +449,19 @@ async function submitDepositIntent(initData, intentId, boc) {
 
   const scanLog = [];
   let credited = 0;
-  try {
-    credited = await scanChainDeposits(scanLog, { onlyTgUserId: tgId });
-  } catch (e) {
-    scanLog.push(`deposits: submit-scan error ${String(e?.message || e)}`);
+  const passes = Math.min(15, Math.max(1, Number(process.env.DEPOSIT_SUBMIT_SCAN_PASSES) || 8));
+  const delayMs = Math.min(4000, Math.max(350, Number(process.env.DEPOSIT_SUBMIT_SCAN_DELAY_MS) || 900));
+  for (let p = 0; p < passes; p++) {
+    try {
+      credited = await scanChainDeposits(scanLog, { onlyTgUserId: tgId });
+      if (credited > 0) break;
+    } catch (e) {
+      scanLog.push(`deposits: submit-scan error ${String(e?.message || e)}`);
+      break;
+    }
+    if (p < passes - 1) await new Promise((r) => setTimeout(r, delayMs));
   }
-  return { ok: true, credited, scanLog: scanLog.slice(-30) };
+  return { ok: true, credited, scanLog: scanLog.slice(-40) };
 }
 
 function touchDepositSyncRateLimit(tgId) {

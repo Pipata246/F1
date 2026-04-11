@@ -278,6 +278,44 @@ function extractMemoFromRawBodyHex(hexStr) {
   return null;
 }
 
+/** Обход дерева ячеек: комментарий op=0 часто лежит во вложенном ref (кошельки v4/v5). */
+function deepExtractTextCommentFromBocBuffer(buf) {
+  if (!buf || buf.length < 4) return null;
+  let roots;
+  try {
+    roots = Cell.fromBoc(buf);
+  } catch {
+    return null;
+  }
+  function walk(cell, depth) {
+    if (depth > 28 || !cell) return null;
+    try {
+      const s = cell.beginParse();
+      if (s.remainingBits >= 32) {
+        const op = s.preloadUint(32);
+        if (op === 0) {
+          s.loadUint(32);
+          const t = s.loadStringTail();
+          if (t && String(t).trim()) return String(t).trim();
+        }
+      }
+    } catch {
+      /* refs */
+    }
+    const refs = cell.refs || [];
+    for (let i = 0; i < refs.length; i++) {
+      const x = walk(refs[i], depth + 1);
+      if (x) return x;
+    }
+    return null;
+  }
+  for (const root of roots) {
+    const x = walk(root, 0);
+    if (x) return x;
+  }
+  return null;
+}
+
 function deepFindMemoInObject(obj, depth) {
   if (depth > 10 || obj == null) return null;
   if (typeof obj === "string") {
@@ -338,6 +376,23 @@ function extractDepositMemo(inMsg) {
   if (typeof inMsg.raw_body === "string" && inMsg.raw_body.length > 10) {
     const fromBoc = extractMemoFromRawBodyHex(inMsg.raw_body);
     if (fromBoc) return fromBoc;
+    try {
+      const buf = Buffer.from(String(inMsg.raw_body).replace(/\s+/g, ""), "hex");
+      const deep = deepExtractTextCommentFromBocBuffer(buf);
+      if (deep) return deep;
+    } catch {
+      /* */
+    }
+  }
+  const mdBody = inMsg.msg_data && typeof inMsg.msg_data.body === "string" ? inMsg.msg_data.body : "";
+  if (mdBody) {
+    try {
+      const buf = Buffer.from(String(mdBody), "base64");
+      const deep = deepExtractTextCommentFromBocBuffer(buf);
+      if (deep) return deep;
+    } catch {
+      /* */
+    }
   }
   return null;
 }
@@ -361,6 +416,27 @@ function userMemoMatchesDeposit(wantMemoNorm, memoRaw) {
   const cand = new Set();
   addMemoCandidatesFromRaw(memoRaw, cand);
   return cand.has(wantMemoNorm);
+}
+
+/** Входящее сообщение действительно на наш адрес приёма (если поле есть в ответе API). */
+function incomingDestMatchesOurWallet(inMsg, depositAddrRaw) {
+  const raw = String(depositAddrRaw || "").trim();
+  if (!raw || !inMsg || typeof inMsg !== "object") return true;
+  const dest = inMsg.destination;
+  const destStr =
+    dest == null
+      ? ""
+      : typeof dest === "string"
+        ? dest
+        : typeof dest === "object"
+          ? String(dest.account_address || dest.address || "")
+          : "";
+  if (!destStr) return true;
+  try {
+    return Address.parse(raw).equals(Address.parse(destStr));
+  } catch {
+    return true;
+  }
 }
 
 /** Нормализует адрес для запроса к TonAPI (все распространённые форматы). */
@@ -488,6 +564,7 @@ async function runDeposits(log, opts = {}) {
 
   let credited = 0;
   let noCommentLogged = 0;
+  let memoMismatchLogged = 0;
 
   for (const tx of txs) {
     if (tx.success === false) continue;
@@ -497,6 +574,8 @@ async function runDeposits(log, opts = {}) {
 
     const inMsg = tx.in_msg || tx.inMessage;
     if (!inMsg) continue;
+
+    if (onlyTgUserId && !incomingDestMatchesOurWallet(inMsg, depositAddr)) continue;
 
     const nano = inMsg.value != null ? inMsg.value : inMsg.value_raw;
     if (nano == null) continue;
@@ -518,7 +597,15 @@ async function runDeposits(log, opts = {}) {
 
     let tgUserId = "";
     if (onlyTgUserId) {
-      if (!userMemoMatchesDeposit(wantMemoNorm, memoRaw)) continue;
+      if (!userMemoMatchesDeposit(wantMemoNorm, memoRaw)) {
+        if (memoMismatchLogged < 4) {
+          log.push(
+            "deposits: в транзакции другой комментарий — зачисление только при оплате кнопкой «Отправить через TON» с автоподстановкой тега"
+          );
+          memoMismatchLogged += 1;
+        }
+        continue;
+      }
       tgUserId = onlyTgUserId;
     } else {
       for (const memo of memoCandidates) {

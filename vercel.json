@@ -8,6 +8,9 @@
   "functions": {
     "api/wallet-cron.js": {
       "maxDuration": 60
+    },
+    "api/user.js": {
+      "maxDuration": 60
     }
   }
 }
