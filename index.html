@@ -301,6 +301,21 @@
       backdrop-filter: blur(10px);
     }
     .modalWrap.show{display:flex}
+    /* Кошелёк: не на весь экран — зазор сверху (виден фон TG), панель снизу */
+    .modalWrap--sheet{
+      align-items:flex-end;
+      justify-content:center;
+      padding:0 12px max(12px, env(safe-area-inset-bottom, 0px)) 12px;
+      padding-top:max(48px, calc(env(safe-area-inset-top, 0px) + 28px));
+    }
+    .modalWrap--sheet .modal.walletModalShell{
+      width:100%;
+      max-width:520px;
+      margin:0;
+      max-height:min(560px, calc(var(--app-vh, 100vh) - max(48px, calc(env(safe-area-inset-top, 0px) + 28px)) - max(12px, env(safe-area-inset-bottom, 0px)) - 20px));
+      border-radius:22px;
+      box-shadow:0 -8px 40px rgba(0,0,0,.45);
+    }
     .modal{
       width:min(520px, 100%);
       padding:16px;
@@ -983,7 +998,7 @@
     </div>
   </div>
 
-  <div id="walletModalWrap" class="modalWrap">
+  <div id="walletModalWrap" class="modalWrap modalWrap--sheet">
     <div class="modal walletModalShell">
       <h3 id="walletModalTitle">Кошелёк</h3>
       <div id="walletModalBody" class="walletModalBody"></div>
@@ -1010,7 +1025,6 @@
   try{
     tg?.ready();
     tg?.expand();
-    tg?.requestFullscreen?.();
     tg?.disableVerticalSwipes?.();
     applyViewport();
     tg?.onEvent?.("viewportChanged", applyViewport);
