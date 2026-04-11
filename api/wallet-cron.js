@@ -15,6 +15,7 @@ const {
   SendMode,
 } = require("@ton/ton");
 const { runExpireDepositIntents } = require("./wallet-deposit-verify");
+const { notifyWithdrawalCompleted } = require("./telegram-notify");
 
 /** Сумма к отправке в сеть: net после комиссии (v2) или поле amount для старых заявок. */
 function chainPayoutTonFromOp(op) {
@@ -203,6 +204,15 @@ async function completeWithdrawalRpc(opId, txHash) {
   if (!ok) throw new Error("complete_withdrawal returned false");
 }
 
+async function pushWithdrawalTelegram(op, txHash) {
+  const tg = op?.tg_user_id;
+  if (tg == null || String(tg).trim() === "") return;
+  await notifyWithdrawalCompleted(String(tg), {
+    netTon: chainPayoutTonFromOp(op),
+    txHash: String(txHash || "").trim(),
+  }).catch(() => {});
+}
+
 function findOutgoingTxHash(transactions, destFriendly, amountTon) {
   let dest;
   try {
@@ -264,7 +274,9 @@ async function recoverOrSendWithdrawal(op, client, hot, log) {
 
   if (meta.auto_withdraw_tx_hash) {
     try {
-      await completeWithdrawalRpc(opId, String(meta.auto_withdraw_tx_hash));
+      const h = String(meta.auto_withdraw_tx_hash);
+      await completeWithdrawalRpc(opId, h);
+      await pushWithdrawalTelegram(op, h);
       await patchOpMeta(opId, { auto_withdraw_cleared: true });
       log.push(`withdraw: completed op=${opId}`);
     } catch (e) {
@@ -283,6 +295,7 @@ async function recoverOrSendWithdrawal(op, client, hot, log) {
     if (found) {
       await patchOpMeta(opId, { auto_withdraw_tx_hash: found });
       await completeWithdrawalRpc(opId, found);
+      await pushWithdrawalTelegram(op, found);
       log.push(`withdraw: recovered + completed op=${opId}`);
       return;
     }
@@ -364,6 +377,7 @@ async function recoverOrSendWithdrawal(op, client, hot, log) {
   if (found) {
     await patchOpMeta(opId, { auto_withdraw_tx_hash: found });
     await completeWithdrawalRpc(opId, found);
+    await pushWithdrawalTelegram(op, found);
     log.push(`withdraw: sent + completed op=${opId}`);
   } else {
     log.push(`withdraw: sent, hash not found yet op=${opId} (следующий cron)`);
@@ -383,7 +397,7 @@ async function runWithdrawals(log) {
 
   const max = Math.min(5, Math.max(1, Number(process.env.WALLET_CRON_MAX_WITHDRAWALS) || 1));
   const rows = await sb(
-    `wallet_operations?kind=eq.withdrawal&status=eq.pending&select=id,to_address,amount,meta,created_at&order=created_at.asc&limit=${max}`
+    `wallet_operations?kind=eq.withdrawal&status=eq.pending&select=id,tg_user_id,to_address,amount,meta,created_at&order=created_at.asc&limit=${max}`
   );
   if (!rows?.length) return 0;
 

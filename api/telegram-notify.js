@@ -35,4 +35,18 @@ async function notifyDepositCredited(tgUserId, amountTon) {
   );
 }
 
-module.exports = { notifyDepositCredited, sendTelegramUserMessage };
+/** После успешной отправки вывода в сеть (completed + есть tx hash). */
+async function notifyWithdrawalCompleted(tgUserId, opts) {
+  if (String(process.env.WITHDRAWAL_TELEGRAM_NOTIFY || "1").trim() === "0") return;
+  const netTon = opts && opts.netTon != null ? opts.netTon : null;
+  const txHash = opts && opts.txHash != null ? String(opts.txHash).trim() : "";
+  const amt = formatTonRu(netTon);
+  let text = `Вывод ${amt} TON отправлен на ваш кошелёк.`;
+  if (txHash.length >= 12) {
+    text += ` Tx: ${txHash.slice(0, 16)}…`;
+  }
+  text += ` Подробности — в разделе «История» в приложении.`;
+  await sendTelegramUserMessage(tgUserId, text);
+}
+
+module.exports = { notifyDepositCredited, notifyWithdrawalCompleted, sendTelegramUserMessage };
