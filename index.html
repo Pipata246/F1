@@ -88,6 +88,78 @@
       color:var(--text2);
       white-space:nowrap;
     }
+
+    .walletHistList{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      padding:2px 0 8px 0;
+    }
+    .walletHistCard{
+      border-radius:16px;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.09);
+      overflow:hidden;
+    }
+    .walletHistHead{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      padding:12px 12px 10px;
+      border-bottom:1px solid rgba(255,255,255,.07);
+    }
+    .walletHistType{
+      font-weight:850;
+      font-size:14px;
+      letter-spacing:.02em;
+      line-height:1.25;
+      flex:1;
+      min-width:0;
+    }
+    .walletHistBody{
+      padding:10px 12px 12px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .walletHistBlock{
+      border-radius:12px;
+      background: rgba(0,0,0,.22);
+      border:1px solid rgba(255,255,255,.06);
+      padding:10px 11px;
+    }
+    .walletHistLabel{
+      font-size:11px;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      color:var(--muted);
+      margin-bottom:4px;
+    }
+    .walletHistValue{
+      font-size:14px;
+      font-weight:750;
+      line-height:1.35;
+      word-break:break-word;
+    }
+    .walletHistValue--accent{
+      font-size:16px;
+      font-weight:900;
+      color:var(--text);
+    }
+    .walletHistValue--ok{
+      color:#7ee0a8;
+    }
+    .walletHistMono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      font-weight:600;
+      line-height:1.45;
+      word-break:break-all;
+      color:var(--text2);
+    }
+
     .container{padding:16px}
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .glass{
@@ -1997,7 +2069,8 @@
       return;
     }
     const lines = rows.map((r)=>{
-      const kind = r.kind === "deposit" && r.is_deposit_intent ? "Пополнение (заявка)" : (r.kind === "deposit" ? "Пополнение" : "Вывод");
+      const isIntent = r.kind === "deposit" && r.is_deposit_intent;
+      const kind = isIntent ? "Пополнение (заявка)" : (r.kind === "deposit" ? "Пополнение" : "Вывод");
       const st = {
         pending:"В обработке",
         confirming:"Подтверждение",
@@ -2009,25 +2082,49 @@
         expired:"Истекло / отменено",
       }[r.status] || escapeHtml(r.status);
       const amt = r.amount != null ? escapeHtml(String(r.amount)) : "?";
-      const t = r.created_at ? escapeHtml(new Date(r.created_at).toLocaleString("ru-RU")) : "";
-      const hash = r.ton_tx_hash ? `<div class="small muted" style="word-break:break-all">tx: ${escapeHtml(r.ton_tx_hash)}</div>` : "";
-      const recvAddr =
-        r.kind === "withdrawal" && r.to_address
-          ? `<div class="small muted" style="margin-top:4px;word-break:break-all">Кошелёк: ${escapeHtml(r.to_address)}</div>`
-          : "";
-      const netMeta = r.kind === "withdrawal" && r.meta && r.meta.withdraw_net_ton != null
-        ? `<div class="small muted" style="margin-top:4px">К получению: ${escapeHtml(formatBalanceAmountOnly(String(r.meta.withdraw_net_ton)))} TON</div>`
-        : "";
-      const amtLine = r.kind === "withdrawal"
-        ? `<div style="margin-top:4px;font-weight:800">С баланса: ${amt} TON</div>${netMeta}`
-        : `<div style="margin-top:4px;font-weight:800">${amt} TON</div>`;
-      return `<div class="pill" style="display:block;margin-bottom:8px">
-        <div class="row" style="justify-content:space-between"><b>${kind}</b><span class="chip">${st}</span></div>
-        ${amtLine}
-        <div class="small muted" style="margin-top:4px">${t}</div>${recvAddr}${hash}
+      const t = r.created_at ? escapeHtml(new Date(r.created_at).toLocaleString("ru-RU")) : "—";
+      const blocks = [];
+      if(r.kind === "withdrawal"){
+        blocks.push(
+          `<div class="walletHistBlock"><div class="walletHistLabel">Списано с баланса</div><div class="walletHistValue walletHistValue--accent">${amt} TON</div></div>`
+        );
+        if(r.meta && r.meta.withdraw_net_ton != null){
+          const net = escapeHtml(formatBalanceAmountOnly(String(r.meta.withdraw_net_ton)));
+          blocks.push(
+            `<div class="walletHistBlock"><div class="walletHistLabel">Зачислено на кошелёк</div><div class="walletHistValue walletHistValue--accent walletHistValue--ok">${net} TON</div></div>`
+          );
+        }
+      }else if(isIntent){
+        blocks.push(
+          `<div class="walletHistBlock"><div class="walletHistLabel">Сумма в заявке</div><div class="walletHistValue walletHistValue--accent">${amt} TON</div></div>`
+        );
+      }else{
+        blocks.push(
+          `<div class="walletHistBlock"><div class="walletHistLabel">Сумма</div><div class="walletHistValue walletHistValue--accent">${amt} TON</div></div>`
+        );
+      }
+      blocks.push(
+        `<div class="walletHistBlock"><div class="walletHistLabel">Дата и время</div><div class="walletHistValue">${t}</div></div>`
+      );
+      if(r.kind === "withdrawal" && r.to_address){
+        blocks.push(
+          `<div class="walletHistBlock"><div class="walletHistLabel">Адрес получателя</div><div class="walletHistMono">${escapeHtml(String(r.to_address))}</div></div>`
+        );
+      }
+      if(r.ton_tx_hash){
+        blocks.push(
+          `<div class="walletHistBlock"><div class="walletHistLabel">Хеш в блокчейне</div><div class="walletHistMono">${escapeHtml(String(r.ton_tx_hash))}</div></div>`
+        );
+      }
+      return `<div class="walletHistCard">
+        <div class="walletHistHead">
+          <div class="walletHistType">${escapeHtml(kind)}</div>
+          <span class="chip">${st}</span>
+        </div>
+        <div class="walletHistBody">${blocks.join("")}</div>
       </div>`;
     }).join("");
-    openWalletModal("История операций", `<div style="max-height:55vh;overflow:auto">${lines}</div>`);
+    openWalletModal("История операций", `<div class="walletHistList" style="max-height:55vh;overflow:auto">${lines}</div>`);
   });
 
   (async ()=>{
