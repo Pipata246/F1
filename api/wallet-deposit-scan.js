@@ -111,6 +111,129 @@ async function tonapiGet(path) {
   return text ? JSON.parse(text) : {};
 }
 
+function normalizeTonCenterKey(raw) {
+  let key = String(raw ?? "").trim();
+  if (!key) return "";
+  if (key.toLowerCase().startsWith("bearer ")) key = key.slice(7).trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  return key;
+}
+
+function tonCenterApiBase() {
+  return process.env.TON_TESTNET === "1" ? "https://testnet.toncenter.com/api/v2" : "https://toncenter.com/api/v2";
+}
+
+async function toncenterGetTransactions(addressRaw, limit, apiKey) {
+  const base = tonCenterApiBase();
+  const q = apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : "";
+  const res = await fetch(`${base}/jsonRPC${q}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getTransactions",
+      params: { address: String(addressRaw || "").trim(), limit, archival: true },
+    }),
+  });
+  const j = await res.json();
+  if (!j.ok) throw new Error(String(j.error || `HTTP ${res.status}`));
+  const r = j.result;
+  return Array.isArray(r) ? r : [];
+}
+
+/** Приводит ответ Ton Center к полям, которые ждёт extractDepositMemo / цикл runDeposits. */
+function tonCenterTxToCommon(tx) {
+  if (!tx || typeof tx !== "object") return null;
+  const tid = tx.transaction_id;
+  if (!tid || tid.hash == null) return null;
+  const hashKey = String(tid.hash).replace(/\s/g, "");
+  if (!hashKey) return null;
+  const inMsgRaw = tx.in_msg;
+  if (!inMsgRaw || typeof inMsgRaw !== "object") return null;
+  const inMsg = { ...inMsgRaw };
+  const md = inMsg.msg_data;
+  if (md && typeof md === "object") {
+    const typ = md["@type"] || md.type;
+    if (typ === "msg.dataText" && md.text != null) {
+      inMsg.decoded_body = { type: "text_comment", text: String(md.text) };
+    }
+    if ((typ === "msg.dataRaw" || typ === "msg.dataBody") && md.body) {
+      try {
+        inMsg.raw_body = Buffer.from(String(md.body), "base64").toString("hex");
+      } catch {
+        /* */
+      }
+    }
+  }
+  if (inMsg.value == null && inMsg.value_raw != null) inMsg.value = inMsg.value_raw;
+  return { hash: hashKey, event_id: hashKey, success: true, in_msg: inMsg };
+}
+
+/**
+ * Сначала Ton Center (если задан TONCENTER_API_KEY), иначе сразу TonAPI.
+ */
+async function fetchDepositTransactions(depositAddr, limit, log, onlyTgUserId) {
+  let rawAddr = "";
+  try {
+    rawAddr = Address.parse(String(depositAddr).trim()).toRawString();
+  } catch {
+    rawAddr = String(depositAddr).trim();
+  }
+
+  const tcKey = normalizeTonCenterKey(process.env.TONCENTER_API_KEY);
+  if (tcKey) {
+    try {
+      const arr = await toncenterGetTransactions(rawAddr, limit, tcKey);
+      const mapped = arr.map(tonCenterTxToCommon).filter(Boolean);
+      if (mapped.length) {
+        if (onlyTgUserId) log.push(`deposits: TonCenter txs=${mapped.length}`);
+        return { transactions: mapped, source: "TonCenter" };
+      }
+      if (onlyTgUserId) log.push("deposits: TonCenter 0 txs — пробуем TonAPI");
+    } catch (e) {
+      if (onlyTgUserId) log.push(`deposits: TonCenter ${String(e.message || e).slice(0, 160)}`);
+    }
+  }
+
+  let data = { transactions: [] };
+  let lastErr = null;
+  let usedAddr = "";
+  for (const addrVariant of tonapiAccountPathVariants(depositAddr)) {
+    try {
+      const enc = encodeURIComponent(addrVariant);
+      const attempt = await tonapiGet(
+        `/blockchain/accounts/${enc}/transactions?limit=${limit}&sort_order=desc`
+      );
+      const tlist = Array.isArray(attempt.transactions) ? attempt.transactions : [];
+      if (tlist.length > 0) {
+        data = attempt;
+        usedAddr = addrVariant;
+        lastErr = null;
+        break;
+      }
+      data = attempt;
+      usedAddr = addrVariant;
+      lastErr = null;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (lastErr && (!data.transactions || !data.transactions.length)) {
+    throw lastErr;
+  }
+  const txs = Array.isArray(data.transactions) ? data.transactions : [];
+  if (onlyTgUserId) {
+    log.push(`deposits: TonAPI txs=${txs.length} addr=${String(usedAddr || depositAddr).slice(0, 12)}…`);
+  }
+  return { transactions: txs, source: "TonAPI" };
+}
+
 function nanoToTonString(nano) {
   try {
     const n = BigInt(String(nano ?? "0"));
@@ -348,40 +471,19 @@ async function runDeposits(log, opts = {}) {
   const defLimit = onlyTgUserId ? 100 : 30;
   const limit = Math.min(100, Math.max(5, Number(process.env.WALLET_CRON_DEPOSIT_TX_LIMIT) || defLimit));
 
-  let data = { transactions: [] };
-  let lastErr = null;
-  let usedAddr = "";
-  for (const addrVariant of tonapiAccountPathVariants(depositAddr)) {
-    try {
-      const enc = encodeURIComponent(addrVariant);
-      const attempt = await tonapiGet(
-        `/blockchain/accounts/${enc}/transactions?limit=${limit}&sort_order=desc`
-      );
-      const tlist = Array.isArray(attempt.transactions) ? attempt.transactions : [];
-      if (tlist.length > 0) {
-        data = attempt;
-        usedAddr = addrVariant;
-        lastErr = null;
-        break;
-      }
-      data = attempt;
-      usedAddr = addrVariant;
-      lastErr = null;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  if (lastErr && (!data.transactions || !data.transactions.length)) {
-    log.push(`deposits: TonAPI error ${lastErr.message}`);
+  let txs = [];
+  try {
+    const pack = await fetchDepositTransactions(depositAddr, limit, log, !!onlyTgUserId);
+    txs = pack.transactions || [];
+  } catch (lastErr) {
+    log.push(`deposits: ошибка загрузки транзакций ${String(lastErr.message || lastErr)}`);
     return 0;
   }
 
-  const txs = Array.isArray(data.transactions) ? data.transactions : [];
-  if (onlyTgUserId) {
-    log.push(`deposits: TonAPI txs=${txs.length} addr=${String(usedAddr || depositAddr).slice(0, 12)}…`);
-  }
   if (onlyTgUserId && txs.length === 0) {
-    log.push("deposits: 0 transactions — проверьте TON_DEPOSIT_ADDRESS или подождите индексацию TonAPI");
+    log.push(
+      "deposits: 0 транзакций — проверьте TON_DEPOSIT_ADDRESS и TONCENTER_API_KEY; подождите появления tx в индексе"
+    );
   }
 
   let credited = 0;
@@ -405,7 +507,7 @@ async function runDeposits(log, opts = {}) {
     const memoRaw = extractDepositMemo(inMsg);
     if (!memoRaw) {
       if (onlyTgUserId && noCommentLogged < 5) {
-        log.push(`deposits: tx ${hashKey.slice(0, 12)}… — нет комментария в ответе TonAPI (нужен text_comment в переводе)`);
+        log.push(`deposits: tx ${hashKey.slice(0, 12)}… — в теле входящего сообщения нет текстового комментария (нужна оплата через кнопку в приложении)`);
         noCommentLogged += 1;
       }
       continue;

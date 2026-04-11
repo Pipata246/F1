@@ -665,7 +665,7 @@
           </div>
           <div class="divider"></div>
           <div class="walletActions">
-            <button type="button" class="btn primary" id="walletBtnTopup">Пополнить (Tonkeeper)</button>
+            <button type="button" class="btn primary" id="walletBtnTopup">Пополнить через TON</button>
             <button type="button" class="btn ghost" id="walletBtnWithdraw">Вывести</button>
             <button type="button" class="btn ghost" id="walletBtnHistory">История операций</button>
           </div>
@@ -992,6 +992,7 @@
   async function pollServerBalanceUntilChanged(prevStr, opts){
     const maxMs = opts?.maxMs ?? 120000;
     const interval = opts?.interval ?? 3500;
+    const chainSyncWhileWaiting = !!opts?.chainSyncWhileWaiting;
     const start = Date.now();
     const prev = parseBalanceNum(prevStr);
     let lastChainSync = 0;
@@ -999,7 +1000,11 @@
       await new Promise((r)=> setTimeout(r, interval));
       try{
         const now = Date.now();
-        if(hasTgAuth && (lastChainSync === 0 || now - lastChainSync >= 11000)){
+        if(
+          chainSyncWhileWaiting &&
+          hasTgAuth &&
+          (lastChainSync === 0 || now - lastChainSync >= 11000)
+        ){
           lastChainSync = now;
           await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData }).catch(()=>{});
         }
@@ -1026,21 +1031,6 @@
     tonConnectUI = new Ctor({
       manifestUrl,
       language: "ru",
-      walletsListConfiguration: {
-        includeWallets: [
-          {
-            appName: "tonkeeper",
-            name: "Tonkeeper",
-            imageUrl: "https://tonkeeper.com/assets/tonconnect-icon.png",
-            aboutUrl: "https://tonkeeper.com",
-            universalLink: "https://app.tonkeeper.com/ton-connect",
-            deepLink: "tonkeeper-tc://",
-            jsBridgeKey: "tonkeeper",
-            bridgeUrl: "https://bridge.tonapi.io/bridge",
-            platforms: ["ios", "android", "macos", "windows", "linux"],
-          },
-        ],
-      },
     });
     return tonConnectUI;
   }
@@ -1147,15 +1137,11 @@
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "wallet" && hasTgAuth){
-      apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData })
-        .catch(()=>{})
-        .finally(()=>{
-          hydrateUserFromServer().then(()=>{
-            renderTopbar();
-            renderWallet();
-            renderProfile();
-          }).catch(()=>{});
-        });
+      hydrateUserFromServer().then(()=>{
+        renderTopbar();
+        renderWallet();
+        renderProfile();
+      }).catch(()=>{});
     }
   }
 
@@ -1685,7 +1671,6 @@
       return;
     }
     const addr = info.depositAddress || "";
-    const memo = info.depositMemo || "";
     const payloadBoc = info.depositPayloadBoc || "";
     if(info.balance != null){
       state.profile.serverBalanceTon = String(info.balance);
@@ -1694,30 +1679,11 @@
     openWalletModal("Пополнение", `
       <p class="small">Сумма в TON (сеть <b>mainnet</b>).</p>
       <input type="text" class="field" id="depAmount" placeholder="Например 0.5" inputmode="decimal" autocomplete="off" />
-      <p class="small muted" style="margin-top:10px">Адрес приёма:</p>
-      <code style="display:block;word-break:break-all;font-size:12px;margin-top:4px">${escapeHtml(addr)}</code>
-      <p class="small muted" style="margin-top:8px">Комментарий к переводу:</p>
-      <code style="display:block;word-break:break-all;font-size:12px;margin-top:4px">${escapeHtml(memo)}</code>
-      <div class="row" style="margin-top:12px;flex-direction:column;gap:8px">
-        <button type="button" class="btn primary" id="depTonconnect">Отправить через Tonkeeper</button>
-        <button type="button" class="btn ghost" id="depCopyAddr">Скопировать адрес</button>
-        <button type="button" class="btn ghost" id="depCopyMemo">Скопировать комментарий</button>
+      <p class="small muted" style="margin-top:12px">Комментарий для зачисления на ваш аккаунт подставляется в транзакцию <b>автоматически</b> при оплате через кнопку ниже — вручную ничего указывать не нужно.</p>
+      <div class="row" style="margin-top:14px;flex-direction:column;gap:8px">
+        <button type="button" class="btn primary" id="depTonconnect">Отправить через TON</button>
       </div>
     `);
-    document.getElementById("depCopyAddr")?.addEventListener("click", async ()=>{
-      try{
-        await navigator.clipboard.writeText(addr);
-        toast("Адрес скопирован", 2000);
-        hNote("success");
-      }catch(e){ toast("Не удалось скопировать"); }
-    });
-    document.getElementById("depCopyMemo")?.addEventListener("click", async ()=>{
-      try{
-        await navigator.clipboard.writeText(memo);
-        toast("Комментарий скопирован", 2000);
-        hNote("success");
-      }catch(e){ toast("Не удалось скопировать"); }
-    });
     document.getElementById("depTonconnect")?.addEventListener("click", async ()=>{
       const depBtn = document.getElementById("depTonconnect");
       if(!depBtn || depBtn.disabled) return;
@@ -1732,7 +1698,7 @@
         return;
       }
       if(!payloadBoc){
-        toast("Нет payload с сервера — переведите вручную и укажите комментарий из поля выше", 4500);
+        toast("Сервер не отдал данные для оплаты. Обновите страницу или попробуйте позже.", 4200);
         return;
       }
       let intentId = null;
@@ -1797,12 +1763,12 @@
           if(hint) toast(hint.slice(0, 200), 5000);
         }
       }
-      const ok = await pollServerBalanceUntilChanged(balBefore);
+      const ok = await pollServerBalanceUntilChanged(balBefore, { chainSyncWhileWaiting: true });
       if(ok){
         toast("Баланс пополнен в базе", 4000);
         hNote("success");
       } else if(!(submitScan && Number(submitScan.credited) > 0)) {
-        toast("Если TON на адресе приёма, откройте вкладку «Кошелёк» ещё раз или подождите — сервер опросит TonAPI.", 5200);
+        toast("Если TON уже ушли с кошелька, зачисление может задержаться на 1–2 минуты. При проблеме проверьте TONCENTER_API_KEY на сервере.", 5500);
       }
       }finally{
         depBtn.disabled = false;
@@ -1899,11 +1865,6 @@
         if(!hasTgAuth) return;
         const tab = (location.hash||"").slice(1);
         if(tab === "profile") loadExternalStats();
-        if(tab === "wallet"){
-          apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData })
-            .catch(()=>{})
-            .finally(()=> hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{}));
-        }
       }, 12000);
     }
   })();
@@ -1926,11 +1887,6 @@
       refreshOnlineCount();
       const tab = (location.hash||"").slice(1);
       if(tab === "profile") loadExternalStats();
-      if(tab === "wallet"){
-        apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData })
-          .catch(()=>{})
-          .finally(()=> hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{}));
-      }
     }
   });
   window.addEventListener("pageshow", (ev)=>{

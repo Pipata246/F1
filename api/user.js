@@ -246,8 +246,11 @@ async function getWalletInfo(initData) {
   let depositPayloadBoc = "";
   try {
     depositPayloadBoc = tonTextCommentPayloadBocBase64(memo);
-  } catch {
-    depositPayloadBoc = "";
+  } catch (e) {
+    throw new Error(`Не удалось подготовить комментарий для TON Connect: ${String(e?.message || e)}`);
+  }
+  if (!depositPayloadBoc) {
+    throw new Error("Пустой payload комментария — пополнение только через кнопку в приложении недоступно, обратитесь к администратору");
   }
   const twaReturnUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").trim();
   return {
