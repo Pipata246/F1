@@ -14,7 +14,7 @@ const {
   toNano,
   SendMode,
 } = require("@ton/ton");
-const { runExpireDepositIntents } = require("./wallet-deposit-verify");
+const { cleanupDepositIntents } = require("./wallet-deposit-verify");
 const { notifyWithdrawalCompleted } = require("./telegram-notify");
 
 /** Сумма к отправке в сеть: net после комиссии (v2) или поле amount для старых заявок. */
@@ -436,7 +436,7 @@ async function walletCronHandler(req, res) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
-    await runExpireDepositIntents(sb, log);
+    await cleanupDepositIntents(sb, log);
 
     let withdrawTouched = 0;
     try {

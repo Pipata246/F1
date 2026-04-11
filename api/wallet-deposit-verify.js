@@ -224,6 +224,33 @@ async function runExpireDepositIntents(sb, log) {
 }
 
 /**
+ * Pending без оплаты и без BOC: если пользователь ушёл с экрана оплаты — не держим «ожидает» бесконечно.
+ */
+async function abandonStalePendingDepositIntents(sb, log) {
+  const min = Math.min(120, Math.max(5, Number(process.env.DEPOSIT_PENDING_ABANDON_MIN) || 10));
+  const cutIso = new Date(Date.now() - min * 60_000).toISOString();
+  const nowIso = new Date().toISOString();
+  try {
+    await sb(
+      `deposit_intents?status=eq.pending&wallet_operation_id=is.null&created_at=lt.${encodeURIComponent(cutIso)}`,
+      {
+        method: "PATCH",
+        body: { status: "expired", updated_at: nowIso },
+        prefer: "return=minimal",
+      }
+    );
+  } catch (e) {
+    const m = String(e.message || "").toLowerCase();
+    if (!m.includes("deposit_intent") && !m.includes("schema cache")) log.push(`intents: abandon-pending ${e.message}`);
+  }
+}
+
+async function cleanupDepositIntents(sb, log) {
+  await runExpireDepositIntents(sb, log);
+  await abandonStalePendingDepositIntents(sb, log);
+}
+
+/**
  * Одна попытка: BOC → tx на кошельке → исходящее на депозит с memo → wallet_credit_deposit → PATCH intent.
  */
 async function tryFinalizeDepositFromBoc(api, params) {
@@ -380,6 +407,8 @@ async function processSubmittedIntentsForUser(api, tgId, opts) {
 
 module.exports = {
   runExpireDepositIntents,
+  abandonStalePendingDepositIntents,
+  cleanupDepositIntents,
   tryFinalizeDepositFromBoc,
   processSubmittedIntentsForUser,
   waitForWalletTxByExternalBoc,

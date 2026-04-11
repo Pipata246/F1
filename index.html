@@ -726,7 +726,6 @@
               <strong id="profileBalanceTon">—</strong>
             </div>
           </div>
-          <p class="small muted" style="margin:8px 0 0 0">Сумма с сервера (нельзя подделать в приложении)</p>
 
           <div class="divider"></div>
 
@@ -1066,19 +1065,6 @@
     return false;
   }
 
-  /** Строки лога зачисления для тоста (убираем «успех» и шум). */
-  function userFacingDepositScanHints(scanLog){
-    if(!Array.isArray(scanLog)) return [];
-    const skip = (t)=>{
-      const s = String(t);
-      return (
-        /^deposit: зачислено/i.test(s) ||
-        /^ton: getTransactions/i.test(s)
-      );
-    };
-    return scanLog.filter(Boolean).filter((x)=> !skip(x));
-  }
-
   let tonConnectUI = null;
   function getTonConnectUI(){
     if(tonConnectUI) return tonConnectUI;
@@ -1099,12 +1085,19 @@
   const walletModalTitle = document.getElementById("walletModalTitle");
   const walletModalBody = document.getElementById("walletModalBody");
   const walletModalClose = document.getElementById("walletModalClose");
+  let walletModalOnClose = null;
   function openWalletModal(title, html){
+    walletModalOnClose = null;
     if(walletModalTitle) walletModalTitle.textContent = title;
     if(walletModalBody) walletModalBody.innerHTML = html;
     walletModalWrap?.classList.add("show");
   }
-  function closeWalletModal(){ walletModalWrap?.classList.remove("show"); }
+  function closeWalletModal(){
+    const fn = walletModalOnClose;
+    walletModalOnClose = null;
+    try{ fn?.(); }catch(e){}
+    walletModalWrap?.classList.remove("show");
+  }
   walletModalClose?.addEventListener("click", closeWalletModal);
   walletModalWrap?.addEventListener("click", (e)=>{ if(e.target === walletModalWrap) closeWalletModal(); });
 
@@ -1785,6 +1778,17 @@
         <button type="button" class="btn primary" id="depTonconnect">Отправить через TON</button>
       </div>
     `);
+    const depState = { intentId: null, paymentSent: false };
+    walletModalOnClose = ()=>{
+      if(depState.paymentSent) return;
+      if(depState.intentId){
+        apiJson("/api/user", {
+          action:"cancelDepositIntent",
+          initData: tgInitData,
+          intentId: depState.intentId,
+        }).catch(()=>{});
+      }
+    };
     document.getElementById("depTonconnect")?.addEventListener("click", async ()=>{
       const depBtn = document.getElementById("depTonconnect");
       if(!depBtn || depBtn.disabled) return;
@@ -1806,6 +1810,7 @@
       try{
         const ir = await apiJson("/api/user", { action:"createDepositIntent", initData: tgInitData, amount: raw });
         intentId = ir.intentId || null;
+        depState.intentId = intentId;
       }catch(e){
         toast(e.message || "Не удалось создать заявку на пополнение в базе", 3800);
         return;
@@ -1818,7 +1823,10 @@
       try{
         if(!ui.connected) await ui.connectWallet();
       }catch(e){
-        toast("Подключение отменено");
+        if(depState.intentId){
+          apiJson("/api/user", { action:"cancelDepositIntent", initData: tgInitData, intentId: depState.intentId }).catch(()=>{});
+          depState.intentId = null;
+        }
         return;
       }
       const balBefore = state.profile.serverBalanceTon;
@@ -1830,13 +1838,17 @@
         });
       }catch(e){
         const msg = e?.message || String(e);
-        if(/reject|cancel|denied|закр/i.test(msg)){
-          toast("Отменено. Заявка в базе истечёт сама, баланс не изменится.");
-          return;
+        if(depState.intentId){
+          apiJson("/api/user", { action:"cancelDepositIntent", initData: tgInitData, intentId: depState.intentId }).catch(()=>{});
+          depState.intentId = null;
         }
-        toast((msg || "Ошибка отправки").slice(0, 140), 3500);
+        if(!/reject|cancel|denied|закр/i.test(msg)){
+          console.warn("sendTransaction:", msg);
+        }
         return;
       }
+      depState.paymentSent = true;
+      depState.intentId = null;
       closeWalletModal();
       markDepositSyncWakeWindow();
       toast("Платёж отправлен. Проверяем зачисление…", 3200);
@@ -1851,29 +1863,14 @@
             boc: txResult?.boc || "",
           });
         }catch(e){
-          toast("Перевод ушёл, но не удалось отметить на сервере: " + (e.message || "").slice(0, 80), 4500);
+          console.warn("submitDepositIntent:", e?.message || e);
         }
       }
       if(submitScan && Number(submitScan.credited) > 0){
         await hydrateUserFromServer().catch(()=>{});
         refreshBalanceUiAfterHydrate();
-      } else {
-        const dr = submitScan && submitScan.depositReason;
-        if(dr === "tx_not_on_chain_yet"){
-          toast("Транзакция ещё подтверждается в сети…", 3200);
-        } else if(dr === "no_matching_out_msg" || dr === "amount_mismatch"){
-          toast("Сервер не нашёл перевод на кассу с вашим комментарием. Проверьте сумму и что оплата через кнопку в приложении.", 6000);
-        }
-        const hints = userFacingDepositScanHints(submitScan?.scanLog);
-        if(hints.length){
-          const hint = hints.slice(-2).join(" · ");
-          toast(hint.slice(0, 220), 5500);
-        }
       }
-      const ok = await pollServerBalanceUntilChanged(balBefore, { chainSyncWhileWaiting: true });
-      if(!ok && !(submitScan && Number(submitScan.credited) > 0)) {
-        toast("Если TON уже ушли с кошелька, зачисление подтянется автоматически (до пары минут). Откройте приложение снова или подождите.", 5200);
-      }
+      await pollServerBalanceUntilChanged(balBefore, { chainSyncWhileWaiting: true });
       }finally{
         depBtn.disabled = false;
       }

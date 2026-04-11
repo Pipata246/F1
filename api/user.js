@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const {
   tryFinalizeDepositFromBoc,
   processSubmittedIntentsForUser,
+  cleanupDepositIntents,
 } = require("./wallet-deposit-verify");
 const { withdrawalBreakdown, withdrawalFeePercentDisplay } = require("./withdraw-fee");
 
@@ -371,6 +372,11 @@ async function getWalletHistory(initData, limit) {
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
+  try {
+    await cleanupDepositIntents(sb, []);
+  } catch {
+    /* ignore */
+  }
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
   const rows = await sb(
     `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${safeLimit}`
@@ -417,6 +423,12 @@ async function createDepositIntent(initData, amountStr) {
   const session = await authSession(initData);
   if (!session.exists) throw new Error("Complete registration first");
 
+  try {
+    await cleanupDepositIntents(sb, []);
+  } catch {
+    /* ignore */
+  }
+
   const amount = Number(String(amountStr || "").replace(",", "."));
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid amount");
   const minAuto = Number(process.env.MIN_AUTO_DEPOSIT_TON);
@@ -445,7 +457,7 @@ async function createDepositIntent(initData, amountStr) {
     throw new Error("Too many open top-ups. Wait until they expire or complete.");
   }
 
-  const ttlMin = Math.min(180, Math.max(15, Number(process.env.DEPOSIT_INTENT_TTL_MIN) || 45));
+  const ttlMin = Math.min(180, Math.max(10, Number(process.env.DEPOSIT_INTENT_TTL_MIN) || 25));
   const expiresAt = new Date(Date.now() + ttlMin * 60_000).toISOString();
 
   const inserted = await sb("deposit_intents", {
@@ -462,6 +474,33 @@ async function createDepositIntent(initData, amountStr) {
   const row = Array.isArray(inserted) ? inserted[0] : inserted;
   if (!row?.id) throw new Error("Failed to create deposit intent");
   return { intentId: row.id, expiresAt: row.expires_at };
+}
+
+async function cancelDepositIntent(initData, intentId) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const id = String(intentId || "").trim();
+  if (!id) throw new Error("Missing intentId");
+
+  const found = await sb(
+    `deposit_intents?id=eq.${encodeURIComponent(id)}&tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,status,wallet_operation_id&limit=1`
+  );
+  if (!found?.length) return { ok: true };
+  const cur = found[0];
+  if (cur.wallet_operation_id) return { ok: true };
+  if (cur.status !== "pending") return { ok: true };
+
+  await sb(`deposit_intents?id=eq.${encodeURIComponent(id)}&tg_user_id=eq.${encodeURIComponent(tgId)}`, {
+    method: "PATCH",
+    body: {
+      status: "expired",
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=minimal",
+  });
+  return { ok: true };
 }
 
 async function submitDepositIntent(initData, intentId, boc) {
@@ -583,6 +622,11 @@ async function syncMyDeposits(initData) {
   touchPresenceTgId(tgId);
   const session = await authSession(initData);
   if (!session.exists) throw new Error("Complete registration first");
+  try {
+    await cleanupDepositIntents(sb, []);
+  } catch {
+    /* ignore */
+  }
   if (!touchDepositSyncRateLimit(tgId)) {
     return { credited: 0, log: [], rateLimited: true };
   }
@@ -2673,6 +2717,13 @@ module.exports = async (req, res) => {
       );
       return res.status(200).json({ ok: true, ...data });
     }
+    if (action === "cancelDepositIntent") {
+      const data = await cancelDepositIntent(
+        req.body?.initData || "",
+        req.body?.intentId || req.body?.id || ""
+      );
+      return res.status(200).json({ ok: true, ...data });
+    }
     if (action === "syncMyDeposits") {
       const result = await syncMyDeposits(req.body?.initData || "");
       return res.status(200).json({ ok: true, ...result });
@@ -2724,6 +2775,7 @@ module.exports = async (req, res) => {
       msg.includes("Deposit address is not configured") ||
       msg.includes("Operation not updated") ||
       msg.includes("Missing operationId") ||
+      msg.includes("Missing intentId") ||
       msg.includes("Missing tgUserId") ||
       msg.includes("Invalid txHash")
     ) {
