@@ -1719,6 +1719,10 @@
       }catch(e){ toast("Не удалось скопировать"); }
     });
     document.getElementById("depTonconnect")?.addEventListener("click", async ()=>{
+      const depBtn = document.getElementById("depTonconnect");
+      if(!depBtn || depBtn.disabled) return;
+      depBtn.disabled = true;
+      try{
       const raw = document.getElementById("depAmount")?.value || "";
       let nano;
       try{
@@ -1799,6 +1803,9 @@
         hNote("success");
       } else if(!(submitScan && Number(submitScan.credited) > 0)) {
         toast("Если TON на адресе приёма, откройте вкладку «Кошелёк» ещё раз или подождите — сервер опросит TonAPI.", 5200);
+      }
+      }finally{
+        depBtn.disabled = false;
       }
     });
   });

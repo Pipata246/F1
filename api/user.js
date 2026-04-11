@@ -352,6 +352,18 @@ async function createDepositIntent(initData, amountStr) {
     throw new Error(`Minimum deposit is ${minDeclared} TON`);
   }
 
+  const nowIso = new Date().toISOString();
+  const pendingRows = await sb(
+    `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&status=eq.pending&wallet_operation_id=is.null&expires_at=gt.${encodeURIComponent(nowIso)}&select=id,declared_amount_ton,expires_at&order=created_at.desc`
+  );
+  const amountTol = Math.max(amount * 1e-9, 1e-12);
+  for (const row of pendingRows || []) {
+    const d = Number(row.declared_amount_ton);
+    if (Number.isFinite(d) && Math.abs(d - amount) <= amountTol) {
+      return { intentId: row.id, expiresAt: row.expires_at, reusedPendingIntent: true };
+    }
+  }
+
   const open = await sb(
     `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&status=in.(pending,submitted)&wallet_operation_id=is.null&select=id`
   );

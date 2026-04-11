@@ -84,10 +84,24 @@ function tonapiBase() {
   return process.env.TON_TESTNET === "1" ? "https://testnet.tonapi.io" : "https://tonapi.io";
 }
 
+/** Ton Console отдаёт токен без префикса; в .env часто копируют `Bearer …` или кавычки — иначе TonAPI 401 / illegal base32. */
+function normalizeTonapiKey(raw) {
+  let key = String(raw ?? "").trim();
+  if (!key) return "";
+  if (key.toLowerCase().startsWith("bearer ")) key = key.slice(7).trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  return key;
+}
+
 async function tonapiGet(path) {
   const url = `${tonapiBase()}/v2${path}`;
   const headers = { Accept: "application/json" };
-  const key = String(process.env.TONAPI_KEY || "").trim();
+  const key = normalizeTonapiKey(process.env.TONAPI_KEY);
   if (key) headers.Authorization = `Bearer ${key}`;
   const res = await fetch(url, { headers });
   const text = await res.text();
@@ -305,6 +319,12 @@ async function runDeposits(log, opts = {}) {
     return 0;
   }
   let depositAddr = String(process.env.TON_DEPOSIT_ADDRESS || "").trim();
+  if (
+    (depositAddr.startsWith('"') && depositAddr.endsWith('"')) ||
+    (depositAddr.startsWith("'") && depositAddr.endsWith("'"))
+  ) {
+    depositAddr = depositAddr.slice(1, -1).trim();
+  }
   if (!depositAddr) {
     log.push("deposits: skip (TON_DEPOSIT_ADDRESS empty)");
     return 0;
