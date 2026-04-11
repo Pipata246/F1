@@ -1000,10 +1000,11 @@
       await new Promise((r)=> setTimeout(r, interval));
       try{
         const now = Date.now();
+        const chainEveryMs = depositSyncWakeActive() ? 3500 : 11000;
         if(
           chainSyncWhileWaiting &&
           hasTgAuth &&
-          (lastChainSync === 0 || now - lastChainSync >= 11000)
+          (lastChainSync === 0 || now - lastChainSync >= chainEveryMs)
         ){
           lastChainSync = now;
           await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData }).catch(()=>{});
@@ -1686,11 +1687,24 @@
     renderProfile();
   }
 
+  const F1_DEPOSIT_WAKE_UNTIL_KEY = "f1duel_deposit_wake_until_ms";
+  function markDepositSyncWakeWindow(){
+    try{
+      sessionStorage.setItem(F1_DEPOSIT_WAKE_UNTIL_KEY, String(Date.now() + 180000));
+    }catch(e){}
+  }
+  function depositSyncWakeActive(){
+    try{
+      return Date.now() < Number(sessionStorage.getItem(F1_DEPOSIT_WAKE_UNTIL_KEY) || 0);
+    }catch(e){ return false; }
+  }
+
   let lastForegroundDepositSyncMs = 0;
   async function maybeSyncDepositsOnForeground(){
     if(!hasTgAuth) return;
     const t = Date.now();
-    if(t - lastForegroundDepositSyncMs < 22000) return;
+    const minGapMs = depositSyncWakeActive() ? 2800 : 22000;
+    if(t - lastForegroundDepositSyncMs < minGapMs) return;
     lastForegroundDepositSyncMs = t;
     try{
       await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData });
@@ -1779,6 +1793,7 @@
         return;
       }
       closeWalletModal();
+      markDepositSyncWakeWindow();
       toast("Платёж отправлен. Проверяем зачисление…", 3200);
       hNote("success");
       let submitScan = null;

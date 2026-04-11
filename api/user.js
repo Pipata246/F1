@@ -455,9 +455,22 @@ async function submitDepositIntent(initData, intentId, boc) {
   if (bocStr.length > 20) auditConnectBocForUserMemo(bocStr, memoPlain, scanLog);
 
   let credited = 0;
-  const passes = Math.min(15, Math.max(1, Number(process.env.DEPOSIT_SUBMIT_SCAN_PASSES) || 8));
-  const delayMs = Math.min(4000, Math.max(350, Number(process.env.DEPOSIT_SUBMIT_SCAN_DELAY_MS) || 900));
-  for (let p = 0; p < passes; p++) {
+  /* Vercel Hobby ~10s function limit: длинный цикл обрывается после PATCH submitted → «зависший» submitted без зачисления. */
+  const budgetMs = Math.min(
+    120000,
+    Math.max(4000, Number(process.env.DEPOSIT_SUBMIT_SCAN_BUDGET_MS) || 8200)
+  );
+  const scanDeadline = Date.now() + budgetMs;
+  const maxPasses = Math.min(15, Math.max(1, Number(process.env.DEPOSIT_SUBMIT_SCAN_PASSES) || 6));
+  const delayMs = Math.min(3000, Math.max(200, Number(process.env.DEPOSIT_SUBMIT_SCAN_DELAY_MS) || 500));
+
+  for (let p = 0; p < maxPasses; p++) {
+    if (Date.now() > scanDeadline) {
+      scanLog.push(
+        "deposits: submit-scan стоп по лимиту времени — дальше syncMyDeposits / cron (Hobby ~10s на функцию)"
+      );
+      break;
+    }
     try {
       credited = await scanChainDeposits(scanLog, { onlyTgUserId: tgId });
       if (credited > 0) break;
@@ -465,7 +478,10 @@ async function submitDepositIntent(initData, intentId, boc) {
       scanLog.push(`deposits: submit-scan error ${String(e?.message || e)}`);
       break;
     }
-    if (p < passes - 1) await new Promise((r) => setTimeout(r, delayMs));
+    const room = scanDeadline - Date.now();
+    if (p < maxPasses - 1 && room > delayMs + 400) {
+      await new Promise((r) => setTimeout(r, Math.min(delayMs, room - 300)));
+    }
   }
   return { ok: true, credited, scanLog: scanLog.slice(-40) };
 }

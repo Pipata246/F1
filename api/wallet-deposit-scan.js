@@ -615,9 +615,16 @@ async function runDeposits(log, opts = {}) {
 
     try {
       const dup = await sb(
-        `wallet_operations?ton_tx_hash=eq.${encodeURIComponent(hashKey)}&select=id&limit=1`
+        `wallet_operations?ton_tx_hash=eq.${encodeURIComponent(hashKey)}&select=id,tg_user_id&limit=1`
       );
       if (dup?.length) {
+        if (String(dup[0].tg_user_id || "") === String(tgUserId)) {
+          try {
+            await linkDepositIntentAfterCredit(tgUserId, tonNum, hashKey, dup[0].id, log);
+          } catch (e2) {
+            log.push(`deposits: link intent (tx уже в ledger) ${e2.message}`);
+          }
+        }
         continue;
       }
 
