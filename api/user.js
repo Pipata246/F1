@@ -3,6 +3,7 @@ const {
   tryFinalizeDepositFromBoc,
   processSubmittedIntentsForUser,
 } = require("./wallet-deposit-verify");
+const { withdrawalBreakdown, withdrawalFeePercentDisplay } = require("./withdraw-fee");
 
 /** Сравнение секретов без утечки по времени (длины должны совпадать). */
 function safeSecretEqual(provided, expected) {
@@ -256,13 +257,35 @@ async function getWalletInfo(initData) {
     throw new Error("Пустой payload комментария — пополнение только через кнопку в приложении недоступно, обратитесь к администратору");
   }
   const twaReturnUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").trim();
+  const minWEnv = Number(process.env.MIN_WITHDRAWAL_TON);
+  const minWithdrawalTon = Number.isFinite(minWEnv) && minWEnv > 0 ? minWEnv : 0.05;
+  const minNetEnv = Number(process.env.MIN_WITHDRAW_NET_TON);
+  const minWithdrawNetTon = Number.isFinite(minNetEnv) && minNetEnv > 0 ? minNetEnv : 0.02;
   return {
     depositAddress,
     depositMemo: memo,
     depositPayloadBoc,
     balance: bal,
+    withdrawalFeePercent: withdrawalFeePercentDisplay(),
+    minWithdrawalTon,
+    minWithdrawNetTon,
     ...(twaReturnUrl.startsWith("https://t.me/") ? { tonConnectTwaReturnUrl: twaReturnUrl } : {}),
   };
+}
+
+async function mergeWalletOpMeta(opId, partial) {
+  const id = encodeURIComponent(opId);
+  const rows = await sb(`wallet_operations?id=eq.${id}&select=meta&limit=1`);
+  const prev =
+    rows?.[0]?.meta && typeof rows[0].meta === "object" && !Array.isArray(rows[0].meta) ? rows[0].meta : {};
+  await sb(`wallet_operations?id=eq.${id}`, {
+    method: "PATCH",
+    body: {
+      meta: { ...prev, ...partial },
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=minimal",
+  });
 }
 
 async function requestWithdrawal(initData, toAddress, amountStr) {
@@ -283,6 +306,17 @@ async function requestWithdrawal(initData, toAddress, amountStr) {
     throw new Error(`Minimum withdrawal is ${minW} TON`);
   }
 
+  const br = withdrawalBreakdown(amount);
+  if (!br) throw new Error("Invalid withdrawal amount after fee");
+
+  const minNetEnv = Number(process.env.MIN_WITHDRAW_NET_TON);
+  const minNet = Number.isFinite(minNetEnv) && minNetEnv > 0 ? minNetEnv : 0.02;
+  if (br.netTon + 1e-12 < minNet) {
+    throw new Error(
+      `После комиссии на кошелёк придёт меньше ${minNet} TON. Укажите большую сумму списания.`
+    );
+  }
+
   const exists = await sb(
     `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id&limit=1`
   );
@@ -292,11 +326,32 @@ async function requestWithdrawal(initData, toAddress, amountStr) {
 
   const rpcRes = await sbRpc("wallet_request_withdrawal", {
     p_tg_user_id: tgId,
-    p_amount: amount,
+    p_amount: br.grossTon,
     p_to_address: addr,
   });
   const opId = rpcScalar(rpcRes);
-  return { operationId: opId };
+
+  if (opId) {
+    try {
+      await mergeWalletOpMeta(opId, {
+        withdraw_payout_v: 2,
+        withdraw_gross_ton: br.grossTon,
+        withdraw_net_ton: br.netTon,
+        withdraw_fee_ton: br.feeTon,
+        withdraw_fee_bps: br.feeBps,
+      });
+    } catch (e) {
+      console.error("mergeWalletOpMeta withdrawal:", e?.message || e);
+    }
+  }
+
+  return {
+    operationId: opId,
+    grossTon: br.grossTon,
+    netTon: br.netTon,
+    feeTon: br.feeTon,
+    feePercent: withdrawalFeePercentDisplay(),
+  };
 }
 
 async function getWalletHistory(initData, limit) {
@@ -306,7 +361,7 @@ async function getWalletHistory(initData, limit) {
   touchPresenceTgId(tgId);
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
   const rows = await sb(
-    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at&order=created_at.desc&limit=${safeLimit}`
+    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${safeLimit}`
   );
   let intentsRaw = [];
   try {
@@ -2648,9 +2703,11 @@ module.exports = async (req, res) => {
       msg === "Invalid score" ||
       msg.includes("Insufficient balance") ||
       msg.includes("Invalid amount") ||
+      msg.includes("Invalid withdrawal amount after fee") ||
       msg.includes("Invalid address") ||
       msg.includes("Invalid TON address") ||
       msg.includes("Minimum withdrawal") ||
+      msg.includes("После комиссии") ||
       msg.includes("Complete registration first") ||
       msg.includes("Deposit address is not configured") ||
       msg.includes("Operation not updated") ||

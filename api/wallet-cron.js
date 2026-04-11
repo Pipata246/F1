@@ -16,6 +16,16 @@ const {
 } = require("@ton/ton");
 const { runExpireDepositIntents } = require("./wallet-deposit-verify");
 
+/** Сумма к отправке в сеть: net после комиссии (v2) или поле amount для старых заявок. */
+function chainPayoutTonFromOp(op) {
+  const meta = op.meta && typeof op.meta === "object" ? op.meta : {};
+  if (Number(meta.withdraw_payout_v) === 2 && meta.withdraw_net_ton != null) {
+    const n = Number(meta.withdraw_net_ton);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return Number(op.amount);
+}
+
 function safeSecretEqual(a, b) {
   const x = String(a || "");
   const y = String(b || "");
@@ -238,7 +248,7 @@ function findOutgoingTxHash(transactions, destFriendly, amountTon) {
 async function recoverOrSendWithdrawal(op, client, hot, log) {
   const opId = op.id;
   const toAddr = String(op.to_address || "").trim();
-  const amountTon = Number(op.amount);
+  const payoutTon = chainPayoutTonFromOp(op);
   const meta = op.meta && typeof op.meta === "object" ? op.meta : {};
 
   const depositConfigured = String(process.env.TON_DEPOSIT_ADDRESS || "").trim();
@@ -269,7 +279,7 @@ async function recoverOrSendWithdrawal(op, client, hot, log) {
     const enc = encodeURIComponent(depositConfigured);
     const data = await tonapiGet(`/blockchain/accounts/${enc}/transactions?limit=25`);
     const txs = Array.isArray(data.transactions) ? data.transactions : [];
-    const found = findOutgoingTxHash(txs, toAddr, amountTon);
+    const found = findOutgoingTxHash(txs, toAddr, payoutTon);
     if (found) {
       await patchOpMeta(opId, { auto_withdraw_tx_hash: found });
       await completeWithdrawalRpc(opId, found);
@@ -301,9 +311,14 @@ async function recoverOrSendWithdrawal(op, client, hot, log) {
 
   await patchOpMeta(opId, { auto_withdraw_sent_at: new Date().toISOString() });
 
+  if (!Number.isFinite(payoutTon) || payoutTon <= 0) {
+    log.push(`withdraw: invalid payout amount op=${opId}`);
+    return;
+  }
+
   try {
     const dest = Address.parse(toAddr);
-    const value = toNano(Number(amountTon).toFixed(9));
+    const value = toNano(Number(payoutTon).toFixed(9));
     const messages = [
       internal({
         to: dest,
@@ -344,7 +359,7 @@ async function recoverOrSendWithdrawal(op, client, hot, log) {
   const enc = encodeURIComponent(depositConfigured);
   const data = await tonapiGet(`/blockchain/accounts/${enc}/transactions?limit=25`);
   const txs = Array.isArray(data.transactions) ? data.transactions : [];
-  const found = findOutgoingTxHash(txs, toAddr, amountTon);
+  const found = findOutgoingTxHash(txs, toAddr, payoutTon);
 
   if (found) {
     await patchOpMeta(opId, { auto_withdraw_tx_hash: found });

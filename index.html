@@ -976,6 +976,24 @@
   function escapeHtml(s){
     return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
+  /** Должно совпадать с api/withdraw-fee.js (WITHDRAWAL_FEE_PERCENT). */
+  function withdrawBreakdownFromGross(grossNum, feePercentNum){
+    const pct = Number(feePercentNum);
+    const g = Number(String(grossNum).replace(",", "."));
+    if(!Number.isFinite(pct) || pct <= 0 || pct >= 100) return null;
+    if(!Number.isFinite(g) || g <= 0) return null;
+    const bps = Math.round(pct * 100);
+    const grossNano = BigInt(Math.round(g * 1e9));
+    if(grossNano <= 0n) return null;
+    const feeNano = (grossNano * BigInt(bps)) / 10000n;
+    const netNano = grossNano - feeNano;
+    if(netNano <= 0n) return null;
+    return {
+      gross: Number(grossNano) / 1e9,
+      fee: Number(feeNano) / 1e9,
+      net: Number(netNano) / 1e9,
+    };
+  }
   function tonStringToNano(amountStr){
     const n = Number(String(amountStr || "").trim().replace(",", "."));
     if(!Number.isFinite(n) || n <= 0) throw new Error("Укажите корректную сумму");
@@ -1832,34 +1850,106 @@
     });
   });
 
-  document.getElementById("walletBtnWithdraw")?.addEventListener("click", ()=>{
+  document.getElementById("walletBtnWithdraw")?.addEventListener("click", async ()=>{
     if(!hasTgAuth){ toast("Откройте приложение в Telegram"); return; }
     if(state.profile.serverBalanceTon == null){
       toast("Сначала завершите регистрацию");
       return;
     }
-    openWalletModal("Вывод TON", `
-      <p class="small">Адрес кошелька (UQ… / EQ…)</p>
-      <input type="text" class="field" id="wdTo" placeholder="UQ..." autocomplete="off" />
-      <p class="small" style="margin-top:10px">Сумма TON</p>
-      <input type="text" class="field" id="wdAmt" placeholder="0.1" inputmode="decimal" autocomplete="off" />
-      <p class="small muted" style="margin-top:10px">После заявки сумма сразу списывается с баланса в базе; перевод в сеть выполняет сервер.</p>
-      <button type="button" class="btn primary" id="wdSubmit" style="margin-top:12px;width:100%">Запросить вывод</button>
-    `);
-    document.getElementById("wdSubmit")?.addEventListener("click", async ()=>{
-      const to = document.getElementById("wdTo")?.value?.trim() || "";
-      const amt = document.getElementById("wdAmt")?.value?.trim() || "";
-      try{
-        await apiJson("/api/user", { action:"requestWithdrawal", initData: tgInitData, toAddress: to, amount: amt });
-      }catch(e){
-        toast(e.message || "Ошибка вывода", 3500);
-        return;
-      }
-      closeWalletModal();
-      await refreshWalletUiFromServer();
-      toast("Вывод запрошен. Баланс обновлён.", 4000);
-      hNote("success");
-    });
+    let terms = { withdrawalFeePercent: 20, minWithdrawalTon: 0.05, minWithdrawNetTon: 0.02 };
+    try{
+      const w = await apiJson("/api/user", { action:"getWalletInfo", initData: tgInitData });
+      if(w.withdrawalFeePercent != null) terms.withdrawalFeePercent = w.withdrawalFeePercent;
+      if(w.minWithdrawalTon != null) terms.minWithdrawalTon = Number(w.minWithdrawalTon);
+      if(w.minWithdrawNetTon != null) terms.minWithdrawNetTon = Number(w.minWithdrawNetTon);
+    }catch(e){
+      toast(e.message || "Не удалось загрузить условия вывода", 3200);
+      return;
+    }
+    const fp = terms.withdrawalFeePercent;
+    let savedTo = "";
+    let savedAmt = "";
+
+    function renderStep1(){
+      openWalletModal("Вывод TON", `
+        <p class="small muted">Комиссия сервиса <strong>${escapeHtml(String(fp))}%</strong>: с баланса списывается введённая сумма; на указанный кошелёк уходит сумма за вычетом комиссии. Перевод в блокчейн выполняет сервер (по расписанию cron).</p>
+        <p class="small" style="margin-top:10px">Адрес кошелька (UQ… / EQ…)</p>
+        <input type="text" class="field" id="wdTo" placeholder="UQ..." autocomplete="off" value="${escapeHtml(savedTo)}" />
+        <p class="small" style="margin-top:10px">Сумма списания с баланса, TON</p>
+        <input type="text" class="field" id="wdAmt" placeholder="1" inputmode="decimal" autocomplete="off" value="${escapeHtml(savedAmt)}" />
+        <p class="small muted" style="margin-top:8px">Мин. сумма списания: ${escapeHtml(String(terms.minWithdrawalTon))} TON. После комиссии на кошелёк должно прийти не меньше ${escapeHtml(String(terms.minWithdrawNetTon))} TON.</p>
+        <button type="button" class="btn primary" id="wdNext" style="margin-top:12px;width:100%">Далее</button>
+      `);
+      document.getElementById("wdNext")?.addEventListener("click", ()=>{
+        const to = document.getElementById("wdTo")?.value?.trim() || "";
+        const amtRaw = document.getElementById("wdAmt")?.value?.trim() || "";
+        savedTo = to;
+        savedAmt = amtRaw;
+        if(to.length < 40){ toast("Укажите корректный адрес TON", 3000); return; }
+        const amt = Number(String(amtRaw).replace(",", "."));
+        if(!Number.isFinite(amt) || amt <= 0){ toast("Укажите сумму", 2500); return; }
+        if(amt + 1e-12 < terms.minWithdrawalTon){
+          toast(`Минимум ${terms.minWithdrawalTon} TON`, 3200);
+          return;
+        }
+        const br = withdrawBreakdownFromGross(amt, fp);
+        if(!br){ toast("Некорректная сумма", 2500); return; }
+        if(br.net + 1e-12 < terms.minWithdrawNetTon){
+          toast(`После комиссии на кошелёк придёт меньше ${terms.minWithdrawNetTon} TON. Увеличьте сумму.`, 4500);
+          return;
+        }
+        const bal = parseBalanceNum(state.profile.serverBalanceTon);
+        if(Number.isFinite(bal) && br.gross > bal + 1e-9){
+          toast("Недостаточно средств на балансе", 3200);
+          return;
+        }
+        openWalletModal("Подтверждение вывода", `
+          <p class="small muted">Проверьте данные и подтвердите заявку.</p>
+          <div class="pill" style="display:block;margin-top:10px">
+            <div class="small muted">Списание с баланса</div>
+            <div style="font-weight:800;font-size:17px;margin-top:2px">${escapeHtml(formatBalanceAmountOnly(String(br.gross)))} TON</div>
+          </div>
+          <div class="pill" style="display:block;margin-top:8px">
+            <div class="small muted">Комиссия сервиса (${escapeHtml(String(fp))}%)</div>
+            <div style="font-weight:700;margin-top:2px">${escapeHtml(formatBalanceAmountOnly(String(br.fee)))} TON</div>
+          </div>
+          <div class="pill" style="display:block;margin-top:8px;border-color:rgba(58,170,58,0.45)">
+            <div class="small muted">Поступит на ваш кошелёк</div>
+            <div style="font-weight:800;font-size:17px;margin-top:2px;color:var(--ok,#3aaa3a)">${escapeHtml(formatBalanceAmountOnly(String(br.net)))} TON</div>
+          </div>
+          <p class="small muted" style="margin-top:10px;word-break:break-all">Адрес: ${escapeHtml(to)}</p>
+          <div class="row" style="margin-top:14px;gap:8px">
+            <button type="button" class="btn ghost" id="wdBack" style="flex:1">Назад</button>
+            <button type="button" class="btn primary" id="wdConfirm" style="flex:1">Подтвердить</button>
+          </div>
+        `);
+        document.getElementById("wdBack")?.addEventListener("click", ()=> renderStep1());
+        document.getElementById("wdConfirm")?.addEventListener("click", async ()=>{
+          const btn = document.getElementById("wdConfirm");
+          if(btn) btn.disabled = true;
+          try{
+            const res = await apiJson("/api/user", {
+              action:"requestWithdrawal",
+              initData: tgInitData,
+              toAddress: to,
+              amount: String(amtRaw).replace(",", "."),
+            });
+            closeWalletModal();
+            await refreshWalletUiFromServer();
+            const netHint = res && res.netTon != null
+              ? ` На кошелёк уйдёт ~${formatBalanceAmountOnly(String(res.netTon))} TON.`
+              : "";
+            toast("Заявка принята. Средства отправятся автоматически." + netHint, 5000);
+            hNote("success");
+          }catch(e){
+            toast(e.message || "Ошибка вывода", 3500);
+            if(btn) btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    renderStep1();
   });
 
   document.getElementById("walletBtnHistory")?.addEventListener("click", async ()=>{
@@ -1896,9 +1986,15 @@
       const t = r.created_at ? escapeHtml(new Date(r.created_at).toLocaleString("ru-RU")) : "";
       const hash = r.ton_tx_hash ? `<div class="small muted" style="word-break:break-all">tx: ${escapeHtml(r.ton_tx_hash)}</div>` : "";
       const to = r.to_address ? `<div class="small muted" style="word-break:break-all">→ ${escapeHtml(r.to_address)}</div>` : "";
+      const netMeta = r.kind === "withdrawal" && r.meta && r.meta.withdraw_net_ton != null
+        ? `<div class="small muted" style="margin-top:4px">На кошелёк: ${escapeHtml(formatBalanceAmountOnly(String(r.meta.withdraw_net_ton)))} TON</div>`
+        : "";
+      const amtLine = r.kind === "withdrawal"
+        ? `<div style="margin-top:4px;font-weight:800">С баланса: ${amt} TON</div>${netMeta}`
+        : `<div style="margin-top:4px;font-weight:800">${amt} TON</div>`;
       return `<div class="pill" style="display:block;margin-bottom:8px">
         <div class="row" style="justify-content:space-between"><b>${kind}</b><span class="chip">${st}</span></div>
-        <div style="margin-top:4px;font-weight:800">${amt} TON</div>
+        ${amtLine}
         <div class="small muted" style="margin-top:4px">${t}</div>${to}${hash}
       </div>`;
     }).join("");
