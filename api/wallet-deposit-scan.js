@@ -5,6 +5,7 @@
 "use strict";
 
 const { Address, Cell } = require("@ton/ton");
+const { notifyDepositCredited } = require("./telegram-notify");
 
 function parseJwtPayload(token) {
   try {
@@ -613,6 +614,13 @@ async function runDeposits(log, opts = {}) {
     }
 
     try {
+      const dup = await sb(
+        `wallet_operations?ton_tx_hash=eq.${encodeURIComponent(hashKey)}&select=id&limit=1`
+      );
+      if (dup?.length) {
+        continue;
+      }
+
       const rpcRaw = await sbRpc("wallet_credit_deposit", {
         p_tg_user_id: tgUserId,
         p_amount: tonNum,
@@ -630,6 +638,7 @@ async function runDeposits(log, opts = {}) {
       }
       credited += 1;
       log.push(`deposits: credited ${tonStr} TON user=${tgUserId} hash=${hashKey.slice(0, 16)}…`);
+      await notifyDepositCredited(tgUserId, tonNum).catch(() => {});
     } catch (e) {
       if (String(e.message || "").includes("duplicate") || String(e.message || "").includes("unique")) {
         continue;

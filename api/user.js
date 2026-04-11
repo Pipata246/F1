@@ -470,12 +470,13 @@ async function submitDepositIntent(initData, intentId, boc) {
   return { ok: true, credited, scanLog: scanLog.slice(-40) };
 }
 
+/** @returns {boolean} false — слишком рано, пропускаем скан (без ошибки для клиента). */
 function touchDepositSyncRateLimit(tgId) {
-  const minSec = Math.min(90, Math.max(3, Number(process.env.DEPOSIT_SYNC_MIN_INTERVAL_SEC) || 5));
+  const minSec = Math.min(90, Math.max(2, Number(process.env.DEPOSIT_SYNC_MIN_INTERVAL_SEC) || 4));
   const now = Date.now();
   const prev = depositSyncLastByTg.get(tgId) || 0;
   if (now - prev < minSec * 1000) {
-    throw new Error(`Подождите ${minSec} сек. перед следующей проверкой депозита`);
+    return false;
   }
   depositSyncLastByTg.set(tgId, now);
   if (depositSyncLastByTg.size > 8000) {
@@ -484,6 +485,7 @@ function touchDepositSyncRateLimit(tgId) {
       if (t < cut) depositSyncLastByTg.delete(k);
     }
   }
+  return true;
 }
 
 /** Та же логика что cron: TonAPI → wallet_credit_deposit, только для текущего пользователя. */
@@ -494,10 +496,12 @@ async function syncMyDeposits(initData) {
   touchPresenceTgId(tgId);
   const session = await authSession(initData);
   if (!session.exists) throw new Error("Complete registration first");
-  touchDepositSyncRateLimit(tgId);
+  if (!touchDepositSyncRateLimit(tgId)) {
+    return { credited: 0, log: [], rateLimited: true };
+  }
   const log = [];
   const credited = await scanChainDeposits(log, { onlyTgUserId: tgId });
-  return { credited, log: log.slice(-30) };
+  return { credited, log: log.slice(-30), rateLimited: false };
 }
 
 async function walletCreditDepositInternal(req) {

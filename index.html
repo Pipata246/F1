@@ -1064,8 +1064,12 @@
   walletModalClose?.addEventListener("click", closeWalletModal);
   walletModalWrap?.addEventListener("click", (e)=>{ if(e.target === walletModalWrap) closeWalletModal(); });
 
-  async function hydrateUserFromServer(){
+  async function hydrateUserFromServer(opts){
     if(!hasTgAuth) return;
+    const skipBalToast = !!(opts && opts.skipBalanceIncreaseToast);
+    const prevBalStr = state.profile.serverBalanceTon;
+    const hadPriorServerBalance = prevBalStr != null && prevBalStr !== "";
+    const prevN = hadPriorServerBalance ? parseBalanceNum(prevBalStr) : NaN;
     try{
       const data = await apiJson("/api/user", { action:"authSession", initData: tgInitData });
       const tgId = data.user?.tg_user_id ? String(data.user.tg_user_id) : "";
@@ -1081,6 +1085,14 @@
         state.onboarding.referralAsked = true;
         const b = data.user?.balance;
         state.profile.serverBalanceTon = b != null && b !== "" ? String(b) : "0";
+        if(!skipBalToast && hadPriorServerBalance && Number.isFinite(prevN)){
+          const newN = parseBalanceNum(state.profile.serverBalanceTon);
+          if(Number.isFinite(newN) && newN > prevN + 1e-12){
+            const delta = newN - prevN;
+            toast(`Вы успешно пополнили баланс на ${delta.toLocaleString("ru-RU", { maximumFractionDigits: 9, minimumFractionDigits: 0 })} TON`, 4500);
+            hNote("success");
+          }
+        }
         if(!data.user.referral_asked_at){
           apiJson("/api/user", { action:"markReferralAsked", initData: tgInitData }).catch(()=>{});
         }
@@ -1153,6 +1165,7 @@
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "wallet" && hasTgAuth){
+      maybeSyncDepositsOnForeground().catch(()=>{});
       hydrateUserFromServer().then(()=>{
         renderTopbar();
         renderWallet();
@@ -1673,6 +1686,19 @@
     renderProfile();
   }
 
+  let lastForegroundDepositSyncMs = 0;
+  async function maybeSyncDepositsOnForeground(){
+    if(!hasTgAuth) return;
+    const t = Date.now();
+    if(t - lastForegroundDepositSyncMs < 22000) return;
+    lastForegroundDepositSyncMs = t;
+    try{
+      await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData });
+    }catch(_e){}
+    await hydrateUserFromServer();
+    refreshBalanceUiAfterHydrate();
+  }
+
   document.getElementById("walletBtnTopup")?.addEventListener("click", async ()=>{
     if(!hasTgAuth){ toast("Откройте приложение в Telegram"); return; }
     if(state.profile.serverBalanceTon == null){
@@ -1752,6 +1778,9 @@
         toast((msg || "Ошибка отправки").slice(0, 140), 3500);
         return;
       }
+      closeWalletModal();
+      toast("Платёж отправлен. Проверяем зачисление…", 3200);
+      hNote("success");
       let submitScan = null;
       if(intentId){
         try{
@@ -1765,15 +1794,10 @@
           toast("Перевод ушёл, но не удалось отметить на сервере: " + (e.message || "").slice(0, 80), 4500);
         }
       }
-      closeWalletModal();
       if(submitScan && Number(submitScan.credited) > 0){
-        toast("Зачислено в баланс.", 3500);
-        hNote("success");
         await hydrateUserFromServer().catch(()=>{});
         refreshBalanceUiAfterHydrate();
       } else {
-        toast("Платёж отправлен. Идёт проверка сети; баланс обновится через несколько секунд.", 4000);
-        hNote("success");
         const hints = userFacingDepositScanHints(submitScan?.scanLog);
         if(hints.length){
           const hint = hints.slice(-2).join(" · ");
@@ -1781,11 +1805,8 @@
         }
       }
       const ok = await pollServerBalanceUntilChanged(balBefore, { chainSyncWhileWaiting: true });
-      if(ok){
-        toast("Баланс пополнен в базе", 4000);
-        hNote("success");
-      } else if(!(submitScan && Number(submitScan.credited) > 0)) {
-        toast("Если TON уже ушли с кошелька, зачисление может задержаться на 1–2 минуты. При проблеме проверьте TONCENTER_API_KEY на сервере.", 5500);
+      if(!ok && !(submitScan && Number(submitScan.credited) > 0)) {
+        toast("Если TON уже ушли с кошелька, зачисление подтянется автоматически (до пары минут). Откройте приложение снова или подождите.", 5200);
       }
       }finally{
         depBtn.disabled = false;
@@ -1869,6 +1890,7 @@
   (async ()=>{
     try{
       await hydrateUserFromServer();
+      await maybeSyncDepositsOnForeground();
       await loadExternalStats();
       await loadMatchHistory();
     }finally{
@@ -1887,13 +1909,19 @@
   })();
 
   window.addEventListener("focus", ()=>{
-    if(hasTgAuth) hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
+    if(hasTgAuth){
+      maybeSyncDepositsOnForeground().catch(()=>{});
+      hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
+    }
     loadExternalStats(); loadMatchHistory();
     presencePing(); refreshOnlineCount();
   });
   document.addEventListener("visibilitychange", ()=>{
     if(document.visibilityState === "visible"){
-      if(hasTgAuth) hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
+      if(hasTgAuth){
+        maybeSyncDepositsOnForeground().catch(()=>{});
+        hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
+      }
       loadExternalStats(); loadMatchHistory();
       presencePing(); refreshOnlineCount();
     }
@@ -1906,12 +1934,12 @@
       if(tab === "profile") loadExternalStats();
     }
   });
-  window.addEventListener("pageshow", (ev)=>{
-    if(ev.persisted && hasTgAuth){
-      presencePing();
-      refreshOnlineCount();
-      hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
-    }
+  window.addEventListener("pageshow", ()=>{
+    if(!hasTgAuth) return;
+    presencePing();
+    refreshOnlineCount();
+    maybeSyncDepositsOnForeground().catch(()=>{});
+    hydrateUserFromServer().then(()=> refreshBalanceUiAfterHydrate()).catch(()=>{});
   });
   window.addEventListener("pagehide", ()=>{ presenceLeaveNet(); });
   window.addEventListener("beforeunload", ()=>{ presenceLeaveNet(); });
