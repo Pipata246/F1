@@ -92,7 +92,8 @@ function deepExtractTextCommentFromCell(cell) {
 
 function commentFromOutMessage(outMsg) {
   const body = outMsg?.body;
-  if (!body || body.type !== "Cell") return null;
+  // @ton/core Cell uses numeric type (-1), not the string "Cell"
+  if (!body || !(body instanceof Cell)) return null;
   return deepExtractTextCommentFromCell(body);
 }
 
@@ -167,13 +168,12 @@ function internalNano(info) {
 
 function pickOutgoingToDeposit(tx, depositAddrParsed, memoPlain) {
   if (!tx.outMessages) return null;
-  const wantRaw = depositAddrParsed.toRawString();
   const wantMemoNorm = normalizeMemoForLookup(memoPlain);
   let best = null;
   for (const outMsg of tx.outMessages.values()) {
     if (outMsg.info.type !== "internal") continue;
     const dest = outMsg.info.dest;
-    if (dest.toRawString() !== wantRaw) continue;
+    if (!(dest instanceof Address) || !depositAddrParsed.equals(dest)) continue;
     const coins = internalNano(outMsg.info);
     const ton = nanoToTonNumber(coins);
     const comment = commentFromOutMessage(outMsg);
