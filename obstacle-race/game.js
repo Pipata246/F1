@@ -136,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('btn-find').onclick = () => startGame();
     if ($('btn-bot')) $('btn-bot').style.display = 'none';
+    ensureStakePicker();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
     $('btn-again').onclick = () => startGame();
@@ -192,22 +193,50 @@ function syncMyNameFromServer(done) {
         .catch(function() { fallback(); });
 }
 
-function pickStakeOptions() {
-    var raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
-    if (raw == null) return null;
-    var out = [];
-    String(raw).split(',').forEach(function(part) {
-        var n = Number(String(part || '').trim().replace(',', '.'));
-        if (!isFinite(n)) return;
-        if (ALLOWED_STAKES.indexOf(n) < 0) return;
-        if (out.indexOf(n) < 0) out.push(n);
+function ensureStakePicker() {
+    var mount = $('screen-start');
+    if (!mount || $('stakePickerObstacle')) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'stakePickerObstacle';
+    wrap.style.marginTop = '12px';
+    wrap.innerHTML =
+        '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
+        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>';
+    mount.appendChild(wrap);
+    var grid = $('stakeGridObstacle');
+    ALLOWED_STAKES.forEach(function(stake) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn ghost';
+        b.dataset.stake = String(stake);
+        b.style.aspectRatio = '1/1';
+        b.style.padding = '0';
+        b.style.fontWeight = '900';
+        b.style.fontSize = '13px';
+        b.textContent = stake + ' TON';
+        b.onclick = function() {
+            var n = Number(b.dataset.stake);
+            if (selectedStakeOptions.indexOf(n) >= 0) selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
+            else selectedStakeOptions.push(n);
+            renderStakePicker();
+        };
+        grid.appendChild(b);
     });
-    out.sort(function(a, b) { return a - b; });
-    if (!out.length) {
-        window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
-        return null;
+    renderStakePicker();
+}
+
+function renderStakePicker() {
+    var grid = $('stakeGridObstacle');
+    if (!grid) return;
+    var nodes = grid.querySelectorAll('button[data-stake]');
+    for (var i = 0; i < nodes.length; i++) {
+        var b = nodes[i];
+        var n = Number(b.dataset.stake);
+        var on = selectedStakeOptions.indexOf(n) >= 0;
+        b.style.borderColor = on ? '#8fd1ff' : 'rgba(255,255,255,.18)';
+        b.style.background = on ? 'rgba(59,130,246,.25)' : 'rgba(255,255,255,.08)';
+        b.style.color = on ? '#e6f3ff' : '#fff';
     }
-    return out;
 }
 
 function beaconPvpCancelQueue(roomId) {
@@ -474,9 +503,11 @@ function startGame(vsBot) {
     matchSaved = false;
     isBotMode = false;
     currentStakeTon = null;
-    const picked = pickStakeOptions();
-    if (!picked) return;
-    selectedStakeOptions = picked;
+    if (!selectedStakeOptions.length) {
+        window.alert('Выбери минимум одну ставку');
+        return;
+    }
+    selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
     stopPvpPolling();
     pvpRoomId = null;
     syncMyNameFromServer(function() {

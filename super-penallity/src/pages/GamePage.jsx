@@ -619,21 +619,17 @@ const GamePage = () => {
   };
 
   const askStakeOptions = () => {
-    const raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
-    if (raw == null) return null;
-    const allowed = [1, 5, 10, 25, 50, 100];
-    const out = [];
-    String(raw).split(',').forEach((part) => {
-      const n = Number(String(part || '').trim().replace(',', '.'));
-      if (!Number.isFinite(n) || !allowed.includes(n)) return;
-      if (!out.includes(n)) out.push(n);
-    });
-    out.sort((a, b) => a - b);
-    if (!out.length) {
-      window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
+    if (!selectedStakeOptions.length) {
+      window.alert('Выбери минимум одну ставку');
       return null;
     }
-    return out;
+    return selectedStakeOptions.slice().sort((a, b) => a - b);
+  };
+
+  const toggleStakeOption = (stake) => {
+    setSelectedStakeOptions((prev) => (
+      prev.includes(stake) ? prev.filter((x) => x !== stake) : [...prev, stake]
+    ));
   };
 
   const startSearch = () => {
@@ -868,6 +864,28 @@ const GamePage = () => {
           <p className="text-gray-400 text-sm text-center w-full truncate px-2" title={displayName}>
             Играешь как: <span className="text-white font-semibold">{displayName}</span>
           </p>
+          <div className="w-full">
+            <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">Выбери ставки TON</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 5, 10, 25, 50, 100].map((stake) => {
+                const active = selectedStakeOptions.includes(stake);
+                return (
+                  <button
+                    key={stake}
+                    type="button"
+                    onClick={() => toggleStakeOption(stake)}
+                    className={`aspect-square rounded-xl border text-sm font-black transition-all ${
+                      active
+                        ? 'bg-emerald-500/25 border-emerald-300 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.35)]'
+                        : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                    }`}
+                  >
+                    {stake} TON
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <button onClick={() => startSearch()} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
             Онлайн
           </button>

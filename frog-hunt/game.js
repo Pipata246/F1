@@ -133,6 +133,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   $('btn-find').onclick = function() { startSearch(); };
   if ($('btn-bot')) $('btn-bot').style.display = 'none';
+  ensureStakePicker();
   $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };
   $('btn-confirm').onclick = confirmChoice;
   $('btn-again').onclick = function() { startSearch(); };
@@ -154,30 +155,63 @@ function hideAllOverlays() {
   for (var i = 0; i < ols.length; i++) ols[i].classList.remove('active');
 }
 
-function pickStakeOptions() {
-  var raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
-  if (raw == null) return null;
-  var out = [];
-  String(raw).split(',').forEach(function(part) {
-    var n = Number(String(part || '').trim().replace(',', '.'));
-    if (!isFinite(n)) return;
-    if (ALLOWED_STAKES.indexOf(n) < 0) return;
-    if (out.indexOf(n) < 0) out.push(n);
+function ensureStakePicker() {
+  var mount = $('screen-start');
+  if (!mount || $('stakePickerWrap')) return;
+  var wrap = document.createElement('div');
+  wrap.id = 'stakePickerWrap';
+  wrap.style.marginTop = '12px';
+  wrap.innerHTML =
+    '<div style="font-size:12px;color:#9aa3b2;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
+    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>';
+  mount.appendChild(wrap);
+  var grid = $('stakeGridFrog');
+  ALLOWED_STAKES.forEach(function(stake) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn ghost';
+    b.dataset.stake = String(stake);
+    b.style.aspectRatio = '1/1';
+    b.style.padding = '0';
+    b.style.fontWeight = '900';
+    b.style.fontSize = '13px';
+    b.textContent = stake + ' TON';
+    b.onclick = function() {
+      var n = Number(b.dataset.stake);
+      if (selectedStakeOptions.indexOf(n) >= 0) {
+        selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
+      } else {
+        selectedStakeOptions.push(n);
+      }
+      renderStakePicker();
+    };
+    grid.appendChild(b);
   });
-  out.sort(function(a, b) { return a - b; });
-  if (!out.length) {
-    window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
-    return null;
+  renderStakePicker();
+}
+
+function renderStakePicker() {
+  var grid = $('stakeGridFrog');
+  if (!grid) return;
+  var nodes = grid.querySelectorAll('button[data-stake]');
+  for (var i = 0; i < nodes.length; i++) {
+    var b = nodes[i];
+    var n = Number(b.dataset.stake);
+    var on = selectedStakeOptions.indexOf(n) >= 0;
+    b.style.borderColor = on ? '#78f5b5' : 'rgba(255,255,255,.18)';
+    b.style.background = on ? 'rgba(35,197,94,.22)' : 'rgba(255,255,255,.08)';
+    b.style.color = on ? '#d6ffe9' : '#fff';
   }
-  return out;
 }
 
 function startSearch() {
   isBotMode = false;
   currentStakeTon = null;
-  var picked = pickStakeOptions();
-  if (!picked) return;
-  selectedStakeOptions = picked;
+  if (!selectedStakeOptions.length) {
+    window.alert('Выбери минимум одну ставку');
+    return;
+  }
+  selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
   function proceed() {
     showScreen('waiting');
     $('hint-text').textContent = 'Идёт поиск по ставкам: ' + selectedStakeOptions.join(', ') + ' TON';

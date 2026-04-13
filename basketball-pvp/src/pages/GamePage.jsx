@@ -532,21 +532,17 @@ const GamePage = () => {
     }
   }
   const askStakeOptions = () => {
-    const raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
-    if (raw == null) return null;
-    const allowed = [1, 5, 10, 25, 50, 100];
-    const out = [];
-    String(raw).split(',').forEach((part) => {
-      const n = Number(String(part || '').trim().replace(',', '.'));
-      if (!Number.isFinite(n) || !allowed.includes(n)) return;
-      if (!out.includes(n)) out.push(n);
-    });
-    out.sort((a, b) => a - b);
-    if (!out.length) {
-      window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
+    if (!selectedStakeOptions.length) {
+      window.alert('Выбери минимум одну ставку');
       return null;
     }
-    return out;
+    return selectedStakeOptions.slice().sort((a, b) => a - b);
+  };
+
+  const toggleStakeOption = (stake) => {
+    setSelectedStakeOptions((prev) => (
+      prev.includes(stake) ? prev.filter((x) => x !== stake) : [...prev, stake]
+    ));
   };
 
   const findGame = () => {
@@ -679,6 +675,28 @@ const GamePage = () => {
         <p className="text-gray-500 text-sm text-center w-full truncate px-2 uppercase tracking-wider" title={displayName}>
           {displayName}
         </p>
+        <div className="w-full">
+          <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[1, 5, 10, 25, 50, 100].map((stake) => {
+              const active = selectedStakeOptions.includes(stake);
+              return (
+                <button
+                  key={stake}
+                  type="button"
+                  onClick={() => toggleStakeOption(stake)}
+                  className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
+                    active
+                      ? 'bg-amber-400/20 border-amber-300 text-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
+                      : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
+                  }`}
+                >
+                  {stake} TON
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <button onClick={()=>findGame()} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
       </div>
     </div>
