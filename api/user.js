@@ -1193,8 +1193,8 @@ function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
 
 const PVP_BOT_WAIT_MIN_MS = 57_000;
 const PVP_BOT_WAIT_SPAN_MS = 10_000; // 57..67 sec
-const PVP_BOT_MOVE_MIN_MS = 1200;
-const PVP_BOT_MOVE_MAX_MS = 10500;
+const PVP_BOT_MOVE_MIN_MS = 1000;
+const PVP_BOT_MOVE_MAX_MS = 3000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
 
@@ -1214,15 +1214,24 @@ function isPvpBotFallbackRoom(room) {
 }
 
 function pvpPickBotName() {
-  const chars = "abcdefghijklmnopqrstuvwxyz";
-  const extras = ["🔥", "⚡", "✨", "🎯", "😎", "🐸", "🏀", "⚽"];
-  for (let i = 0; i < 80; i++) {
-    const len = 3 + Math.floor(Math.random() * 5); // 3..7
-    let s = "";
-    for (let j = 0; j < len; j++) s += chars[Math.floor(Math.random() * chars.length)];
-    if (Math.random() < 0.35) {
-      s = `${s.slice(0, Math.max(1, len - 1))}${extras[Math.floor(Math.random() * extras.length)]}`;
-    }
+  const roots = [
+    "Alex", "Nika", "Mila", "Den", "Artem", "Vera", "Lena", "Roma", "Kir", "Ira",
+    "Max", "Dima", "Sasha", "Maks", "Vlad", "Yana", "Liza", "Oleg", "Misha", "Egor",
+  ];
+  const tails = [
+    "", "", "", "_", ".", "x", "xx", "pro", "top", "go", "one", "play", "win", "live",
+  ];
+  const digits = ["", "", "", "7", "9", "11", "21", "23", "77", "99"];
+  for (let i = 0; i < 120; i++) {
+    const root = roots[Math.floor(Math.random() * roots.length)];
+    const tail = tails[Math.floor(Math.random() * tails.length)];
+    const dg = digits[Math.floor(Math.random() * digits.length)];
+    let s = `${root}${tail}${dg}`.replace(/\.\./g, ".").replace(/__+/g, "_");
+    if (s.length < 3) s = `${s}x`;
+    if (s.length > 12) s = s.slice(0, 12);
+    // Keep nickname-like format: letters/numbers/._ only.
+    s = s.replace(/[^A-Za-z0-9._]/g, "");
+    if (s.length < 3) continue;
     if (!PVP_BOT_NAME_RECENT.has(s)) {
       PVP_BOT_NAME_RECENT.add(s);
       if (PVP_BOT_NAME_RECENT.size > PVP_BOT_NAME_RECENT_LIMIT) {
@@ -1232,7 +1241,7 @@ function pvpPickBotName() {
       return s;
     }
   }
-  return `user${Math.random().toString(36).slice(2, 7)}`;
+  return `Player${Math.floor(100 + Math.random() * 900)}`;
 }
 
 function pvpBotMoveDelayMs() {
