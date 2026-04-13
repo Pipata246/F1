@@ -212,6 +212,8 @@ function cryptoPayErrorText(data) {
 function mapCryptoPayErrorForUser(raw) {
   const s = String(raw || "").toUpperCase();
   /* Чаще всего: в @CryptoBot для приложения не включён API-метод transfer (исходящие переводы). */
+  if (s.includes("CANNOT_ATTACH_COMMENT"))
+    return "Crypto Pay не разрешает текст к переводу у приложений младше ~30 дней. Комментарий к выплате отключён в коде — повторите вывод.";
   if (s.includes("METHOD_DISABLED") || (s.includes("METHOD") && s.includes("DISABLED")))
     return "В Crypto Pay для этого приложения выключен метод перевода пользователям (transfer). Откройте @CryptoBot → Crypto Pay → Мои приложения → ваше приложение → безопасность/API → включите Transfers. Это не ошибка Telegram ID: вывод уже идёт на ваш аккаунт в Telegram.";
   if (s.includes("INSUFFICIENT") || s.includes("NOT_ENOUGH"))
@@ -743,12 +745,12 @@ async function requestUsdtWithdrawal(initData, amountTonStr) {
   const usdtRow = Array.isArray(usdtInsert) ? usdtInsert[0] : usdtInsert;
 
   try {
+    /* Без comment: у приложений Crypto Pay младше ~30 дней API запрещает комментарий к transfer (CANNOT_ATTACH_COMMENT). */
     const transfer = await callCryptoBotApi("transfer", {
       user_id: tgUserIdNum,
       asset: "USDT",
       amount: String(netUsdt.toFixed(2)),
       spend_id: spendId,
-      comment: `F1 Duel withdrawal (${amountTon} TON)`,
     });
     const transferId = String(transfer?.transfer_id || transfer?.spend_id || spendId);
     const txHash = `usdtwd:${transferId}`;
