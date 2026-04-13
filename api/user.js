@@ -211,6 +211,9 @@ function cryptoPayErrorText(data) {
 
 function mapCryptoPayErrorForUser(raw) {
   const s = String(raw || "").toUpperCase();
+  /* Чаще всего: в @CryptoBot для приложения не включён API-метод transfer (исходящие переводы). */
+  if (s.includes("METHOD_DISABLED") || (s.includes("METHOD") && s.includes("DISABLED")))
+    return "В Crypto Pay для этого приложения выключен метод перевода пользователям (transfer). Откройте @CryptoBot → Crypto Pay → Мои приложения → ваше приложение → безопасность/API → включите Transfers. Это не ошибка Telegram ID: вывод уже идёт на ваш аккаунт в Telegram.";
   if (s.includes("INSUFFICIENT") || s.includes("NOT_ENOUGH"))
     return "На балансе вашего Crypto Pay приложения не хватает USDT для выплаты. Пополните кошелёк приложения в @CryptoBot (Crypto Pay → баланс приложения).";
   if (s.includes("USER_NOT_FOUND") || s.includes("USER_NOT") || s.includes("NOT_REGISTERED"))
