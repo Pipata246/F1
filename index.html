@@ -1117,15 +1117,28 @@
     renderAll();
   }
 
-  async function apiJson(url, payload){
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(()=>({ ok:false, error:"Invalid JSON response" }));
-    if(!res.ok || !data.ok) throw new Error(data.error || "API error");
-    return data;
+  async function apiJson(url, payload, opts){
+    const timeoutMs = opts && Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 0;
+    const ctrl = timeoutMs ? new AbortController() : null;
+    const tid = ctrl ? setTimeout(()=> ctrl.abort(), timeoutMs) : 0;
+    try{
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        ...(ctrl ? { signal: ctrl.signal } : {}),
+      });
+      const data = await res.json().catch(()=>({ ok:false, error:"Invalid JSON response" }));
+      if(!res.ok || !data.ok) throw new Error(data.error || "API error");
+      return data;
+    }catch(e){
+      if(e && e.name === "AbortError"){
+        throw new Error("Превышено время ожидания сервера. Попробуйте ещё раз.");
+      }
+      throw e;
+    }finally{
+      if(tid) clearTimeout(tid);
+    }
   }
 
   function parseBalanceNum(s){
@@ -1244,6 +1257,44 @@
   }
   walletModalClose?.addEventListener("click", closeWalletModal);
   walletModalWrap?.addEventListener("click", (e)=>{ if(e.target === walletModalWrap) closeWalletModal(); });
+
+  /* Делегирование: в TG WebView клик по кнопке после innerHTML иногда не доходит до addEventListener на самой кнопке. */
+  walletModalBody?.addEventListener("click", async (ev)=>{
+    const btn = ev.target && ev.target.closest ? ev.target.closest("button[data-f1-wallet-cmd]") : null;
+    if(!btn || !walletModalBody || !walletModalBody.contains(btn)) return;
+    const cmd = btn.getAttribute("data-f1-wallet-cmd");
+    if(cmd === "usdt-wd-back"){
+      ev.preventDefault();
+      try{ window.__f1UsdtWdBack?.(); }catch(err){ console.error(err); }
+      return;
+    }
+    if(cmd !== "usdt-wd-confirm") return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if(btn.getAttribute("aria-busy") === "true") return;
+    const amtTon = String(btn.getAttribute("data-amt-ton") || "").trim().replace(",", ".");
+    if(!amtTon || !/^\d+(\.\d+)?$/.test(amtTon)){ toast("Некорректная сумма", 2500); return; }
+    btn.setAttribute("aria-busy", "true");
+    btn.disabled = true;
+    const prevText = btn.textContent;
+    btn.textContent = "Отправка…";
+    try{
+      const res = await apiJson("/api/user", {
+        action:"requestUsdtWithdrawal",
+        initData: tgInitData,
+        amountTon: amtTon,
+      }, { timeoutMs: 90000 });
+      closeWalletModal();
+      await refreshWalletUiFromServer();
+      toast(`Готово: на @CryptoBot отправлено ~${formatBalanceAmountOnly(String(res.usdtAmount || 0))} USDT`, 4800);
+      hNote("success");
+    }catch(e){
+      toast(e.message || "Ошибка USDT вывода", 4200);
+      btn.disabled = false;
+      btn.removeAttribute("aria-busy");
+      btn.textContent = prevText;
+    }
+  });
 
   async function hydrateUserFromServer(opts){
     if(!hasTgAuth) return;
@@ -2280,6 +2331,8 @@
           const feeTon = gross * (feePct / 100);
           const netTon = gross - feeTon;
           const netUsdt = (netTon / rate).toFixed(2);
+          const amtTonAttr = String(amtRaw).trim().replace(",", ".").replace(/[^\d.]/g, "");
+          window.__f1UsdtWdBack = ()=> renderUsdtForm();
           openWalletModal("Подтверждение USDT", `
             <p class="small muted">Проверьте суммы и подтвердите.</p>
             <div class="pill" style="display:block;margin-top:10px">
@@ -2294,30 +2347,11 @@
               <div class="small muted">Поступит в @CryptoBot</div>
               <div style="font-weight:800;font-size:17px;margin-top:2px;color:var(--ok,#3aaa3a)">${escapeHtml(netUsdt)} USDT</div>
             </div>
-            <div class="row" style="margin-top:14px;gap:8px">
-              <button type="button" class="btn ghost" id="wdUsdtBack" style="flex:1">Назад</button>
-              <button type="button" class="btn primary" id="wdUsdtConfirm" style="flex:1">Вывести</button>
+            <div class="row" style="margin-top:14px;gap:8px;padding-bottom:8px">
+              <button type="button" class="btn ghost" data-f1-wallet-cmd="usdt-wd-back" style="flex:1">Назад</button>
+              <button type="button" class="btn primary" data-f1-wallet-cmd="usdt-wd-confirm" data-amt-ton="${escapeHtml(amtTonAttr)}" style="flex:1">Вывести</button>
             </div>
           `);
-          document.getElementById("wdUsdtBack")?.addEventListener("click", ()=> renderUsdtForm());
-          document.getElementById("wdUsdtConfirm")?.addEventListener("click", async ()=>{
-            const btn = document.getElementById("wdUsdtConfirm");
-            if(btn) btn.disabled = true;
-            try{
-              const res = await apiJson("/api/user", {
-                action:"requestUsdtWithdrawal",
-                initData: tgInitData,
-                amountTon: String(amtRaw).replace(",", "."),
-              });
-              closeWalletModal();
-              await refreshWalletUiFromServer();
-              toast(`Готово: на @CryptoBot отправлено ~${formatBalanceAmountOnly(String(res.usdtAmount || 0))} USDT`, 4800);
-              hNote("success");
-            }catch(e){
-              toast(e.message || "Ошибка USDT вывода", 3800);
-              if(btn) btn.disabled = false;
-            }
-          });
         });
       }
       renderUsdtForm();
