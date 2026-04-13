@@ -1056,6 +1056,24 @@
     }catch(e){}
   }
 
+  function openExternalUrl(url){
+    const u = String(url || "").trim();
+    if(!u) return false;
+    try{
+      if(/^https?:\/\/t\.me\//i.test(u)){
+        tg?.openTelegramLink?.(u);
+        return true;
+      }
+      tg?.openLink?.(u, { try_instant_view: false });
+      return true;
+    }catch(e){}
+    try{
+      location.href = u;
+      return true;
+    }catch(e){}
+    return false;
+  }
+
   const defaultState = {
     onboarding: { rulesAccepted:false, referralAsked:false },
     profile: {
@@ -2057,9 +2075,12 @@
         const r = await apiJson("/api/user", { action:"createUsdtDepositInvoice", initData: tgInitData, amountUsdt: raw });
         if(!r.payUrl){ throw new Error("Ссылка на оплату не получена"); }
         closeWalletModal();
-        toast("Открываем оплату USDT…", 2600);
+        toast("Открываем оплату USDT...", 2600);
         hNote("success");
-        window.open(r.payUrl, "_blank");
+        const opened = openExternalUrl(r.payUrl);
+        if(!opened){
+          throw new Error("Не удалось открыть ссылку оплаты");
+        }
       }catch(e){
         toast(e.message || "Не удалось создать USDT счёт", 3600);
         if(btn) btn.disabled = false;
