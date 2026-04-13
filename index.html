@@ -2224,48 +2224,103 @@
     let savedTo = "";
     let savedAmt = "";
     let savedUsdtAmt = "";
-    let savedUsdtUser = "";
 
-    async function renderUsdtStep(){
-      let usdtTerms = { usdtTonRate: 0, usdtWithdrawFeePercent: 20 };
+    async function openUsdtWithdrawFlow(){
+      openWalletModal("Вывод USDT", `<div class="walletHistLoading" role="status"><div class="spinner" aria-hidden="true"></div><div class="small" style="text-align:center;margin-top:8px">Загрузка курса…</div></div>`);
+      let usdtTerms;
       try{
         usdtTerms = await apiJson("/api/user", { action:"getUsdtWalletTerms", initData: tgInitData });
       }catch(e){
         toast(e.message || "Не удалось загрузить курс USDT", 3500);
+        closeWalletModal();
         return;
       }
-      openWalletModal("Вывод USDT", `
-        <p class="small muted">Вывод конвертируется из TON в USDT автоматически. Комиссия на вывод: <strong>${escapeHtml(String(usdtTerms.usdtWithdrawFeePercent))}%</strong>.</p>
-        <p class="small muted" style="margin-top:6px">Текущий курс: 1 USDT = ${escapeHtml(formatBalanceAmountOnly(String(usdtTerms.usdtTonRate || 0)))} TON</p>
-        <p class="small" style="margin-top:10px">Сумма списания с баланса, TON</p>
-        <input type="text" class="field" id="wdUsdtAmt" placeholder="1" inputmode="decimal" autocomplete="off" value="${escapeHtml(savedUsdtAmt)}" />
-        <p class="small" style="margin-top:10px">Ваш Crypto Bot user id</p>
-        <input type="text" class="field" id="wdUsdtUser" placeholder="Например 123456789" inputmode="numeric" autocomplete="off" value="${escapeHtml(savedUsdtUser)}" />
-        <button type="button" class="btn primary" id="wdUsdtConfirm" style="margin-top:12px;width:100%">Вывести USDT</button>
-      `);
-      document.getElementById("wdUsdtConfirm")?.addEventListener("click", async ()=>{
-        const btn = document.getElementById("wdUsdtConfirm");
-        if(btn) btn.disabled = true;
-        try{
-          const amt = document.getElementById("wdUsdtAmt")?.value?.trim() || "";
-          const userId = document.getElementById("wdUsdtUser")?.value?.trim() || "";
-          savedUsdtAmt = amt;
-          savedUsdtUser = userId;
-          const res = await apiJson("/api/user", {
-            action:"requestUsdtWithdrawal",
-            initData: tgInitData,
-            amountTon: amt,
-            cryptoBotUserId: userId,
+      const feePct = Number(usdtTerms.usdtWithdrawFeePercent || 20);
+      function renderUsdtForm(){
+        openWalletModal("Вывод USDT", `
+          <p class="small muted">С баланса списывается сумма в TON. На ваш <strong>@CryptoBot</strong> (этот же Telegram-аккаунт) уходит USDT после конвертации. Если бот ещё не открывали — зайдите в @CryptoBot и нажмите Старт.</p>
+          <p class="small muted" style="margin-top:8px">Комиссия на вывод: <strong>${escapeHtml(String(feePct))}%</strong>. Курс: 1 USDT = ${escapeHtml(formatBalanceAmountOnly(String(usdtTerms.usdtTonRate || 0)))} TON</p>
+          <p class="small" style="margin-top:10px">Сумма списания с баланса, TON</p>
+          <input type="text" class="field" id="wdUsdtAmt" placeholder="1" inputmode="decimal" autocomplete="off" value="${escapeHtml(savedUsdtAmt)}" />
+          <p class="small muted" id="wdUsdtHint" style="margin-top:8px">К получению: — USDT</p>
+          <button type="button" class="btn primary" id="wdUsdtNext" style="margin-top:12px;width:100%">Далее</button>
+        `);
+        const inp = document.getElementById("wdUsdtAmt");
+        const hint = document.getElementById("wdUsdtHint");
+        const updateHint = ()=>{
+          const gross = Number(String(inp?.value || "").replace(",", "."));
+          const rate = Number(usdtTerms.usdtTonRate || 0);
+          if(!Number.isFinite(gross) || gross <= 0 || !Number.isFinite(rate) || rate <= 0){
+            if(hint) hint.textContent = "К получению: — USDT";
+            return;
+          }
+          const feeTon = gross * (feePct / 100);
+          const netTon = gross - feeTon;
+          const usdt = (netTon / rate).toFixed(2);
+          if(hint) hint.textContent = `К получению: ${usdt} USDT (после ${feePct}% комиссии)`;
+        };
+        inp?.addEventListener("input", updateHint);
+        updateHint();
+        document.getElementById("wdUsdtNext")?.addEventListener("click", ()=>{
+          const amtRaw = document.getElementById("wdUsdtAmt")?.value?.trim() || "";
+          savedUsdtAmt = amtRaw;
+          const gross = Number(String(amtRaw).replace(",", "."));
+          if(!Number.isFinite(gross) || gross <= 0){ toast("Укажите сумму", 2500); return; }
+          if(gross + 1e-12 < terms.minWithdrawalTon){
+            toast(`Минимум ${terms.minWithdrawalTon} TON`, 3200);
+            return;
+          }
+          const bal = parseBalanceNum(state.profile.serverBalanceTon);
+          if(Number.isFinite(bal) && gross > bal + 1e-9){
+            toast("Недостаточно средств на балансе", 3200);
+            return;
+          }
+          const rate = Number(usdtTerms.usdtTonRate || 0);
+          if(!Number.isFinite(rate) || rate <= 0){ toast("Курс недоступен", 2500); return; }
+          const feeTon = gross * (feePct / 100);
+          const netTon = gross - feeTon;
+          const netUsdt = (netTon / rate).toFixed(2);
+          openWalletModal("Подтверждение USDT", `
+            <p class="small muted">Проверьте суммы и подтвердите.</p>
+            <div class="pill" style="display:block;margin-top:10px">
+              <div class="small muted">Списание с баланса</div>
+              <div style="font-weight:800;font-size:17px;margin-top:2px">${escapeHtml(formatBalanceAmountOnly(String(gross)))} TON</div>
+            </div>
+            <div class="pill" style="display:block;margin-top:8px">
+              <div class="small muted">Комиссия (${escapeHtml(String(feePct))}%)</div>
+              <div style="font-weight:700;margin-top:2px">${escapeHtml(formatBalanceAmountOnly(String(feeTon)))} TON</div>
+            </div>
+            <div class="pill" style="display:block;margin-top:8px;border-color:rgba(58,170,58,0.45)">
+              <div class="small muted">Поступит в @CryptoBot</div>
+              <div style="font-weight:800;font-size:17px;margin-top:2px;color:var(--ok,#3aaa3a)">${escapeHtml(netUsdt)} USDT</div>
+            </div>
+            <div class="row" style="margin-top:14px;gap:8px">
+              <button type="button" class="btn ghost" id="wdUsdtBack" style="flex:1">Назад</button>
+              <button type="button" class="btn primary" id="wdUsdtConfirm" style="flex:1">Вывести</button>
+            </div>
+          `);
+          document.getElementById("wdUsdtBack")?.addEventListener("click", ()=> renderUsdtForm());
+          document.getElementById("wdUsdtConfirm")?.addEventListener("click", async ()=>{
+            const btn = document.getElementById("wdUsdtConfirm");
+            if(btn) btn.disabled = true;
+            try{
+              const res = await apiJson("/api/user", {
+                action:"requestUsdtWithdrawal",
+                initData: tgInitData,
+                amountTon: String(amtRaw).replace(",", "."),
+              });
+              closeWalletModal();
+              await refreshWalletUiFromServer();
+              toast(`Готово: на @CryptoBot отправлено ~${formatBalanceAmountOnly(String(res.usdtAmount || 0))} USDT`, 4800);
+              hNote("success");
+            }catch(e){
+              toast(e.message || "Ошибка USDT вывода", 3800);
+              if(btn) btn.disabled = false;
+            }
           });
-          closeWalletModal();
-          await refreshWalletUiFromServer();
-          toast(`USDT вывод отправлен. К выплате ~${formatBalanceAmountOnly(String(res.usdtAmount || 0))} USDT`, 4500);
-          hNote("success");
-        }catch(e){
-          toast(e.message || "Ошибка USDT вывода", 3600);
-          if(btn) btn.disabled = false;
-        }
-      });
+        });
+      }
+      renderUsdtForm();
     }
 
     function renderStep1(){
@@ -2354,7 +2409,7 @@
       </div>
     `);
     document.getElementById("withdrawTonBtn")?.addEventListener("click", ()=> renderStep1());
-    document.getElementById("withdrawUsdtBtn")?.addEventListener("click", ()=> renderUsdtStep());
+    document.getElementById("withdrawUsdtBtn")?.addEventListener("click", ()=>{ openUsdtWithdrawFlow(); });
   });
 
   function formatHistAmountLine(r){

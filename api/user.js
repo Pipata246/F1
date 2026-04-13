@@ -634,10 +634,12 @@ async function cancelUsdtDeposit(initData, usdtOperationIdRaw) {
   return { ok: true, removed: true };
 }
 
-async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw) {
+async function requestUsdtWithdrawal(initData, amountTonStr) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
+  const tgUserIdNum = Number(tgId);
+  if (!Number.isFinite(tgUserIdNum) || tgUserIdNum <= 0) throw new Error("Invalid Telegram user");
   touchPresenceTgId(tgId);
 
   const amountTon = Number(String(amountTonStr || "").replace(",", "."));
@@ -645,10 +647,6 @@ async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw)
   const minEnv = Number(process.env.MIN_WITHDRAWAL_TON);
   const minW = Number.isFinite(minEnv) && minEnv > 0 ? minEnv : 0.05;
   if (amountTon + 1e-12 < minW) throw new Error(`Minimum withdrawal is ${minW} TON`);
-  const cryptoBotUserId = String(cryptoBotUserIdRaw || "").trim();
-  if (!/^\d{4,20}$/.test(cryptoBotUserId)) {
-    throw new Error("Укажите корректный Crypto Bot user id");
-  }
 
   const feeTon = Number((amountTon * USDT_WITHDRAW_FEE_BPS / 10_000).toFixed(9));
   const netTon = Number((amountTon - feeTon).toFixed(9));
@@ -658,15 +656,16 @@ async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw)
   if (netUsdt <= 0) throw new Error("USDT amount too small after conversion");
 
   touchWithdrawalRateLimit(tgId);
+  /* Псевдо-адрес: не TON; wallet-cron пропускает. Crypto Pay transfer использует Telegram user_id. */
   const rpcRes = await sbRpc("wallet_request_withdrawal", {
     p_tg_user_id: tgId,
     p_amount: amountTon,
-    p_to_address: `cryptobot:${cryptoBotUserId}`,
+    p_to_address: `usdt_tg:${tgId}`,
   });
   const opId = rpcScalar(rpcRes);
   if (!opId) throw new Error("Failed to create withdrawal operation");
 
-  const spendId = `f1duel_usdt_wd_${opId}`;
+  const spendId = `f1duel_usdt_wd_${String(opId).replace(/-/g, "").slice(0, 40)}`;
   await mergeWalletOpMeta(opId, {
     usdt_withdraw: true,
     usdt_rate: rate,
@@ -674,6 +673,8 @@ async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw)
     withdraw_fee_bps: USDT_WITHDRAW_FEE_BPS,
     withdraw_fee_ton: feeTon,
     withdraw_net_ton: netTon,
+    withdraw_payout_v: 2,
+    withdraw_gross_ton: amountTon,
   });
   const usdtInsert = await sb("usdt_operations", {
     method: "POST",
@@ -688,7 +689,7 @@ async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw)
       fee_ton: feeTon,
       net_ton: netTon,
       wallet_operation_id: opId,
-      to_details: cryptoBotUserId,
+      to_details: tgId,
       crypto_payload: spendId,
     },
     prefer: "return=representation",
@@ -697,9 +698,9 @@ async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw)
 
   try {
     const transfer = await callCryptoBotApi("transfer", {
-      user_id: Number(cryptoBotUserId),
+      user_id: tgUserIdNum,
       asset: "USDT",
-      amount: netUsdt,
+      amount: String(netUsdt.toFixed(2)),
       spend_id: spendId,
       comment: `F1 Duel withdrawal (${amountTon} TON)`,
     });
@@ -3586,8 +3587,7 @@ module.exports = async (req, res) => {
     if (action === "requestUsdtWithdrawal") {
       const result = await requestUsdtWithdrawal(
         req.body?.initData || "",
-        req.body?.amountTon ?? req.body?.amount ?? "",
-        req.body?.cryptoBotUserId || ""
+        req.body?.amountTon ?? req.body?.amount ?? ""
       );
       return res.status(200).json({ ok: true, ...result });
     }
@@ -3667,7 +3667,6 @@ module.exports = async (req, res) => {
       msg.includes("Failed to resolve dynamic USDT->TON rate") ||
       msg.includes("Minimum USDT deposit") ||
       msg.includes("USDT amount too small") ||
-      msg.includes("Crypto Bot user id") ||
       msg.includes("USDT payout failed") ||
       msg.includes("USDT operation not found") ||
       msg.includes("Minimum withdrawal") ||

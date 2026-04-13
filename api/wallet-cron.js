@@ -261,6 +261,12 @@ async function recoverOrSendWithdrawal(op, client, hot, log) {
   const payoutTon = chainPayoutTonFromOp(op);
   const meta = op.meta && typeof op.meta === "object" ? op.meta : {};
 
+  /* USDT выводы идут через Crypto Bot transfer в api/user.js — не отправлять TON на псевдо-адрес. */
+  if (meta.usdt_withdraw === true || /^usdt(?:_tg)?:/i.test(toAddr) || /^cryptobot:/i.test(toAddr)) {
+    log.push(`withdraw: skip USDT/CryptoBot pipeline op=${opId}`);
+    return;
+  }
+
   const depositConfigured = String(process.env.TON_DEPOSIT_ADDRESS || "").trim();
   try {
     if (!Address.parse(depositConfigured).equals(hot.wallet.address)) {
