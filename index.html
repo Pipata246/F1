@@ -2061,18 +2061,41 @@
   }
 
   async function openUsdtTopupFlow(){
+    let terms = { usdtTonRate: 0 };
+    try{
+      terms = await apiJson("/api/user", { action:"getUsdtWalletTerms", initData: tgInitData });
+    }catch(e){
+      toast(e.message || "Не удалось загрузить курс USDT", 3400);
+      return;
+    }
     openWalletModal("Пополнение USDT", `
       <p class="small muted">ваши usdt коныертируются автоматически в тон, вывод работает на usdtс такой же конвертацией и комиссией 20%</p>
-      <p class="small" style="margin-top:10px">Сумма, USDT</p>
-      <input type="text" class="field" id="usdtDepAmount" placeholder="Например 10" inputmode="decimal" autocomplete="off" />
+      <p class="small muted" style="margin-top:8px">Текущий курс: 1 USDT = ${escapeHtml(formatBalanceAmountOnly(String(terms.usdtTonRate || 0)))} TON</p>
+      <p class="small" style="margin-top:10px">Сумма пополнения, TON</p>
+      <input type="text" class="field" id="usdtDepAmountTon" placeholder="Например 1" inputmode="decimal" autocomplete="off" />
+      <p class="small muted" id="usdtDepHint" style="margin-top:8px">К оплате: — USDT</p>
       <button type="button" class="btn primary" id="usdtDepCreate" style="margin-top:12px;width:100%">Создать счёт</button>
     `);
+    const amountInput = document.getElementById("usdtDepAmountTon");
+    const hint = document.getElementById("usdtDepHint");
+    const updateUsdtHint = ()=>{
+      const ton = Number(String(amountInput?.value || "").replace(",", "."));
+      const rate = Number(terms.usdtTonRate || 0);
+      if(!Number.isFinite(ton) || ton <= 0 || !Number.isFinite(rate) || rate <= 0){
+        if(hint) hint.textContent = "К оплате: — USDT";
+        return;
+      }
+      const usdt = (ton / rate).toFixed(2);
+      if(hint) hint.textContent = `К оплате: ${usdt} USDT`;
+    };
+    amountInput?.addEventListener("input", updateUsdtHint);
+    updateUsdtHint();
     document.getElementById("usdtDepCreate")?.addEventListener("click", async ()=>{
       const btn = document.getElementById("usdtDepCreate");
       if(btn) btn.disabled = true;
       try{
-        const raw = document.getElementById("usdtDepAmount")?.value?.trim() || "";
-        const r = await apiJson("/api/user", { action:"createUsdtDepositInvoice", initData: tgInitData, amountUsdt: raw });
+        const raw = document.getElementById("usdtDepAmountTon")?.value?.trim() || "";
+        const r = await apiJson("/api/user", { action:"createUsdtDepositInvoice", initData: tgInitData, amountTon: raw });
         if(!r.payUrl){ throw new Error("Ссылка на оплату не получена"); }
         const opId = String(r.usdtOperationId || "");
         if(!opId){

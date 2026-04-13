@@ -476,7 +476,7 @@ async function getUsdtWalletTerms(initData) {
   };
 }
 
-async function createUsdtDepositInvoice(initData, amountUsdtStr) {
+async function createUsdtDepositInvoice(initData, amountTonStr) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
@@ -484,12 +484,11 @@ async function createUsdtDepositInvoice(initData, amountUsdtStr) {
   const session = await authSession(initData);
   if (!session.exists) throw new Error("Complete registration first");
 
-  const amountUsdt = Number(String(amountUsdtStr || "").replace(",", "."));
-  if (!Number.isFinite(amountUsdt) || amountUsdt <= 0) throw new Error("Invalid amount");
-  if (amountUsdt < 0.1) throw new Error("Minimum USDT deposit is 0.1");
-
   const rate = await resolveUsdtTonRate();
-  const tonAmount = Number((amountUsdt * rate).toFixed(9));
+  const tonAmount = Number(String(amountTonStr || "").replace(",", "."));
+  if (!Number.isFinite(tonAmount) || tonAmount <= 0) throw new Error("Invalid amount");
+  const amountUsdt = Number((tonAmount / rate).toFixed(2));
+  if (amountUsdt < 0.1) throw new Error("Минимальная сумма счёта: 0.1 USDT");
   const payload = `f1duel_usdt_dep_${tgId}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   const description = `F1 Duel deposit ${amountUsdt} USDT -> ${tonAmount} TON`;
   const invoice = await callCryptoBotApi("createInvoice", {
@@ -528,6 +527,7 @@ async function createUsdtDepositInvoice(initData, amountUsdtStr) {
     payUrl,
     invoiceId,
     usdtOperationId: row?.id || null,
+    amountTon: tonAmount,
     amountUsdt: Number(amountUsdt.toFixed(2)),
     expectedTon: tonAmount,
     usdtTonRate: rate,
@@ -3557,7 +3557,7 @@ module.exports = async (req, res) => {
     if (action === "createUsdtDepositInvoice") {
       const data = await createUsdtDepositInvoice(
         req.body?.initData || "",
-        req.body?.amountUsdt ?? req.body?.amount ?? ""
+        req.body?.amountTon ?? req.body?.amount ?? req.body?.amountUsdt ?? ""
       );
       return res.status(200).json({ ok: true, ...data });
     }
