@@ -2074,13 +2074,89 @@
         const raw = document.getElementById("usdtDepAmount")?.value?.trim() || "";
         const r = await apiJson("/api/user", { action:"createUsdtDepositInvoice", initData: tgInitData, amountUsdt: raw });
         if(!r.payUrl){ throw new Error("Ссылка на оплату не получена"); }
-        closeWalletModal();
+        const opId = String(r.usdtOperationId || "");
+        if(!opId){
+          throw new Error("Не удалось создать операцию оплаты");
+        }
+        let stopped = false;
+        let checking = false;
+        const stopPolling = ()=>{ stopped = true; };
+        const renderPaidAndClose = async ()=>{
+          if(!walletModalBody) return;
+          walletModalBody.innerHTML = `
+            <div class="walletHistLoading">
+              <p class="small" style="text-align:center;color:var(--ok,#3aaa3a)">Оплата получена. Зачисляем TON...</p>
+            </div>
+          `;
+          toast("Оплата прошла успешно", 2300);
+          hNote("success");
+          await refreshWalletUiFromServer().catch(()=>{});
+          setTimeout(()=> closeWalletModal(), 1100);
+        };
+        const checkNow = async (silent=false)=>{
+          if(checking || stopped) return null;
+          checking = true;
+          try{
+            const cs = await apiJson("/api/user", {
+              action:"checkUsdtDepositStatus",
+              initData: tgInitData,
+              usdtOperationId: opId,
+            });
+            if(cs.paid || cs.status === "completed"){
+              await renderPaidAndClose();
+              stopPolling();
+              return cs;
+            }
+            if((cs.status || "") === "failed"){
+              if(!silent) toast("Счёт истёк или отменён", 2800);
+              stopPolling();
+              closeWalletModal();
+              return cs;
+            }
+            if(!silent) toast("Оплата пока не найдена", 1800);
+            return cs;
+          }catch(e){
+            if(!silent) toast(e.message || "Не удалось проверить оплату", 2800);
+            return null;
+          }finally{
+            checking = false;
+          }
+        };
+        openWalletModal("Ожидаем оплату", `
+          <p class="small muted">Оплатите счёт в Crypto Bot. После оплаты баланс пополнится автоматически.</p>
+          <div class="row" style="margin-top:12px;gap:8px">
+            <button type="button" class="btn primary" id="usdtCheckBtn" style="flex:1">Проверить</button>
+            <button type="button" class="btn ghost" id="usdtCancelBtn" style="flex:1">Отменить</button>
+          </div>
+        `);
+        walletModalOnClose = ()=>{ stopPolling(); };
+        document.getElementById("usdtCheckBtn")?.addEventListener("click", ()=>{ checkNow(false); });
+        document.getElementById("usdtCancelBtn")?.addEventListener("click", async ()=>{
+          if(stopped) return;
+          stopPolling();
+          try{
+            await apiJson("/api/user", {
+              action:"cancelUsdtDeposit",
+              initData: tgInitData,
+              usdtOperationId: opId,
+            });
+            closeWalletModal();
+            toast("Оплата отменена", 2200);
+          }catch(e){
+            toast(e.message || "Не удалось отменить счёт", 3000);
+          }
+        });
         toast("Открываем оплату USDT...", 2600);
-        hNote("success");
         const opened = openExternalUrl(r.payUrl);
         if(!opened){
-          throw new Error("Не удалось открыть ссылку оплаты");
+          toast("Не удалось открыть ссылку автоматически. Откройте снова через Пополнить -> USDT", 4200);
         }
+        const pollTick = async ()=>{
+          if(stopped) return;
+          await checkNow(true);
+          if(!stopped) setTimeout(pollTick, 3500);
+        };
+        setTimeout(pollTick, 3000);
       }catch(e){
         toast(e.message || "Не удалось создать USDT счёт", 3600);
         if(btn) btn.disabled = false;

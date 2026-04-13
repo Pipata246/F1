@@ -504,7 +504,7 @@ async function createUsdtDepositInvoice(initData, amountUsdtStr) {
   const payUrl = String(invoice?.pay_url || "");
   if (!invoiceId || !payUrl) throw new Error("Failed to create USDT invoice");
 
-  await sb("usdt_operations", {
+  const inserted = await sb("usdt_operations", {
     method: "POST",
     body: {
       tg_user_id: tgId,
@@ -520,10 +520,118 @@ async function createUsdtDepositInvoice(initData, amountUsdtStr) {
       crypto_payload: payload,
       meta: { pay_url: payUrl },
     },
+    prefer: "return=representation",
+  });
+  const row = Array.isArray(inserted) ? inserted[0] : inserted;
+
+  return {
+    payUrl,
+    invoiceId,
+    usdtOperationId: row?.id || null,
+    amountUsdt: Number(amountUsdt.toFixed(2)),
+    expectedTon: tonAmount,
+    usdtTonRate: rate,
+  };
+}
+
+async function finalizeUsdtDepositInvoice(invoiceId, extStatus) {
+  const rows = await sb(
+    `usdt_operations?crypto_invoice_id=eq.${encodeURIComponent(String(invoiceId))}&direction=eq.deposit&select=id,tg_user_id,status,net_ton,wallet_operation_id&limit=1`
+  );
+  const row = rows?.[0];
+  if (!row) return { found: false, completed: false };
+  if (row.status === "completed" || row.wallet_operation_id) return { found: true, completed: true };
+  const status = String(extStatus || "").toLowerCase();
+  if (!(status === "paid" || status === "confirmed")) {
+    return { found: true, completed: false, status };
+  }
+  const tonAmount = Number(row.net_ton || 0);
+  if (!(tonAmount > 0)) throw new Error("Invalid TON amount");
+  const txHash = `usdtdep:${invoiceId}`;
+  const opRes = await sbRpc("wallet_credit_deposit", {
+    p_tg_user_id: String(row.tg_user_id),
+    p_amount: tonAmount,
+    p_tx_hash: txHash,
+  });
+  const opId = rpcScalar(opRes);
+  await sb(`usdt_operations?id=eq.${encodeURIComponent(String(row.id))}`, {
+    method: "PATCH",
+    body: {
+      status: "completed",
+      wallet_operation_id: opId || null,
+      external_tx_hash: txHash,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
     prefer: "return=minimal",
   });
+  return { found: true, completed: true, operationId: opId || null };
+}
 
-  return { payUrl, invoiceId, amountUsdt: Number(amountUsdt.toFixed(2)), expectedTon: tonAmount, usdtTonRate: rate };
+async function checkUsdtDepositStatus(initData, usdtOperationIdRaw) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const usdtOperationId = String(usdtOperationIdRaw || "").trim();
+  if (!usdtOperationId) throw new Error("Missing usdtOperationId");
+  const rows = await sb(
+    `usdt_operations?id=eq.${encodeURIComponent(usdtOperationId)}&tg_user_id=eq.${encodeURIComponent(tgId)}&direction=eq.deposit&select=id,status,crypto_invoice_id,wallet_operation_id,completed_at&limit=1`
+  );
+  const row = rows?.[0];
+  if (!row) throw new Error("USDT operation not found");
+  if (row.status === "completed" || row.wallet_operation_id) {
+    return { status: "completed", paid: true };
+  }
+  if (row.status === "failed" || row.status === "cancelled") {
+    return { status: row.status, paid: false };
+  }
+  const invoiceId = String(row.crypto_invoice_id || "");
+  if (!invoiceId) return { status: row.status || "pending", paid: false };
+  const inv = await callCryptoBotApi("getInvoices", { invoice_ids: invoiceId });
+  const invRows = Array.isArray(inv?.items) ? inv.items : Array.isArray(inv) ? inv : [];
+  const item = invRows.find((x) => String(x?.invoice_id || "") === invoiceId);
+  const status = String(item?.status || row.status || "pending").toLowerCase();
+  const fin = await finalizeUsdtDepositInvoice(invoiceId, status);
+  if (fin.completed) return { status: "completed", paid: true };
+  if (status === "expired" || status === "failed") {
+    await sb(`usdt_operations?id=eq.${encodeURIComponent(String(row.id))}`, {
+      method: "PATCH",
+      body: { status: "failed", updated_at: new Date().toISOString() },
+      prefer: "return=minimal",
+    }).catch(() => {});
+    return { status: "failed", paid: false };
+  }
+  return { status, paid: false };
+}
+
+async function cancelUsdtDeposit(initData, usdtOperationIdRaw) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const usdtOperationId = String(usdtOperationIdRaw || "").trim();
+  if (!usdtOperationId) throw new Error("Missing usdtOperationId");
+  const rows = await sb(
+    `usdt_operations?id=eq.${encodeURIComponent(usdtOperationId)}&tg_user_id=eq.${encodeURIComponent(tgId)}&direction=eq.deposit&select=id,status,crypto_invoice_id,wallet_operation_id&limit=1`
+  );
+  const row = rows?.[0];
+  if (!row) return { ok: true, removed: false };
+  if (row.status === "completed" || row.wallet_operation_id) {
+    return { ok: true, removed: false, alreadyCompleted: true };
+  }
+  const invoiceId = String(row.crypto_invoice_id || "");
+  if (invoiceId) {
+    await callCryptoBotApi("deleteInvoice", { invoice_id: Number(invoiceId) || invoiceId }).catch(() => {});
+  }
+  await sb(
+    `usdt_operations?id=eq.${encodeURIComponent(usdtOperationId)}&tg_user_id=eq.${encodeURIComponent(tgId)}&status=neq.completed&wallet_operation_id=is.null`,
+    {
+      method: "DELETE",
+      prefer: "return=minimal",
+    }
+  );
+  return { ok: true, removed: true };
 }
 
 async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw) {
@@ -3453,6 +3561,20 @@ module.exports = async (req, res) => {
       );
       return res.status(200).json({ ok: true, ...data });
     }
+    if (action === "checkUsdtDepositStatus") {
+      const data = await checkUsdtDepositStatus(
+        req.body?.initData || "",
+        req.body?.usdtOperationId || req.body?.operationId || ""
+      );
+      return res.status(200).json({ ok: true, ...data });
+    }
+    if (action === "cancelUsdtDeposit") {
+      const data = await cancelUsdtDeposit(
+        req.body?.initData || "",
+        req.body?.usdtOperationId || req.body?.operationId || ""
+      );
+      return res.status(200).json({ ok: true, ...data });
+    }
     if (action === "requestWithdrawal") {
       const result = await requestWithdrawal(
         req.body?.initData || "",
@@ -3547,12 +3669,14 @@ module.exports = async (req, res) => {
       msg.includes("USDT amount too small") ||
       msg.includes("Crypto Bot user id") ||
       msg.includes("USDT payout failed") ||
+      msg.includes("USDT operation not found") ||
       msg.includes("Minimum withdrawal") ||
       msg.includes("После комиссии") ||
       msg.includes("Complete registration first") ||
       msg.includes("Deposit address is not configured") ||
       msg.includes("Operation not updated") ||
       msg.includes("Missing operationId") ||
+      msg.includes("Missing usdtOperationId") ||
       msg.includes("Missing intentId") ||
       msg.includes("Missing tgUserId") ||
       msg.includes("Invalid txHash") ||
