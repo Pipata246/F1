@@ -55,6 +55,11 @@ function touchWithdrawalRateLimit(tgId) {
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const CRYPTO_BOT_TOKEN = String(process.env.CRYPTO_BOT_TOKEN || "").trim();
+const USDT_WITHDRAW_FEE_BPS = Math.max(
+  0,
+  Math.min(10_000, Number(process.env.USDT_WITHDRAW_FEE_BPS) || 2000)
+);
 
 function parseInitData(initData) {
   const params = new URLSearchParams(initData);
@@ -176,6 +181,50 @@ function rpcScalar(data) {
     return k !== undefined ? data[0][k] : null;
   }
   return data;
+}
+
+function requireCryptoBot() {
+  if (!CRYPTO_BOT_TOKEN) throw new Error("CRYPTO_BOT_TOKEN is not configured");
+}
+
+function usdtWithdrawFeePercentDisplay() {
+  return Number((USDT_WITHDRAW_FEE_BPS / 100).toFixed(2));
+}
+
+async function callCryptoBotApi(method, payload) {
+  requireCryptoBot();
+  const res = await fetch(`https://pay.crypt.bot/api/${method}`, {
+    method: "POST",
+    headers: {
+      "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.ok) {
+    const msg = data?.error?.name || data?.error?.code || `Crypto Bot API error: ${res.status}`;
+    throw new Error(String(msg));
+  }
+  return data.result;
+}
+
+async function resolveUsdtTonRate() {
+  const fixed = Number(process.env.USDT_TON_FIXED_RATE || 0);
+  if (Number.isFinite(fixed) && fixed > 0) return fixed;
+  const source = String(process.env.USDT_TON_RATE_SOURCE || "crypto_bot").toLowerCase();
+  if (source !== "crypto_bot") throw new Error("USDT rate source is not supported");
+  const rates = await callCryptoBotApi("getExchangeRates", {});
+  const arr = Array.isArray(rates) ? rates : [];
+  for (const row of arr) {
+    const src = String(row?.source || row?.from || "").toUpperCase();
+    const tgt = String(row?.target || row?.to || "").toUpperCase();
+    const rate = Number(row?.rate || row?.value || 0);
+    if (!Number.isFinite(rate) || rate <= 0) continue;
+    if (src === "USDT" && tgt === "TON") return rate;
+    if (src === "TON" && tgt === "USDT") return 1 / rate;
+  }
+  throw new Error("Failed to resolve dynamic USDT->TON rate");
 }
 
 function generateDepositMemoToken() {
@@ -367,6 +416,178 @@ async function requestWithdrawal(initData, toAddress, amountStr) {
   };
 }
 
+async function getUsdtWalletTerms(initData) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const session = await authSession(initData);
+  if (!session.exists) throw new Error("Complete registration first");
+  const rate = await resolveUsdtTonRate();
+  return {
+    usdtTonRate: rate,
+    usdtWithdrawFeePercent: usdtWithdrawFeePercentDisplay(),
+  };
+}
+
+async function createUsdtDepositInvoice(initData, amountUsdtStr) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const session = await authSession(initData);
+  if (!session.exists) throw new Error("Complete registration first");
+
+  const amountUsdt = Number(String(amountUsdtStr || "").replace(",", "."));
+  if (!Number.isFinite(amountUsdt) || amountUsdt <= 0) throw new Error("Invalid amount");
+  if (amountUsdt < 0.1) throw new Error("Minimum USDT deposit is 0.1");
+
+  const rate = await resolveUsdtTonRate();
+  const tonAmount = Number((amountUsdt * rate).toFixed(9));
+  const payload = `f1duel_usdt_dep_${tgId}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  const description = `F1 Duel deposit ${amountUsdt} USDT -> ${tonAmount} TON`;
+  const invoice = await callCryptoBotApi("createInvoice", {
+    asset: "USDT",
+    amount: Number(amountUsdt.toFixed(2)),
+    description,
+    payload,
+    allow_comments: false,
+    allow_anonymous: false,
+  });
+  const invoiceId = String(invoice?.invoice_id || "");
+  const payUrl = String(invoice?.pay_url || "");
+  if (!invoiceId || !payUrl) throw new Error("Failed to create USDT invoice");
+
+  await sb("usdt_operations", {
+    method: "POST",
+    body: {
+      tg_user_id: tgId,
+      direction: "deposit",
+      status: "pending",
+      amount_usdt: Number(amountUsdt.toFixed(8)),
+      ton_rate: rate,
+      ton_amount: tonAmount,
+      fee_bps: 0,
+      fee_ton: 0,
+      net_ton: tonAmount,
+      crypto_invoice_id: invoiceId,
+      crypto_payload: payload,
+      meta: { pay_url: payUrl },
+    },
+    prefer: "return=minimal",
+  });
+
+  return { payUrl, invoiceId, amountUsdt: Number(amountUsdt.toFixed(2)), expectedTon: tonAmount, usdtTonRate: rate };
+}
+
+async function requestUsdtWithdrawal(initData, amountTonStr, cryptoBotUserIdRaw) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+
+  const amountTon = Number(String(amountTonStr || "").replace(",", "."));
+  if (!Number.isFinite(amountTon) || amountTon <= 0) throw new Error("Invalid amount");
+  const minEnv = Number(process.env.MIN_WITHDRAWAL_TON);
+  const minW = Number.isFinite(minEnv) && minEnv > 0 ? minEnv : 0.05;
+  if (amountTon + 1e-12 < minW) throw new Error(`Minimum withdrawal is ${minW} TON`);
+  const cryptoBotUserId = String(cryptoBotUserIdRaw || "").trim();
+  if (!/^\d{4,20}$/.test(cryptoBotUserId)) {
+    throw new Error("Укажите корректный Crypto Bot user id");
+  }
+
+  const feeTon = Number((amountTon * USDT_WITHDRAW_FEE_BPS / 10_000).toFixed(9));
+  const netTon = Number((amountTon - feeTon).toFixed(9));
+  if (netTon <= 0) throw new Error("Invalid withdrawal amount after fee");
+  const rate = await resolveUsdtTonRate();
+  const netUsdt = Number((netTon / rate).toFixed(2));
+  if (netUsdt <= 0) throw new Error("USDT amount too small after conversion");
+
+  touchWithdrawalRateLimit(tgId);
+  const rpcRes = await sbRpc("wallet_request_withdrawal", {
+    p_tg_user_id: tgId,
+    p_amount: amountTon,
+    p_to_address: `cryptobot:${cryptoBotUserId}`,
+  });
+  const opId = rpcScalar(rpcRes);
+  if (!opId) throw new Error("Failed to create withdrawal operation");
+
+  const spendId = `f1duel_usdt_wd_${opId}`;
+  await mergeWalletOpMeta(opId, {
+    usdt_withdraw: true,
+    usdt_rate: rate,
+    usdt_net: netUsdt,
+    withdraw_fee_bps: USDT_WITHDRAW_FEE_BPS,
+    withdraw_fee_ton: feeTon,
+    withdraw_net_ton: netTon,
+  });
+  const usdtInsert = await sb("usdt_operations", {
+    method: "POST",
+    body: {
+      tg_user_id: tgId,
+      direction: "withdrawal",
+      status: "processing",
+      amount_usdt: netUsdt,
+      ton_rate: rate,
+      ton_amount: amountTon,
+      fee_bps: USDT_WITHDRAW_FEE_BPS,
+      fee_ton: feeTon,
+      net_ton: netTon,
+      wallet_operation_id: opId,
+      to_details: cryptoBotUserId,
+      crypto_payload: spendId,
+    },
+    prefer: "return=representation",
+  });
+  const usdtRow = Array.isArray(usdtInsert) ? usdtInsert[0] : usdtInsert;
+
+  try {
+    const transfer = await callCryptoBotApi("transfer", {
+      user_id: Number(cryptoBotUserId),
+      asset: "USDT",
+      amount: netUsdt,
+      spend_id: spendId,
+      comment: `F1 Duel withdrawal (${amountTon} TON)`,
+    });
+    const transferId = String(transfer?.transfer_id || transfer?.spend_id || spendId);
+    const txHash = `usdtwd:${transferId}`;
+    await sbRpc("wallet_complete_withdrawal", { p_op_id: opId, p_tx_hash: txHash });
+    await sb(`usdt_operations?id=eq.${encodeURIComponent(usdtRow?.id || "")}`, {
+      method: "PATCH",
+      body: {
+        status: "completed",
+        crypto_transfer_id: transferId,
+        external_tx_hash: txHash,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      prefer: "return=minimal",
+    });
+  } catch (e) {
+    await sbRpc("wallet_fail_withdrawal", { p_op_id: opId }).catch(() => {});
+    await sb(`usdt_operations?id=eq.${encodeURIComponent(usdtRow?.id || "")}`, {
+      method: "PATCH",
+      body: {
+        status: "failed",
+        updated_at: new Date().toISOString(),
+        meta: { error: String(e?.message || e) },
+      },
+      prefer: "return=minimal",
+    }).catch(() => {});
+    throw new Error("USDT payout failed. Try again later.");
+  }
+
+  return {
+    operationId: opId,
+    grossTon: amountTon,
+    netTon,
+    feeTon,
+    feePercent: usdtWithdrawFeePercentDisplay(),
+    usdtAmount: netUsdt,
+    usdtTonRate: rate,
+  };
+}
+
 async function getWalletHistory(initData, limit) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -383,6 +604,7 @@ async function getWalletHistory(initData, limit) {
   );
   let intentsRaw = [];
   let stakeEventsRaw = [];
+  let usdtRowsRaw = [];
   try {
     intentsRaw = await sb(
       `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,declared_amount_ton,status,wallet_operation_id,ton_tx_hash,created_at,expires_at,submitted_at&order=created_at.desc&limit=${safeLimit}`
@@ -393,6 +615,13 @@ async function getWalletHistory(initData, limit) {
   try {
     stakeEventsRaw = await sb(
       `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,event_type,amount,stake_ton,game_key,room_id,meta,created_at&order=created_at.desc&limit=${safeLimit}`
+    );
+  } catch {
+    /* таблица может отсутствовать до миграции */
+  }
+  try {
+    usdtRowsRaw = await sb(
+      `usdt_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,direction,status,amount_usdt,ton_rate,ton_amount,fee_bps,fee_ton,net_ton,created_at,completed_at,to_details,meta&order=created_at.desc&limit=${safeLimit}`
     );
   } catch {
     /* таблица может отсутствовать до миграции */
@@ -439,7 +668,26 @@ async function getWalletHistory(initData, limit) {
       ...(asObj(r.meta) || {}),
     },
   }));
-  const combined = [...intentRows, ...opRows, ...stakeRows].sort(
+  const usdtRows = (usdtRowsRaw || []).map((r) => ({
+    id: `usdt_${r.id}`,
+    kind: r.direction === "deposit" ? "usdt_deposit" : "usdt_withdrawal",
+    amount: String(r.direction === "deposit" ? r.net_ton : -Math.abs(Number(r.ton_amount || 0))),
+    status: r.status,
+    ton_tx_hash: null,
+    to_address: r.to_details || null,
+    created_at: r.created_at,
+    is_deposit_intent: false,
+    meta: {
+      usdt_amount: String(r.amount_usdt ?? ""),
+      usdt_rate: String(r.ton_rate ?? ""),
+      ton_amount: String(r.ton_amount ?? ""),
+      net_ton: String(r.net_ton ?? ""),
+      fee_ton: String(r.fee_ton ?? ""),
+      fee_bps: r.fee_bps,
+      ...(asObj(r.meta) || {}),
+    },
+  }));
+  const combined = [...intentRows, ...opRows, ...stakeRows, ...usdtRows].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
   return combined.slice(0, safeLimit);
@@ -3148,11 +3396,30 @@ module.exports = async (req, res) => {
       const data = await getWalletInfo(req.body?.initData || "");
       return res.status(200).json({ ok: true, ...data });
     }
+    if (action === "getUsdtWalletTerms") {
+      const data = await getUsdtWalletTerms(req.body?.initData || "");
+      return res.status(200).json({ ok: true, ...data });
+    }
+    if (action === "createUsdtDepositInvoice") {
+      const data = await createUsdtDepositInvoice(
+        req.body?.initData || "",
+        req.body?.amountUsdt ?? req.body?.amount ?? ""
+      );
+      return res.status(200).json({ ok: true, ...data });
+    }
     if (action === "requestWithdrawal") {
       const result = await requestWithdrawal(
         req.body?.initData || "",
         req.body?.toAddress || "",
         req.body?.amount ?? req.body?.amountTon
+      );
+      return res.status(200).json({ ok: true, ...result });
+    }
+    if (action === "requestUsdtWithdrawal") {
+      const result = await requestUsdtWithdrawal(
+        req.body?.initData || "",
+        req.body?.amountTon ?? req.body?.amount ?? "",
+        req.body?.cryptoBotUserId || ""
       );
       return res.status(200).json({ ok: true, ...result });
     }
@@ -3227,6 +3494,13 @@ module.exports = async (req, res) => {
       msg.includes("Invalid withdrawal amount after fee") ||
       msg.includes("Invalid address") ||
       msg.includes("Invalid TON address") ||
+      msg.includes("CRYPTO_BOT_TOKEN is not configured") ||
+      msg.includes("USDT rate source is not supported") ||
+      msg.includes("Failed to resolve dynamic USDT->TON rate") ||
+      msg.includes("Minimum USDT deposit") ||
+      msg.includes("USDT amount too small") ||
+      msg.includes("Crypto Bot user id") ||
+      msg.includes("USDT payout failed") ||
       msg.includes("Minimum withdrawal") ||
       msg.includes("После комиссии") ||
       msg.includes("Complete registration first") ||
