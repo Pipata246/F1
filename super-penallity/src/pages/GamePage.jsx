@@ -921,7 +921,7 @@ const GamePage = () => {
             onClick={() => setScreen('stake-online')}
             className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20"
           >
-            Онлайн
+            Играть
           </button>
           <button
             onClick={() => startSearchBot()}
