@@ -2472,6 +2472,7 @@ async function persistMatchFromPayload(b) {
   }));
   const finishedAt = asIsoDate(b.finishedAt);
   const mode = String(b.mode || (players.some((p) => p.isBot) ? "bot" : "pvp")).slice(0, 20);
+  const isBotMode = mode.trim().toLowerCase() === "bot";
   const winnerTgUserId = b.winnerTgUserId ? String(b.winnerTgUserId) : null;
   const score = asObj(b.score);
   const details = asObj(b.details);
@@ -2496,7 +2497,7 @@ async function persistMatchFromPayload(b) {
     prefer: "return=representation",
   });
 
-  const nonBotPlayers = players.filter((p) => !p.isBot && p.tgUserId);
+  const nonBotPlayers = isBotMode ? [] : players.filter((p) => !p.isBot && p.tgUserId);
   for (const p of nonBotPlayers) {
     const tgId = String(p.tgUserId);
     const existingRows = await sb(

@@ -1809,14 +1809,14 @@
         ? (String(m.winner_tg_user_id) === myTgId ? "Победа" : "Поражение")
         : (myScore === oppScore ? "Ничья" : (myScore > oppScore ? "Победа" : "Поражение"));
       const resultColor = result === "Победа" ? "var(--accent)" : (result === "Ничья" ? "var(--text2)" : "var(--danger)");
-      const modeLabel = m.mode === "bot" ? "Бот" : "PvP";
+      const modeLabel = m.mode === "bot" ? "ДЭМО" : "PvP";
       const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
       const stakeTonNum = Number(details.stakeTon);
       const hasStake = Number.isFinite(stakeTonNum) && stakeTonNum > 0;
       let tonLine = "";
       let tonColor = "var(--text2)";
       if(m.mode === "bot"){
-        tonLine = "Игра в ДЭМО режим";
+        tonLine = "ДЭМО режим (против бота)";
       }else if(hasStake){
         const absStake = formatBalanceAmountOnly(String(stakeTonNum));
         if(result === "Победа"){
