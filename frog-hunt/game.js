@@ -195,15 +195,19 @@ function ensureStakePicker() {
   if (!mount || $('stakePickerWrap')) return;
   var wrap = document.createElement('div');
   wrap.id = 'stakePickerWrap';
-  wrap.style.marginTop = '12px';
+  wrap.style.marginTop = '6px';
   wrap.style.width = '100%';
   wrap.style.maxWidth = '340px';
   wrap.style.marginLeft = 'auto';
   wrap.style.marginRight = 'auto';
+  wrap.style.display = 'flex';
+  wrap.style.flexDirection = 'column';
+  wrap.style.alignItems = 'center';
+  wrap.style.transform = 'translateY(-22px)';
   wrap.innerHTML =
-    '<div style="font-size:12px;color:#9aa3b2;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
-    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch"></div>' +
-    '<button type="button" id="stakePlayBtnFrog" class="btn primary" style="margin-top:10px">Играть</button>';
+    '<div style="font-size:12px;color:#9aa3b2;margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
+    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch;width:100%"></div>' +
+    '<button type="button" id="stakePlayBtnFrog" class="btn primary" style="margin-top:12px">Играть</button>';
   mount.appendChild(wrap);
   var grid = $('stakeGridFrog');
   ALLOWED_STAKES.forEach(function(stake) {
@@ -244,7 +248,11 @@ function ensureStakePicker() {
 function setStakePickerVisible(v){
   var wrap = $('stakePickerWrap');
   if(!wrap) return;
-  wrap.style.display = v ? 'block' : 'none';
+  wrap.style.display = v ? 'flex' : 'none';
+  var rules = document.querySelector('#screen-start .rules-block');
+  if (rules) rules.style.display = v ? 'none' : '';
+  var logo = document.querySelector('#screen-start .logo-container');
+  if (logo) logo.style.marginBottom = v ? '14px' : '';
 }
 
 function setModeButtonsVisible(v){

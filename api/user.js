@@ -1029,6 +1029,36 @@ async function pvpFinalizeStakeForRoom(roomId, winnerTgUserId, reason) {
   }
 }
 
+async function pvpStartBotMatchWithStake(room, botName, stakeTon, state) {
+  const rpcRes = await sbRpc("pvp_start_bot_match_with_stake", {
+    p_room_id: Number(room.id),
+    p_bot_tg_user_id: pvpBotTgId(room.id),
+    p_bot_name: String(botName || "player").slice(0, 64),
+    p_state_json: state || {},
+    p_stake_ton: Number(stakeTon),
+  });
+  const roomId = Number(rpcScalar(rpcRes) || 0);
+  if (!Number.isInteger(roomId) || roomId <= 0) return null;
+  const rows = await sb(`pvp_rooms?id=eq.${roomId}&select=*`);
+  return rows?.[0] || null;
+}
+
+async function pvpFinalizeBotStakeForRoom(roomId, userTgId, userWon, reason) {
+  const rid = Number(roomId);
+  if (!Number.isInteger(rid) || rid <= 0) return;
+  try {
+    await sbRpc("pvp_finalize_bot_stake", {
+      p_room_id: rid,
+      p_user_tg_user_id: String(userTgId || ""),
+      p_user_won: !!userWon,
+      p_reason: String(reason || "match_finished").slice(0, 60),
+    });
+  } catch (e) {
+    console.error("pvp_finalize_bot_stake:", e?.message || e);
+    throw e;
+  }
+}
+
 function asIsoDate(value) {
   const d = value ? new Date(value) : new Date();
   if (Number.isNaN(d.getTime())) return new Date().toISOString();
@@ -1159,6 +1189,54 @@ function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
   if (gameKey === "super_penalty") return pvpDefaultSuperPenaltyState(player1Id, player2Id);
   if (gameKey === "basketball") return pvpDefaultBasketballState(player1Id, player2Id);
   return pvpDefaultState(player1Id, player2Id);
+}
+
+const PVP_BOT_WAIT_MIN_MS = 57_000;
+const PVP_BOT_WAIT_SPAN_MS = 10_000; // 57..67 sec
+const PVP_BOT_MOVE_MIN_MS = 1200;
+const PVP_BOT_MOVE_MAX_MS = 10500;
+const PVP_BOT_NAME_RECENT = new Set();
+const PVP_BOT_NAME_RECENT_LIMIT = 200;
+
+function pvpBotFallbackDelayMs(roomId) {
+  const base = Number(roomId || 0);
+  const salt = ((base * 1103515245 + 12345) >>> 0) % (PVP_BOT_WAIT_SPAN_MS + 1);
+  return PVP_BOT_WAIT_MIN_MS + salt;
+}
+
+function pvpBotTgId(roomId) {
+  return `bot_fallback_${Number(roomId || 0)}`;
+}
+
+function isPvpBotFallbackRoom(room) {
+  const id = String(room?.player2_tg_user_id || "");
+  return id.startsWith("bot_fallback_");
+}
+
+function pvpPickBotName() {
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  const extras = ["🔥", "⚡", "✨", "🎯", "😎", "🐸", "🏀", "⚽"];
+  for (let i = 0; i < 80; i++) {
+    const len = 3 + Math.floor(Math.random() * 5); // 3..7
+    let s = "";
+    for (let j = 0; j < len; j++) s += chars[Math.floor(Math.random() * chars.length)];
+    if (Math.random() < 0.35) {
+      s = `${s.slice(0, Math.max(1, len - 1))}${extras[Math.floor(Math.random() * extras.length)]}`;
+    }
+    if (!PVP_BOT_NAME_RECENT.has(s)) {
+      PVP_BOT_NAME_RECENT.add(s);
+      if (PVP_BOT_NAME_RECENT.size > PVP_BOT_NAME_RECENT_LIMIT) {
+        const first = PVP_BOT_NAME_RECENT.values().next().value;
+        if (first) PVP_BOT_NAME_RECENT.delete(first);
+      }
+      return s;
+    }
+  }
+  return `user${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function pvpBotMoveDelayMs() {
+  return PVP_BOT_MOVE_MIN_MS + Math.floor(Math.random() * (PVP_BOT_MOVE_MAX_MS - PVP_BOT_MOVE_MIN_MS + 1));
 }
 
 function pvpConfigForGame(gameNum) {
@@ -1687,6 +1765,33 @@ function pvpAdvanceByTime(room) {
     const presence = asObj(s.presence);
     const p1Beat = Number(presence.p1 || 0);
     const p2Beat = Number(presence.p2 || 0);
+    if (isPvpBotFallbackRoom(room) && s.phase === "turn_input") {
+      const botPending = asObj(s.botPending);
+      const c = asObj(s.choices);
+      if (!c.p2) {
+        if (botPending.kind !== "basketball_move") {
+          const dists = ["close", "mid", "far"];
+          next.botPending = {
+            kind: "basketball_move",
+            dueAtMs: now + pvpBotMoveDelayMs(),
+            value: dists[Math.floor(Math.random() * dists.length)],
+          };
+          next.updatedAt = new Date().toISOString();
+          return { changed: true, state: next };
+        }
+        const dueAt = Number(botPending.dueAtMs || 0);
+        if (dueAt > 0 && now >= dueAt) {
+          next.choices = { ...c, p2: String(botPending.value || "mid") };
+          next.botPending = null;
+          if (next.choices.p1 && next.choices.p2) {
+            const resolved = pvpResolveBasketballRound(next);
+            return { changed: true, state: resolved };
+          }
+          next.updatedAt = new Date().toISOString();
+          return { changed: true, state: next };
+        }
+      }
+    }
 
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
       const staleMs = 15000;
@@ -1765,6 +1870,32 @@ function pvpAdvanceByTime(room) {
     const presence = asObj(s.presence);
     const p1Beat = Number(presence.p1 || 0);
     const p2Beat = Number(presence.p2 || 0);
+    if (isPvpBotFallbackRoom(room) && s.phase === "turn_input") {
+      const botPending = asObj(s.botPending);
+      const c = asObj(s.choices);
+      if (c.p2 === null || c.p2 === undefined) {
+        if (botPending.kind !== "super_penalty_move") {
+          next.botPending = {
+            kind: "super_penalty_move",
+            dueAtMs: now + pvpBotMoveDelayMs(),
+            value: Math.floor(Math.random() * 4),
+          };
+          next.updatedAt = new Date().toISOString();
+          return { changed: true, state: next };
+        }
+        const dueAt = Number(botPending.dueAtMs || 0);
+        if (dueAt > 0 && now >= dueAt) {
+          next.choices = { ...c, p2: Number.isInteger(Number(botPending.value)) ? Number(botPending.value) : 0 };
+          next.botPending = null;
+          if (next.choices.p1 !== null && next.choices.p1 !== undefined && next.choices.p2 !== null && next.choices.p2 !== undefined) {
+            const resolved = pvpResolveSuperPenaltyRound(next);
+            return { changed: true, state: resolved };
+          }
+          next.updatedAt = new Date().toISOString();
+          return { changed: true, state: next };
+        }
+      }
+    }
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
       const staleMs = 15000;
       const p1Stale = now - p1Beat > staleMs;
@@ -1824,6 +1955,83 @@ function pvpAdvanceByTime(room) {
     const presence = asObj(s.presence);
     const p1Beat = Number(presence.p1 || 0);
     const p2Beat = Number(presence.p2 || 0);
+    if (isPvpBotFallbackRoom(room)) {
+      const botPending = asObj(s.botPending);
+      if (s.phase === "placing_traps") {
+        const traps = asObj(s.traps);
+        if (!Array.isArray(traps.p2)) {
+          if (botPending.kind !== "obstacle_traps_main") {
+            next.botPending = {
+              kind: "obstacle_traps_main",
+              dueAtMs: now + pvpBotMoveDelayMs(),
+              value: pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3)),
+            };
+            next.updatedAt = new Date().toISOString();
+            return { changed: true, state: next };
+          }
+          if (now >= Number(botPending.dueAtMs || 0)) {
+            next.traps = { ...traps, p2: Array.isArray(botPending.value) ? botPending.value : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3)) };
+            next.botPending = null;
+            if (Array.isArray(asObj(next.traps).p1) && Array.isArray(asObj(next.traps).p2)) {
+              next.phase = "running";
+              next.phaseAtMs = Date.now();
+              next.pendingMoves = { p1: null, p2: null };
+            }
+            next.updatedAt = new Date().toISOString();
+            return { changed: true, state: next };
+          }
+        }
+      }
+      if (s.phase === "overtime_placing") {
+        const traps = asObj(s.overtimeTraps);
+        if (!Array.isArray(traps.p2)) {
+          if (botPending.kind !== "obstacle_traps_ot") {
+            next.botPending = {
+              kind: "obstacle_traps_ot",
+              dueAtMs: now + pvpBotMoveDelayMs(),
+              value: pvpRandomTraps(Number(s.overtimeRounds || 3), Number(s.trapsPerOvertime || 1)),
+            };
+            next.updatedAt = new Date().toISOString();
+            return { changed: true, state: next };
+          }
+          if (now >= Number(botPending.dueAtMs || 0)) {
+            next.overtimeTraps = { ...traps, p2: Array.isArray(botPending.value) ? botPending.value : pvpRandomTraps(Number(s.overtimeRounds || 3), Number(s.trapsPerOvertime || 1)) };
+            next.botPending = null;
+            if (Array.isArray(asObj(next.overtimeTraps).p1) && Array.isArray(asObj(next.overtimeTraps).p2)) {
+              next.phase = "running";
+              next.phaseAtMs = Date.now();
+              next.pendingMoves = { p1: null, p2: null };
+            }
+            next.updatedAt = new Date().toISOString();
+            return { changed: true, state: next };
+          }
+        }
+      }
+      if (s.phase === "running") {
+        const pm = asObj(s.pendingMoves);
+        if (!pm.p2) {
+          if (botPending.kind !== "obstacle_move") {
+            next.botPending = {
+              kind: "obstacle_move",
+              dueAtMs: now + pvpBotMoveDelayMs(),
+              value: { action: Math.random() < 0.5 ? "run" : "jump", useAbility: false },
+            };
+            next.updatedAt = new Date().toISOString();
+            return { changed: true, state: next };
+          }
+          if (now >= Number(botPending.dueAtMs || 0)) {
+            next.pendingMoves = { ...pm, p2: asObj(botPending.value) };
+            next.botPending = null;
+            if (next.pendingMoves.p1 && next.pendingMoves.p2) {
+              const resolved = pvpResolveObstacleRound(next);
+              return { changed: true, state: resolved };
+            }
+            next.updatedAt = new Date().toISOString();
+            return { changed: true, state: next };
+          }
+        }
+      }
+    }
     if ((s.phase === "placing_traps" || s.phase === "overtime_placing" || s.phase === "running" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
       const staleMs = 15000;
       const p1Stale = now - p1Beat > staleMs;
@@ -1917,6 +2125,74 @@ function pvpAdvanceByTime(room) {
   const presence = asObj(s.presence);
   const p1Beat = Number(presence.p1 || 0);
   const p2Beat = Number(presence.p2 || 0);
+  if (isPvpBotFallbackRoom(room) && s.phase === "turn_input") {
+    const botPending = asObj(s.botPending);
+    const roles = asObj(s.roles);
+    const botRole = roles.p2;
+    const pending = asObj(s.pending);
+    const hunterShots = Number(s.hunterShots || 1);
+    const totalCells = Number(s.totalCells || 8);
+    const needsFrog = botRole === "frog" && (pending.frogCell === null || pending.frogCell === undefined);
+    const needsHunter = botRole === "hunter" && (!Array.isArray(pending.hunterCells) || pending.hunterCells.length !== hunterShots);
+    if (needsFrog || needsHunter) {
+      if (botPending.kind !== "frog_move") {
+        let value;
+        if (needsFrog) {
+          value = { frogCell: Math.floor(Math.random() * totalCells) };
+        } else {
+          const pick = [];
+          while (pick.length < hunterShots) {
+            const n = Math.floor(Math.random() * totalCells);
+            if (!pick.includes(n)) pick.push(n);
+          }
+          value = { hunterCells: pick };
+        }
+        next.botPending = { kind: "frog_move", dueAtMs: now + pvpBotMoveDelayMs(), value };
+        next.updatedAt = new Date().toISOString();
+        return { changed: true, state: next };
+      }
+      if (now >= Number(botPending.dueAtMs || 0)) {
+        next.pending = { ...pending };
+        if (needsFrog) next.pending.frogCell = Number(asObj(botPending.value).frogCell);
+        if (needsHunter) next.pending.hunterCells = Array.isArray(asObj(botPending.value).hunterCells) ? asObj(botPending.value).hunterCells : [];
+        next.botPending = null;
+        const hasFrog = next?.pending?.frogCell !== null && next?.pending?.frogCell !== undefined && Number.isInteger(Number(next.pending.frogCell));
+        const hasHunter = Array.isArray(next?.pending?.hunterCells) && next.pending.hunterCells.length === hunterShots;
+        if (hasFrog && hasHunter) {
+          const frogCell = Number(next.pending.frogCell);
+          const hunterCells = next.pending.hunterCells.map(Number);
+          const hit = hunterCells.includes(frogCell);
+          const frogSide = next.roles?.p1 === "frog" ? "p1" : "p2";
+          const hunterSide = frogSide === "p1" ? "p2" : "p1";
+          const winnerSide = hit ? hunterSide : (Number(next.currentRound) >= Number(next.totalRounds) ? frogSide : null);
+          if (winnerSide) {
+            next.matchScores = { ...(next.matchScores || { p1: 0, p2: 0 }) };
+            next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;
+          }
+          next.phase = "round_result";
+          next.phaseAtMs = Date.now();
+          next.markers = { ...(next.markers || {}), round: Number(next?.markers?.round || 0) + 1 };
+          next.roundHit = hit;
+          next.nextFrogCell = frogCell;
+          next.lastRoundResult = {
+            marker: next.markers.round,
+            hit,
+            frogCell,
+            hunterCells,
+            round: next.currentRound,
+            totalRounds: next.totalRounds,
+            isFinal: Number(next.currentRound) === Number(next.totalRounds),
+            winnerRole: hit ? "hunter" : (Number(next.currentRound) === Number(next.totalRounds) ? "frog" : null),
+          };
+          next.pending = { frogCell: null, hunterCells: [] };
+          next.updatedAt = new Date().toISOString();
+          return { changed: true, state: next };
+        }
+        next.updatedAt = new Date().toISOString();
+        return { changed: true, state: next };
+      }
+    }
+  }
 
   // If one side stopped polling for long enough, end match by forfeit.
   if ((s.phase === "turn_input" || s.phase === "round_result" || s.phase === "game_over") && p1Beat > 0 && p2Beat > 0) {
@@ -2205,6 +2481,35 @@ async function pvpFindMatch(initData, gameKey, playerName, stakeOptions) {
   return ownRoom;
 }
 
+async function pvpMaybeFallbackToBot(room, tgId) {
+  if (!room || room.status !== "waiting") return room;
+  if (String(room.player1_tg_user_id || "") !== String(tgId || "")) return room;
+  if (room.player2_tg_user_id) return room;
+  const createdAtMs = asMs(room.created_at);
+  if (!createdAtMs) return room;
+  const waitMs = Date.now() - createdAtMs;
+  if (waitMs < pvpBotFallbackDelayMs(room.id)) return room;
+  const stake = Number(normalizeStakeOptions(stakeOptionsFromRoom(room))[0] || 0);
+  if (!Number.isFinite(stake) || stake <= 0) return room;
+  const botId = pvpBotTgId(room.id);
+  const state = {
+    ...pvpDefaultStateForGame(room.game_key, room.player1_tg_user_id, botId),
+    botMatch: true,
+    botSide: "p2",
+    botPending: null,
+    players: { p1: String(room.player1_tg_user_id), p2: botId },
+    phaseAtMs: Date.now(),
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    const started = await pvpStartBotMatchWithStake(room, pvpPickBotName(), stake, state);
+    return started || room;
+  } catch (e) {
+    console.error("pvp bot fallback start:", e?.message || e);
+    return room;
+  }
+}
+
 async function pvpGetRoomState(initData, roomId) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -2222,8 +2527,9 @@ async function pvpGetRoomState(initData, roomId) {
     throw new Error("Forbidden");
   }
 
-  const advanced = pvpAdvanceByTime(room);
-  let nextRoom = room;
+  const roomForTick = await pvpMaybeFallbackToBot(room, tgId);
+  const advanced = pvpAdvanceByTime(roomForTick);
+  let nextRoom = roomForTick;
   const hb = pvpHeartbeat(advanced.state, tgId);
   if (advanced.changed || hb.changed) {
     const patched = await sb(`pvp_rooms?id=eq.${id}`, {
@@ -2286,6 +2592,7 @@ async function finalizePvpRoomIfNeeded(room) {
     winner = p1 === p2 ? null : (p1 > p2 ? String(room.player1_tg_user_id) : String(room.player2_tg_user_id));
   }
   const nextState = { ...s, matchSavedAt: new Date().toISOString() };
+  const isBotFallback = isPvpBotFallbackRoom(room);
 
   const patched = await sb(`pvp_rooms?id=eq.${room.id}&status=eq.active`, {
     method: "PATCH",
@@ -2299,7 +2606,12 @@ async function finalizePvpRoomIfNeeded(room) {
   });
   if (!patched?.length) return room;
   const finalized = patched[0];
-  await pvpFinalizeStakeForRoom(finalized.id, winner || null, "match_finished");
+  if (isBotFallback) {
+    const userWon = String(winner || "") === String(room.player1_tg_user_id || "");
+    await pvpFinalizeBotStakeForRoom(finalized.id, room.player1_tg_user_id, userWon, "match_finished");
+  } else {
+    await pvpFinalizeStakeForRoom(finalized.id, winner || null, "match_finished");
+  }
 
   await persistMatchFromPayload({
     gameKey,
@@ -2321,11 +2633,11 @@ async function finalizePvpRoomIfNeeded(room) {
         isBot: false,
       },
       {
-        tgUserId: room.player2_tg_user_id,
+        tgUserId: isBotFallback ? null : room.player2_tg_user_id,
         name: room.player2_name || "Игрок 2",
         score: p2,
         isWinner: winner && String(winner) === String(room.player2_tg_user_id),
-        isBot: false,
+        isBot: !!isBotFallback,
       },
     ],
   });
@@ -2355,6 +2667,7 @@ async function pvpLeaveRoom(initData, roomId) {
     return { left: true };
   }
   if (room.status === "active") {
+    const isBotFallback = isPvpBotFallbackRoom(room);
     const s = asObj(room.state_json);
     const gameKey = normalizeGameKey(room?.game_key || "frog_hunt");
     const scoreSource = (gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball") ? asObj(s?.scores) : asObj(s?.matchScores);
@@ -2391,7 +2704,12 @@ async function pvpLeaveRoom(initData, roomId) {
     });
     if (patched?.length) room = patched[0];
     if (patched?.length) {
-      await pvpFinalizeStakeForRoom(room.id, winner || null, "leave_or_forfeit");
+      if (isBotFallback) {
+        // Player left a bot fallback TON match: treat as loss.
+        await pvpFinalizeBotStakeForRoom(room.id, room.player1_tg_user_id, false, "leave_or_forfeit");
+      } else {
+        await pvpFinalizeStakeForRoom(room.id, winner || null, "leave_or_forfeit");
+      }
     }
     if (patched?.length && winner) {
       await persistMatchFromPayload({
@@ -2415,11 +2733,11 @@ async function pvpLeaveRoom(initData, roomId) {
             isBot: false,
           },
           {
-            tgUserId: room.player2_tg_user_id,
+            tgUserId: isBotFallback ? null : room.player2_tg_user_id,
             name: room.player2_name || "Игрок 2",
             score: p2,
             isWinner: String(winner) === String(room.player2_tg_user_id),
-            isBot: false,
+            isBot: !!isBotFallback,
           },
         ],
       });
