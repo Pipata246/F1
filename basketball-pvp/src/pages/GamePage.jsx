@@ -569,6 +569,7 @@ const GamePage = () => {
     const n = displayName.trim() || 'Player';
     const stakes = askStakeOptions();
     if (!stakes) return;
+    tgInitDataRef.current = window.Telegram?.WebApp?.initData || tgInitDataRef.current || '';
     setSelectedStakeOptions(stakes);
     setCurrentStakeTon(null);
     matchSavedRef.current = false;
@@ -580,7 +581,12 @@ const GamePage = () => {
     pvpRoomIdRef.current = null;
 
     playModeRef.current = 'pvp';
-    if (!tgInitDataRef.current) { playModeRef.current = 'idle'; setScreen('menu'); return; }
+    if (!tgInitDataRef.current) {
+      playModeRef.current = 'idle';
+      showBottomNotice('Нет Telegram-сессии. Открой игру через Telegram.');
+      setScreen('stake-online');
+      return;
+    }
     setScreen('waiting');
     apiPost({
       action: 'pvpFindMatch',
@@ -590,12 +596,13 @@ const GamePage = () => {
       stakeOptions: stakes,
     }).then((data) => {
       if (playModeRef.current !== 'pvp') return;
-      if (!data?.ok || !data.room) throw new Error('matchmaking');
+      if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
       pvpRoomIdRef.current = data.room.id;
       startPvpPolling();
-    }).catch(() => {
+    }).catch((err) => {
       playModeRef.current = 'idle';
-      setScreen('menu');
+      showBottomNotice(String(err?.message || '').trim() || 'Не удалось начать поиск. Попробуй снова.');
+      setScreen('stake-online');
     });
   };
 
