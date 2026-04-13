@@ -196,7 +196,7 @@ const GamePage = () => {
       .then((data) => {
         if (data?.ok && data.user?.display_name) {
           setDisplayName(String(data.user.display_name).slice(0, 64));
-          setBalanceTon(Number(data.user.serverBalanceTon || 0));
+          setBalanceTon(Number(data.user.balance || 0));
         } else {
           setDisplayName(fallback);
           setBalanceTon(0);

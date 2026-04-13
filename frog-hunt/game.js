@@ -287,7 +287,7 @@ function syncMyNameFromServer(done) {
     .then(function(data) {
       if (data && data.ok && data.user && data.user.display_name) {
         myName = String(data.user.display_name).slice(0, 64);
-        currentBalanceTon = Number(data.user.serverBalanceTon || 0);
+        currentBalanceTon = Number(data.user.balance || 0);
       } else fallback();
       renderStakePicker();
       if (done) done();
