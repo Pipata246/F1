@@ -1810,6 +1810,27 @@
         : (myScore === oppScore ? "Ничья" : (myScore > oppScore ? "Победа" : "Поражение"));
       const resultColor = result === "Победа" ? "var(--accent)" : (result === "Ничья" ? "var(--text2)" : "var(--danger)");
       const modeLabel = m.mode === "bot" ? "Бот" : "PvP";
+      const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
+      const stakeTonNum = Number(details.stakeTon);
+      const hasStake = Number.isFinite(stakeTonNum) && stakeTonNum > 0;
+      let tonLine = "";
+      let tonColor = "var(--text2)";
+      if(m.mode === "bot"){
+        tonLine = "Игра в ДЭМО режим";
+      }else if(hasStake){
+        const absStake = formatBalanceAmountOnly(String(stakeTonNum));
+        if(result === "Победа"){
+          tonLine = `Финрезультат: +${absStake} TON`;
+          tonColor = "var(--accent)";
+        }else if(result === "Поражение"){
+          tonLine = `Финрезультат: -${absStake} TON`;
+          tonColor = "var(--danger)";
+        }else{
+          tonLine = `Финрезультат: 0 TON`;
+        }
+      }else{
+        tonLine = "Матч без ставки";
+      }
       const card = document.createElement("div");
       card.className = "pill";
       card.style.display = "block";
@@ -1824,6 +1845,7 @@
           <div style="font-weight:900">${myScore} : ${oppScore}</div>
         </div>
         <div style="margin-top:6px; font-weight:900; color:${resultColor}">${result}</div>
+        <div style="margin-top:6px; font-weight:800; color:${tonColor}">${escapeHtml(tonLine)}</div>
       `;
       list.appendChild(card);
     });
