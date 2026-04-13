@@ -1477,6 +1477,19 @@ function showGameOver(winner, serverScores) {
         $('result-title').style.color = 'var(--warn)';
         $('result-sub').textContent = '\u0420\u0430\u0432\u043D\u044B\u0435 \u0441\u043E\u043F\u0435\u0440\u043D\u0438\u043A\u0438!';
     }
+    if (!isBotMode && Number.isFinite(Number(currentStakeTon)) && Number(currentStakeTon) > 0) {
+        var stake = Number(currentStakeTon);
+        if (winner === 'win') {
+            $('result-sub').textContent = 'TON итог: +' + formatTonCompact(stake * 2) + ' TON';
+            $('result-sub').style.color = 'var(--success)';
+        } else if (winner === 'lose') {
+            $('result-sub').textContent = 'TON итог: -' + formatTonCompact(stake) + ' TON';
+            $('result-sub').style.color = 'var(--danger)';
+        } else {
+            $('result-sub').textContent = 'TON итог: 0 TON';
+            $('result-sub').style.color = 'var(--warn)';
+        }
+    }
 
     $('fs-name-0').textContent = myName;
     $('fs-val-0').textContent = myScore;
@@ -1484,6 +1497,12 @@ function showGameOver(winner, serverScores) {
     $('fs-val-1').textContent = oppScore;
     showScreen('result');
     if (isBotMode) saveMatchToBackend(winner, myScore, oppScore);
+}
+
+function formatTonCompact(n) {
+    var x = Number(n || 0);
+    if (!isFinite(x)) return '0';
+    return x.toFixed(9).replace(/\.?0+$/, '');
 }
 
 function onOpponentLeft() {

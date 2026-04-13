@@ -763,6 +763,11 @@ const GamePage = () => {
   if(screen==='result'&&matchResult) {
     const ms=matchResult.scores[pi]??0, os=matchResult.scores[1-pi]??0;
     const myColor=pi===0?'text-blue-400':'text-red-400', opColor=pi===0?'text-red-400':'text-blue-400';
+    const tonStake = Number(currentStakeTon || 0);
+    const hasTonStake = playModeRef.current !== 'bot' && Number.isFinite(tonStake) && tonStake > 0;
+    const tonResultText = hasTonStake
+      ? (matchResult.youWon ? `TON итог: +${(tonStake * 2).toFixed(9).replace(/\.?0+$/, '')} TON` : `TON итог: -${tonStake.toFixed(9).replace(/\.?0+$/, '')} TON`)
+      : null;
     return (
       <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
         {matchResult.opponentLeft?<h1 className="text-4xl text-amber-400 uppercase tracking-widest">Соперник вышел</h1>
@@ -775,6 +780,7 @@ const GamePage = () => {
           <p className="text-4xl text-gray-700">:</p>
           <div className="text-center"><p className={`${opColor} text-base uppercase`}>{opName}</p><p className="text-7xl text-white mt-1">{os}</p></div>
         </div>
+        {tonResultText && <div className={`mt-3 text-sm uppercase ${matchResult.youWon ? 'text-emerald-300' : 'text-rose-300'}`}>{tonResultText}</div>}
         <button onClick={playAgain} className="mt-10 bg-amber-500 text-black py-5 px-20 rounded-xl text-2xl uppercase tracking-widest active:scale-95">ЕЩЁ</button>
       </div>
     );

@@ -1001,6 +1001,11 @@ const GamePage = () => {
 
   // --- RESULT ---
   if (screen === 'result' && matchResult) {
+    const tonStake = Number(currentStakeTon || 0);
+    const hasTonStake = playModeRef.current !== 'bot' && Number.isFinite(tonStake) && tonStake > 0;
+    const tonResultText = hasTonStake
+      ? (matchResult.youWon ? `TON итог: +${(tonStake * 2).toFixed(9).replace(/\.?0+$/, '')} TON` : `TON итог: -${tonStake.toFixed(9).replace(/\.?0+$/, '')} TON`)
+      : null;
     return (
       <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
         <div className="z-10 flex flex-col items-center gap-6">
@@ -1032,6 +1037,9 @@ const GamePage = () => {
               <p className="text-4xl font-black text-red-400">{matchResult.scores[1 - playerIndex]}</p>
             </div>
           </div>
+          {tonResultText && (
+            <div className={`text-sm font-black ${matchResult.youWon ? 'text-emerald-300' : 'text-rose-300'}`}>{tonResultText}</div>
+          )}
 
           <div className="flex flex-col items-center gap-2 mt-4 bg-white/5 p-3 rounded-xl border border-white/10">
             <KickDots history={history} playerIdx={playerIndex} totalKicks={5} label={displayName || 'Ты'} color="text-blue-400" />

@@ -628,7 +628,13 @@ function onOpponentLeftVictory(room) {
   var oppSide = meIsP1 ? 'p2' : 'p1';
   var myScore = Number((s.matchScores || {})[mySide] || 0);
   var oppScore = Number((s.matchScores || {})[oppSide] || 0);
-  score.textContent = myScore + ' : ' + oppScore;
+  var baseScoreText = myScore + ' : ' + oppScore;
+  if (!isBotMode && Number.isFinite(Number(currentStakeTon)) && Number(currentStakeTon) > 0) {
+    var payout = formatTonCompact(Number(currentStakeTon) * 2);
+    score.innerHTML = baseScoreText + '<br><span style="font-size:14px;color:#7bf3b0">TON итог: +' + payout + ' TON</span>';
+  } else {
+    score.textContent = baseScoreText;
+  }
   playSound('win');
 }
 
@@ -1062,8 +1068,23 @@ function onMatchResult(msg) {
     playSound('lose');
   }
 
-  score.textContent = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
+  var baseScoreText = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
+  if (!isBotMode && Number.isFinite(Number(currentStakeTon)) && Number(currentStakeTon) > 0) {
+    var stake = Number(currentStakeTon);
+    var tonDelta = msg.youWon ? ('+' + formatTonCompact(stake * 2)) : ('-' + formatTonCompact(stake));
+    var tonColor = msg.youWon ? '#7bf3b0' : '#ff8b8b';
+    score.innerHTML = baseScoreText + '<br><span style="font-size:14px;color:' + tonColor + '">TON итог: ' + tonDelta + ' TON</span>';
+  } else {
+    score.textContent = baseScoreText;
+  }
   if (isBotMode) saveMatchToBackend(msg.youWon);
+}
+
+function formatTonCompact(n) {
+  var x = Number(n || 0);
+  if (!isFinite(x)) return '0';
+  var s = x.toFixed(9).replace(/\.?0+$/, '');
+  return s;
 }
 
 function onOpponentLeft() {
