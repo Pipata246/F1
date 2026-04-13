@@ -33,6 +33,7 @@ var currentStakeTon = null;
 var ALLOWED_STAKES = [1, 5, 10, 25, 50, 100];
 var currentBalanceTon = 0;
 var bottomNoticeTimer = null;
+var onlineModeSelected = false;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -136,6 +137,8 @@ document.addEventListener('DOMContentLoaded', function() {
   $('btn-find').onclick = function() { startSearchOnline(); };
   if ($('btn-bot')) $('btn-bot').onclick = function() { startSearchBot(); };
   ensureStakePicker();
+  setStakePickerVisible(false);
+  refreshBalanceForStakePicker();
   $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };
   $('btn-confirm').onclick = confirmChoice;
   $('btn-again').onclick = function() { isBotMode ? startSearchBot() : startSearchOnline(); };
@@ -221,6 +224,12 @@ function ensureStakePicker() {
   renderStakePicker();
 }
 
+function setStakePickerVisible(v){
+  var wrap = $('stakePickerWrap');
+  if(!wrap) return;
+  wrap.style.display = v ? 'block' : 'none';
+}
+
 function renderStakePicker() {
   var grid = $('stakeGridFrog');
   if (!grid) return;
@@ -238,6 +247,14 @@ function renderStakePicker() {
 }
 
 function startSearchOnline() {
+  if(!onlineModeSelected){
+    onlineModeSelected = true;
+    isBotMode = false;
+    setStakePickerVisible(true);
+    refreshBalanceForStakePicker();
+    showBottomNotice('Выбери ставку и нажми "Найти соперника" ещё раз');
+    return;
+  }
   isBotMode = false;
   currentStakeTon = null;
   if (!selectedStakeOptions.length) {
@@ -254,8 +271,10 @@ function startSearchOnline() {
 }
 
 function startSearchBot() {
+  onlineModeSelected = false;
   isBotMode = true;
   currentStakeTon = null;
+  setStakePickerVisible(false);
   function proceed() {
     showScreen('waiting');
     localStartMatch();
@@ -293,6 +312,18 @@ function syncMyNameFromServer(done) {
       if (done) done();
     })
     .catch(function() { fallback(); });
+}
+
+function refreshBalanceForStakePicker() {
+  if (!tgInitData) return;
+  apiPost({ action: 'authSession', initData: tgInitData })
+    .then(function(data) {
+      if (data && data.ok && data.user) {
+        currentBalanceTon = Number(data.user.balance || 0);
+        renderStakePicker();
+      }
+    })
+    .catch(function() {});
 }
 
 /** Only removes queue row if still waiting (server no-ops for active matches). */

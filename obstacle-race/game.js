@@ -29,6 +29,7 @@ let currentStakeTon = null;
 const ALLOWED_STAKES = [1, 5, 10, 25, 50, 100];
 let currentBalanceTon = 0;
 let bottomNoticeTimer = null;
+let onlineModeSelected = false;
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -139,6 +140,8 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-find').onclick = () => startGame(false);
     if ($('btn-bot')) $('btn-bot').onclick = () => startGame(true);
     ensureStakePicker();
+    setStakePickerVisible(false);
+    refreshBalanceForStakePicker();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
     $('btn-again').onclick = () => startGame(isBotMode);
@@ -224,6 +227,18 @@ function showBottomNotice(msg) {
     bottomNoticeTimer = setTimeout(function() { n.style.display = 'none'; }, 2200);
 }
 
+function refreshBalanceForStakePicker() {
+    if (!tgInitData) return;
+    apiPost({ action: 'authSession', initData: tgInitData })
+        .then(function(data) {
+            if (data && data.ok && data.user) {
+                currentBalanceTon = Number(data.user.balance || 0);
+                renderStakePicker();
+            }
+        })
+        .catch(function() {});
+}
+
 function ensureStakePicker() {
     var mount = $('screen-start');
     if (!mount || $('stakePickerObstacle')) return;
@@ -258,6 +273,12 @@ function ensureStakePicker() {
         grid.appendChild(b);
     });
     renderStakePicker();
+}
+
+function setStakePickerVisible(v) {
+    var wrap = $('stakePickerObstacle');
+    if (!wrap) return;
+    wrap.style.display = v ? 'block' : 'none';
 }
 
 function renderStakePicker() {
@@ -539,6 +560,17 @@ function startGame(vsBot) {
     clearInterval(timerInterval);
     matchSaved = false;
     isBotMode = !!vsBot;
+    if (!isBotMode && !onlineModeSelected) {
+        onlineModeSelected = true;
+        setStakePickerVisible(true);
+        refreshBalanceForStakePicker();
+        showBottomNotice('Выбери ставку и нажми "Найти соперника" ещё раз');
+        return;
+    }
+    if (isBotMode) {
+        onlineModeSelected = false;
+        setStakePickerVisible(false);
+    }
     currentStakeTon = null;
     if (!isBotMode && !selectedStakeOptions.length) {
         showBottomNotice('Выбери минимум одну ставку');
