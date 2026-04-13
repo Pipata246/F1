@@ -78,6 +78,8 @@ const GamePage = () => {
   const [ballAnim, setBallAnim] = useState(null); // single ball, not array
   const [shotResult, setShotResult] = useState(null); // single result
   const [matchResult, setMatchResult] = useState(null);
+  const [selectedStakeOptions, setSelectedStakeOptions] = useState([]);
+  const [currentStakeTon, setCurrentStakeTon] = useState(null);
   const [announce, setAnnounce] = useState(null);
   const [selectedDistance, setSelectedDistance] = useState(null);
   const [roundResolving, setRoundResolving] = useState(false);
@@ -359,6 +361,7 @@ const GamePage = () => {
     setPlayerIndex(myIdx);
     piRef.current = myIdx;
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
+    setCurrentStakeTon(room.stake_ton != null ? Number(room.stake_ton) : null);
 
     const phaseNum = Number(s.phaseNum || 1);
     const phaseKey = `${phaseNum}:${String(s.phase || '')}`;
@@ -528,9 +531,31 @@ const GamePage = () => {
       sched(localResolveRound, 450);
     }
   }
-  const findGame = (bot) => {
+  const askStakeOptions = () => {
+    const raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
+    if (raw == null) return null;
+    const allowed = [1, 5, 10, 25, 50, 100];
+    const out = [];
+    String(raw).split(',').forEach((part) => {
+      const n = Number(String(part || '').trim().replace(',', '.'));
+      if (!Number.isFinite(n) || !allowed.includes(n)) return;
+      if (!out.includes(n)) out.push(n);
+    });
+    out.sort((a, b) => a - b);
+    if (!out.length) {
+      window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
+      return null;
+    }
+    return out;
+  };
+
+  const findGame = () => {
     sfx('click');
     const n = displayName.trim() || 'Player';
+    const stakes = askStakeOptions();
+    if (!stakes) return;
+    setSelectedStakeOptions(stakes);
+    setCurrentStakeTon(null);
     matchSavedRef.current = false;
     clearPending();
     pvpLastRoundMarkerRef.current = 0;
@@ -538,12 +563,6 @@ const GamePage = () => {
     pvpLastStartKeyRef.current = '';
     stopPvpPolling();
     pvpRoomIdRef.current = null;
-
-    if (bot) {
-      playModeRef.current = 'bot';
-      localOnClientMessage('find_bot', { name: n, tgUserId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null });
-      return;
-    }
 
     playModeRef.current = 'pvp';
     if (!tgInitDataRef.current) { playModeRef.current = 'idle'; setScreen('menu'); return; }
@@ -553,6 +572,7 @@ const GamePage = () => {
       initData: tgInitDataRef.current,
       gameKey: 'basketball',
       playerName: n,
+      stakeOptions: stakes,
     }).then((data) => {
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error('matchmaking');
@@ -659,8 +679,7 @@ const GamePage = () => {
         <p className="text-gray-500 text-sm text-center w-full truncate px-2 uppercase tracking-wider" title={displayName}>
           {displayName}
         </p>
-        <button onClick={()=>findGame(false)} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
-        <button onClick={()=>findGame(true)} className="w-full bg-white/5 border-2 border-white/15 text-white py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">С БОТОМ</button>
+        <button onClick={()=>findGame()} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
       </div>
     </div>
   );
@@ -669,6 +688,7 @@ const GamePage = () => {
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
       <div className="w-20 h-20 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
       <p className="text-white text-3xl uppercase tracking-widest mt-6">ИЩЕМ...</p>
+      {!!selectedStakeOptions.length && <p className="text-gray-400 text-sm uppercase mt-2">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
       <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>
     </div>
   );
@@ -710,6 +730,7 @@ const GamePage = () => {
       {/* SCOREBOARD */}
       <div className="absolute top-0 left-0 right-0 z-30 px-2 pt-1">
         <div className="bg-black/85 border-b-2 border-amber-500/50 rounded-b-2xl px-4 py-2">
+          {currentStakeTon != null && <div className="text-center text-[10px] text-emerald-300 uppercase tracking-wider mb-1">Ставка: {currentStakeTon} TON</div>}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
               <p className="text-xs text-blue-400 uppercase tracking-wider truncate">{p0Name}{pi===0?' · ТЫ':' · СОПЕРНИК'}</p>

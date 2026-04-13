@@ -151,6 +151,8 @@ const GamePage = () => {
 
   // Match result
   const [matchResult, setMatchResult] = useState(null);
+  const [selectedStakeOptions, setSelectedStakeOptions] = useState([]);
+  const [currentStakeTon, setCurrentStakeTon] = useState(null);
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -482,6 +484,7 @@ const GamePage = () => {
     setPlayerIndex(myIdx);
     playerIndexRef.current = myIdx;
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
+    setCurrentStakeTon(room.stake_ton != null ? Number(room.stake_ton) : null);
 
     const rr = s.lastRoundResult || {};
     const marker = Number(rr.marker || 0);
@@ -615,9 +618,30 @@ const GamePage = () => {
     }
   };
 
-  /** Как startSearch(vsBot) в frog-hunt: онлайн — только pvpFindMatch + poll; бот — только локальный матч после таймаута. */
-  const startSearch = (vsBot) => {
+  const askStakeOptions = () => {
+    const raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
+    if (raw == null) return null;
+    const allowed = [1, 5, 10, 25, 50, 100];
+    const out = [];
+    String(raw).split(',').forEach((part) => {
+      const n = Number(String(part || '').trim().replace(',', '.'));
+      if (!Number.isFinite(n) || !allowed.includes(n)) return;
+      if (!out.includes(n)) out.push(n);
+    });
+    out.sort((a, b) => a - b);
+    if (!out.length) {
+      window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
+      return null;
+    }
+    return out;
+  };
+
+  const startSearch = () => {
     const name = displayName.trim() || 'Player';
+    const stakes = askStakeOptions();
+    if (!stakes) return;
+    setSelectedStakeOptions(stakes);
+    setCurrentStakeTon(null);
     matchSavedRef.current = false;
     pvpLastRoundMarkerRef.current = 0;
     pvpLastStartKeyRef.current = '';
@@ -631,34 +655,7 @@ const GamePage = () => {
       clearTimeout(localFindTimerRef.current);
       localFindTimerRef.current = null;
     }
-    const tgUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null;
     matchRef.current = null;
-
-    if (vsBot) {
-      playModeRef.current = 'bot';
-      setScreen('waiting');
-      localFindTimerRef.current = setTimeout(() => {
-        if (playModeRef.current !== 'bot') return;
-        matchRef.current = {
-          playerName: name,
-          opponentName: 'Бот 🤖',
-          tgUserId,
-          scores: [0, 0],
-          round: 0,
-          maxRounds: 10,
-          suddenDeath: false,
-          choices: [null, null],
-          history: [],
-          sdStart: 0,
-          kickerOverride: null,
-          finished: false,
-        };
-        handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
-        localStartRound();
-        localFindTimerRef.current = null;
-      }, 650);
-      return;
-    }
 
     playModeRef.current = 'pvp';
     if (!tgInitDataRef.current) {
@@ -672,6 +669,7 @@ const GamePage = () => {
       initData: tgInitDataRef.current || '',
       gameKey: 'super_penalty',
       playerName: name,
+      stakeOptions: stakes,
     }).then((data) => {
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error('matchmaking');
@@ -870,11 +868,8 @@ const GamePage = () => {
           <p className="text-gray-400 text-sm text-center w-full truncate px-2" title={displayName}>
             Играешь как: <span className="text-white font-semibold">{displayName}</span>
           </p>
-          <button onClick={() => startSearch(false)} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
+          <button onClick={() => startSearch()} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
             Онлайн
-          </button>
-          <button onClick={() => startSearch(true)} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95">
-            С ботом
           </button>
           <button onClick={() => { window.location.hash = '#/profile'; }} className="text-gray-500 hover:text-gray-300 text-sm mt-2 transition-colors">
             Профиль
@@ -891,6 +886,7 @@ const GamePage = () => {
         <div className="z-10 flex flex-col items-center gap-6">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-white text-xl font-bold">Ищем соперника...</p>
+          {!!selectedStakeOptions.length && <p className="text-gray-400 text-sm">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
           <button onClick={handleCancelWait} className="text-gray-400 hover:text-white text-sm mt-4 px-6 py-2 border border-white/10 rounded-lg transition-colors">
             Отмена
           </button>
@@ -962,6 +958,9 @@ const GamePage = () => {
       {/* Scoreboard */}
       <div className="z-10 w-full px-4 pt-3 mb-1">
         <div className="bg-black/40 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-lg">
+          {currentStakeTon != null && (
+            <div className="text-center text-xs text-emerald-300 font-bold tracking-wider mb-2">СТАВКА: {currentStakeTon} TON</div>
+          )}
           {/* Scores row */}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">

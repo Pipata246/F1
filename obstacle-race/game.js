@@ -23,7 +23,10 @@ let overtimePlacing = false;
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
-let isBotMode = true;
+let isBotMode = false;
+let selectedStakeOptions = [];
+let currentStakeTon = null;
+const ALLOWED_STAKES = [1, 5, 10, 25, 50, 100];
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -131,11 +134,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('focus', presencePing);
     startPresenceLoop();
 
-    $('btn-find').onclick = () => startGame(false);
-    $('btn-bot').onclick = () => startGame(true);
+    $('btn-find').onclick = () => startGame();
+    if ($('btn-bot')) $('btn-bot').style.display = 'none';
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
-    $('btn-again').onclick = () => startGame(true);
+    $('btn-again').onclick = () => startGame();
     $('btn-menu').onclick = () => window.location.href = '/';
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
@@ -187,6 +190,24 @@ function syncMyNameFromServer(done) {
             if (done) done();
         })
         .catch(function() { fallback(); });
+}
+
+function pickStakeOptions() {
+    var raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
+    if (raw == null) return null;
+    var out = [];
+    String(raw).split(',').forEach(function(part) {
+        var n = Number(String(part || '').trim().replace(',', '.'));
+        if (!isFinite(n)) return;
+        if (ALLOWED_STAKES.indexOf(n) < 0) return;
+        if (out.indexOf(n) < 0) out.push(n);
+    });
+    out.sort(function(a, b) { return a - b; });
+    if (!out.length) {
+        window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
+        return null;
+    }
+    return out;
 }
 
 function beaconPvpCancelQueue(roomId) {
@@ -260,6 +281,12 @@ function applyPvpRoomState(room) {
     var sides = getPvpSides(room);
     playerIndex = sides.playerIndex;
     opponentName = sides.meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник');
+    currentStakeTon = room.stake_ton != null ? Number(room.stake_ton) : null;
+    if ($('opp-name-traps')) {
+        $('opp-name-traps').textContent = currentStakeTon != null && isFinite(currentStakeTon)
+            ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
+            : ('Дорожка: ' + opponentName);
+    }
     if (!$('screen-traps').classList.contains('active') && !$('screen-game').classList.contains('active')) {
         onGameFound({ opponent: opponentName, playerIndex: playerIndex });
     }
@@ -347,7 +374,8 @@ function pvpFindMatch() {
         action: 'pvpFindMatch',
         initData: tgInitData,
         gameKey: 'obstacle_race',
-        playerName: myName
+        playerName: myName,
+        stakeOptions: selectedStakeOptions
     }).then(function(data) {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
@@ -444,20 +472,15 @@ function startGame(vsBot) {
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
     clearInterval(timerInterval);
     matchSaved = false;
-    isBotMode = !!vsBot;
+    isBotMode = false;
+    currentStakeTon = null;
+    const picked = pickStakeOptions();
+    if (!picked) return;
+    selectedStakeOptions = picked;
     stopPvpPolling();
     pvpRoomId = null;
     syncMyNameFromServer(function() {
         connect(function() {
-            if (isBotMode) {
-                sendMsg({
-                    type: 'find_bot',
-                    name: myName,
-                    tgUserId: window._tgUserId || null
-                });
-                showScreen('waiting');
-                return;
-            }
             pvpFindMatch();
         });
     });

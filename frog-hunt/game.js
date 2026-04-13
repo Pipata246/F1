@@ -15,7 +15,7 @@ var myFrogCell = null;
 var tgUserId = null;
 var SETTINGS_KEY = "f1duel_global_settings_v1";
 var tgInitData = '';
-var isBotMode = true;
+var isBotMode = false;
 var pvpRoomId = null;
 var pvpPollTimer = null;
 var pvpLastRoundMarker = 0;
@@ -28,6 +28,9 @@ var pvpPendingSubmit = false;
 var pvpPollInFlight = false;
 var PVP_POLL_MS = 350;
 var pvpRecovering = false;
+var selectedStakeOptions = [];
+var currentStakeTon = null;
+var ALLOWED_STAKES = [1, 5, 10, 25, 50, 100];
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -128,11 +131,11 @@ document.addEventListener('DOMContentLoaded', function() {
   initSounds();
   startPresenceLoop();
 
-  $('btn-find').onclick = function() { startSearch(false); };
-  $('btn-bot').onclick = function() { startSearch(true); };
+  $('btn-find').onclick = function() { startSearch(); };
+  if ($('btn-bot')) $('btn-bot').style.display = 'none';
   $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };
   $('btn-confirm').onclick = confirmChoice;
-  $('btn-again').onclick = function() { startSearch(isBotMode); };
+  $('btn-again').onclick = function() { startSearch(); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
   window.addEventListener('pagehide', function() { leavePvpQueue(); presenceLeaveNet(); });
   window.addEventListener('beforeunload', function() { leavePvpQueue(); presenceLeaveNet(); });
@@ -151,16 +154,33 @@ function hideAllOverlays() {
   for (var i = 0; i < ols.length; i++) ols[i].classList.remove('active');
 }
 
-function startSearch(vsBot) {
-  isBotMode = !!vsBot;
+function pickStakeOptions() {
+  var raw = window.prompt('Выбери суммы через запятую из: 1, 5, 10, 25, 50, 100', '25,50');
+  if (raw == null) return null;
+  var out = [];
+  String(raw).split(',').forEach(function(part) {
+    var n = Number(String(part || '').trim().replace(',', '.'));
+    if (!isFinite(n)) return;
+    if (ALLOWED_STAKES.indexOf(n) < 0) return;
+    if (out.indexOf(n) < 0) out.push(n);
+  });
+  out.sort(function(a, b) { return a - b; });
+  if (!out.length) {
+    window.alert('Нужно выбрать минимум одну сумму: 1, 5, 10, 25, 50, 100');
+    return null;
+  }
+  return out;
+}
+
+function startSearch() {
+  isBotMode = false;
+  currentStakeTon = null;
+  var picked = pickStakeOptions();
+  if (!picked) return;
+  selectedStakeOptions = picked;
   function proceed() {
     showScreen('waiting');
-    if (isBotMode) {
-      setTimeout(function() {
-        localStartMatch();
-      }, 650);
-      return;
-    }
+    $('hint-text').textContent = 'Идёт поиск по ставкам: ' + selectedStakeOptions.join(', ') + ' TON';
     pvpFindMatch();
   }
   syncMyNameFromServer(proceed);
@@ -261,7 +281,8 @@ function pvpFindMatch() {
     action: 'pvpFindMatch',
     initData: tgInitData,
     gameKey: 'frog_hunt',
-    playerName: myName
+    playerName: myName,
+    stakeOptions: selectedStakeOptions
   }).then(function(data) {
     if (!data || !data.ok || !data.room) throw new Error(data && data.error ? data.error : 'Matchmaking failed');
     pvpRoomId = data.room.id;
@@ -332,6 +353,9 @@ function applyPvpRoomState(room) {
     return;
   }
   if (String(room.status) === 'waiting') {
+    if (Array.isArray(selectedStakeOptions) && selectedStakeOptions.length) {
+      $('hint-text').textContent = 'Поиск соперника (' + selectedStakeOptions.join(', ') + ' TON)';
+    }
     showScreen('waiting');
     return;
   }
@@ -343,6 +367,10 @@ function applyPvpRoomState(room) {
   matchScores = [myScore, oppScore];
   playerIndex = 0;
   opponentName = meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник');
+  currentStakeTon = room.stake_ton != null ? Number(room.stake_ton) : null;
+  if (currentStakeTon != null && isFinite(currentStakeTon)) {
+    $('hint-text').textContent = 'Матч на сумму ' + currentStakeTon + ' TON';
+  }
   myRole = (s.roles || {})[mySide] || myRole;
   gameNum = Number(s.gameNum || 1);
   currentRound = Number(s.currentRound || 1);

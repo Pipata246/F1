@@ -2156,7 +2156,19 @@
     }
     const lines = rows.map((r)=>{
       const isIntent = r.kind === "deposit" && r.is_deposit_intent;
-      const kind = isIntent ? "Пополнение (заявка)" : (r.kind === "deposit" ? "Пополнение" : "Вывод");
+      const kind = isIntent
+        ? "Пополнение (заявка)"
+        : r.kind === "deposit"
+          ? "Пополнение"
+          : r.kind === "withdrawal"
+            ? "Вывод"
+            : r.kind === "pvp_win"
+              ? "Победа в матче"
+              : r.kind === "pvp_loss"
+                ? "Поражение в матче"
+                : r.kind === "pvp_refund"
+                  ? "Возврат ставки"
+                  : "Операция";
       const st = {
         pending:"В обработке",
         confirming:"Подтверждение",
@@ -2187,6 +2199,11 @@
       }else{
         blocks.push(
           `<div class="walletHistBlock"><div class="walletHistLabel">Сумма</div><div class="walletHistValue walletHistValue--accent">${amtLine}</div></div>`
+        );
+      }
+      if(r.meta && r.meta.note){
+        blocks.push(
+          `<div class="walletHistBlock"><div class="walletHistLabel">Комментарий</div><div class="walletHistValue">${escapeHtml(String(r.meta.note))}</div></div>`
         );
       }
       blocks.push(

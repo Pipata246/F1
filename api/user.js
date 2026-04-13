@@ -382,12 +382,20 @@ async function getWalletHistory(initData, limit) {
     `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${safeLimit}`
   );
   let intentsRaw = [];
+  let stakeEventsRaw = [];
   try {
     intentsRaw = await sb(
       `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,declared_amount_ton,status,wallet_operation_id,ton_tx_hash,created_at,expires_at,submitted_at&order=created_at.desc&limit=${safeLimit}`
     );
   } catch {
     /* таблица deposit_intents ещё не создана — только ledger */
+  }
+  try {
+    stakeEventsRaw = await sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,event_type,amount,stake_ton,game_key,room_id,meta,created_at&order=created_at.desc&limit=${safeLimit}`
+    );
+  } catch {
+    /* таблица может отсутствовать до миграции */
   }
   const opRows = (rows || []).map((r) => ({ ...r, is_deposit_intent: false }));
   const intentRows = (intentsRaw || [])
@@ -409,7 +417,29 @@ async function getWalletHistory(initData, limit) {
       intent_status: r.status,
       expires_at: r.expires_at,
     }));
-  const combined = [...intentRows, ...opRows].sort(
+  const stakeRows = (stakeEventsRaw || []).map((r) => ({
+    id: `pvp_${r.id}`,
+    kind: r.event_type === "win" ? "pvp_win" : r.event_type === "loss" ? "pvp_loss" : "pvp_refund",
+    amount: String(r.amount ?? ""),
+    status: "completed",
+    ton_tx_hash: null,
+    to_address: null,
+    created_at: r.created_at,
+    is_deposit_intent: false,
+    meta: {
+      game_key: r.game_key || null,
+      stake_ton: r.stake_ton != null ? String(r.stake_ton) : null,
+      room_id: r.room_id || null,
+      note:
+        r.event_type === "win"
+          ? `Победа в матче +${r.amount} TON`
+          : r.event_type === "loss"
+            ? `Поражение в матче ${r.amount} TON`
+            : `Возврат ставки ${r.amount} TON`,
+      ...(asObj(r.meta) || {}),
+    },
+  }));
+  const combined = [...intentRows, ...opRows, ...stakeRows].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
   return combined.slice(0, safeLimit);
@@ -925,6 +955,80 @@ function normalizeGameKey(value) {
   return key;
 }
 
+const PVP_ALLOWED_STAKES = Object.freeze([1, 5, 10, 25, 50, 100]);
+
+function normalizeStakeOptions(values) {
+  const arr = Array.isArray(values) ? values : [];
+  const uniq = [];
+  for (const v of arr) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) continue;
+    const fixed = Number(n.toFixed(9));
+    if (!PVP_ALLOWED_STAKES.includes(fixed)) continue;
+    if (!uniq.includes(fixed)) uniq.push(fixed);
+  }
+  uniq.sort((a, b) => a - b);
+  if (!uniq.length) throw new Error("Choose at least one stake amount");
+  return uniq;
+}
+
+function stakeOptionsFromRoom(room) {
+  const raw = Array.isArray(room?.stake_options_ton) ? room.stake_options_ton : [];
+  try {
+    const normalized = normalizeStakeOptions(raw);
+    return normalized.length ? normalized : [...PVP_ALLOWED_STAKES];
+  } catch {
+    return [...PVP_ALLOWED_STAKES];
+  }
+}
+
+function pickSharedStake(a, b) {
+  const left = normalizeStakeOptions(a);
+  const right = normalizeStakeOptions(b);
+  const inter = left.filter((x) => right.includes(x));
+  return inter.length ? inter[0] : null;
+}
+
+async function assertUserCanQueueStake(tgId, stakeOptions) {
+  const maxStake = Math.max(...normalizeStakeOptions(stakeOptions));
+  const rows = await sb(
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=balance&limit=1`
+  );
+  const bal = Number(rows?.[0]?.balance || 0);
+  if (!Number.isFinite(bal) || bal < maxStake) {
+    throw new Error(`Insufficient balance for selected stakes (need at least ${maxStake} TON)`);
+  }
+}
+
+async function pvpTryJoinWaitingWithStake(room, tgId, safeName, state, stakeTon) {
+  const rpcRes = await sbRpc("pvp_join_waiting_with_stake", {
+    p_room_id: Number(room.id),
+    p_player2_tg_user_id: String(tgId),
+    p_player2_name: String(safeName || "").slice(0, 64),
+    p_state_json: state || {},
+    p_stake_ton: Number(stakeTon),
+  });
+  const roomId = Number(rpcScalar(rpcRes) || 0);
+  if (!Number.isInteger(roomId) || roomId <= 0) return null;
+  const rows = await sb(`pvp_rooms?id=eq.${roomId}&select=*`);
+  return rows?.[0] || null;
+}
+
+async function pvpFinalizeStakeForRoom(roomId, winnerTgUserId, reason) {
+  const rid = Number(roomId);
+  if (!Number.isInteger(rid) || rid <= 0) return;
+  try {
+    await sbRpc("pvp_finalize_stake", {
+      p_room_id: rid,
+      p_winner_tg_user_id: winnerTgUserId ? String(winnerTgUserId) : null,
+      p_reason: String(reason || "match_finished").slice(0, 60),
+    });
+  } catch (e) {
+    console.error("pvp_finalize_stake:", e?.message || e);
+    throw e;
+  }
+}
+
 function asIsoDate(value) {
   const d = value ? new Date(value) : new Date();
   if (Number.isNaN(d.getTime())) return new Date().toISOString();
@@ -1083,6 +1187,16 @@ function pvpHeartbeat(state, tgId) {
 async function pvpCancelRooms(ids) {
   const uniq = [...new Set((ids || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0))];
   if (!uniq.length) return;
+  let rooms = [];
+  try {
+    rooms = await sb(`pvp_rooms?id=in.(${uniq.join(",")})&select=id,stake_ton,stake_settled_at,status`);
+  } catch {
+    rooms = [];
+  }
+  for (const room of rooms || []) {
+    if (room?.stake_ton == null || room?.stake_settled_at) continue;
+    await pvpFinalizeStakeForRoom(room.id, null, "cancelled_refund");
+  }
   await sb(`pvp_rooms?id=in.(${uniq.join(",")})`, {
     method: "PATCH",
     body: { status: "cancelled", updated_at: new Date().toISOString() },
@@ -1132,28 +1246,22 @@ async function pvpDedupPairRooms(gameKey, tgA, tgB, keepRoomId) {
   await pvpCancelRooms(dupIds);
 }
 
-async function pvpTryJoinWaiting(gameKey, tgId, safeName) {
+async function pvpTryJoinWaiting(gameKey, tgId, safeName, wantedStakes) {
   const waiting = await sb(
-    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=10`
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=20`
   );
   for (const room of waiting || []) {
+    const sharedStake = pickSharedStake(wantedStakes, stakeOptionsFromRoom(room));
+    if (!sharedStake) continue;
     const state = pvpDefaultStateForGame(gameKey, room.player1_tg_user_id, tgId);
-    const joined = await sb(
-      `pvp_rooms?id=eq.${room.id}&status=eq.waiting&player2_tg_user_id=is.null`,
-      {
-        method: "PATCH",
-        body: {
-          player2_tg_user_id: tgId,
-          player2_name: safeName,
-          status: "active",
-          current_actor_tg_user_id: null,
-          state_json: { ...state, phaseAtMs: Date.now() },
-          updated_at: new Date().toISOString(),
-        },
-        prefer: "return=representation",
-      }
+    const joined = await pvpTryJoinWaitingWithStake(
+      room,
+      tgId,
+      safeName,
+      { ...state, phaseAtMs: Date.now() },
+      sharedStake
     );
-    if (joined?.length) return joined[0];
+    if (joined) return joined;
   }
   return null;
 }
@@ -2035,23 +2143,25 @@ function pvpApplyMove(room, tgId, move) {
   return next;
 }
 
-async function pvpFindMatch(initData, gameKey, playerName) {
+async function pvpFindMatch(initData, gameKey, playerName, stakeOptions) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
   const safeName = displayNameFromTg(verified.user).slice(0, 64);
   const key = normalizeGameKey(gameKey);
+  const wantedStakes = normalizeStakeOptions(stakeOptions);
   if (key !== "frog_hunt" && key !== "obstacle_race" && key !== "super_penalty" && key !== "basketball") {
     throw new Error("PvP is enabled only for frog_hunt, obstacle_race, super_penalty and basketball");
   }
+  await assertUserCanQueueStake(tgId, wantedStakes);
   await pvpPruneUserNonActiveRooms(tgId, key);
   await pvpEnforceSingleActiveRoom(key, tgId, safeName, 0);
 
   const existing = await pvpCleanupUserRooms(tgId, key);
   if (existing) return existing;
 
-  const joinedBeforeCreate = await pvpTryJoinWaiting(key, tgId, safeName);
+  const joinedBeforeCreate = await pvpTryJoinWaiting(key, tgId, safeName, wantedStakes);
   if (joinedBeforeCreate) {
     await pvpEnforceSingleActiveRoom(key, tgId, safeName, joinedBeforeCreate.id);
     await pvpDedupPairRooms(key, joinedBeforeCreate.player1_tg_user_id, joinedBeforeCreate.player2_tg_user_id, joinedBeforeCreate.id);
@@ -2068,6 +2178,10 @@ async function pvpFindMatch(initData, gameKey, playerName) {
       player2_tg_user_id: null,
       player2_name: null,
       winner_tg_user_id: null,
+      stake_options_ton: wantedStakes,
+      stake_ton: null,
+      stake_locked_at: null,
+      stake_settled_at: null,
       state_json: {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -2079,7 +2193,7 @@ async function pvpFindMatch(initData, gameKey, playerName) {
 
   // Anti-race: if two users created waiting rooms simultaneously,
   // try to join again and cancel own waiting duplicate.
-  const joinedAfterCreate = await pvpTryJoinWaiting(key, tgId, safeName);
+  const joinedAfterCreate = await pvpTryJoinWaiting(key, tgId, safeName, wantedStakes);
   if (joinedAfterCreate && Number(joinedAfterCreate.id) !== Number(ownRoom.id)) {
     await pvpCancelRooms([ownRoom.id]);
     await pvpEnforceSingleActiveRoom(key, tgId, safeName, joinedAfterCreate.id);
@@ -2185,13 +2299,19 @@ async function finalizePvpRoomIfNeeded(room) {
   });
   if (!patched?.length) return room;
   const finalized = patched[0];
+  await pvpFinalizeStakeForRoom(finalized.id, winner || null, "match_finished");
 
   await persistMatchFromPayload({
     gameKey,
     mode: "pvp",
     winnerTgUserId: winner,
     score: { left: p1, right: p2 },
-    details: { roomId: room.id, endedByLeave: !!s.endedByLeave, engine: s.engine || null },
+    details: {
+      roomId: room.id,
+      endedByLeave: !!s.endedByLeave,
+      engine: s.engine || null,
+      stakeTon: finalized.stake_ton != null ? Number(finalized.stake_ton) : null,
+    },
     players: [
       {
         tgUserId: room.player1_tg_user_id,
@@ -2270,13 +2390,22 @@ async function pvpLeaveRoom(initData, roomId) {
       prefer: "return=representation",
     });
     if (patched?.length) room = patched[0];
+    if (patched?.length) {
+      await pvpFinalizeStakeForRoom(room.id, winner || null, "leave_or_forfeit");
+    }
     if (patched?.length && winner) {
       await persistMatchFromPayload({
         gameKey,
         mode: "pvp",
         winnerTgUserId: winner,
         score: { left: p1, right: p2 },
-        details: { roomId: id, endedByLeave: true, leftBy: tgId, engine: s.engine || null },
+        details: {
+          roomId: id,
+          endedByLeave: true,
+          leftBy: tgId,
+          engine: s.engine || null,
+          stakeTon: room.stake_ton != null ? Number(room.stake_ton) : null,
+        },
         players: [
           {
             tgUserId: room.player1_tg_user_id,
@@ -2662,7 +2791,8 @@ module.exports = async (req, res) => {
       const room = await pvpFindMatch(
         req.body?.initData || "",
         req.body?.gameKey || "frog_hunt",
-        req.body?.playerName || ""
+        req.body?.playerName || "",
+        req.body?.stakeOptions || req.body?.stake_ton_options || []
       );
       return res.status(200).json({ ok: true, room });
     }
@@ -2777,7 +2907,11 @@ module.exports = async (req, res) => {
       msg.includes("Missing operationId") ||
       msg.includes("Missing intentId") ||
       msg.includes("Missing tgUserId") ||
-      msg.includes("Invalid txHash")
+      msg.includes("Invalid txHash") ||
+      msg.includes("Choose at least one stake amount") ||
+      msg.includes("Insufficient balance for selected stakes") ||
+      msg.includes("No common stake") ||
+      msg.includes("Invalid stake")
     ) {
       code = 400;
     } else if (msg === "Forbidden") {
