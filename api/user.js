@@ -215,16 +215,32 @@ async function resolveUsdtTonRate() {
   const source = String(process.env.USDT_TON_RATE_SOURCE || "crypto_bot").toLowerCase();
   if (source !== "crypto_bot") throw new Error("USDT rate source is not supported");
   const rates = await callCryptoBotApi("getExchangeRates", {});
-  const arr = Array.isArray(rates) ? rates : [];
+  const arr = Array.isArray(rates)
+    ? rates
+    : Array.isArray(rates?.rates)
+      ? rates.rates
+      : Array.isArray(rates?.items)
+        ? rates.items
+        : [];
+  const norm = (v) =>
+    String(v || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
   for (const row of arr) {
-    const src = String(row?.source || row?.from || "").toUpperCase();
-    const tgt = String(row?.target || row?.to || "").toUpperCase();
-    const rate = Number(row?.rate || row?.value || 0);
+    const src = norm(row?.source || row?.from || row?.left || row?.asset_from || row?.currency_from);
+    const tgt = norm(row?.target || row?.to || row?.right || row?.asset_to || row?.currency_to);
+    const rate = Number(row?.rate || row?.value || row?.price || row?.exchange_rate || 0);
     if (!Number.isFinite(rate) || rate <= 0) continue;
-    if (src === "USDT" && tgt === "TON") return rate;
-    if (src === "TON" && tgt === "USDT") return 1 / rate;
+    const srcIsUsdt = src.startsWith("USDT");
+    const tgtIsUsdt = tgt.startsWith("USDT");
+    const srcIsTon = src === "TON" || src === "TONCOIN";
+    const tgtIsTon = tgt === "TON" || tgt === "TONCOIN";
+    if (srcIsUsdt && tgtIsTon) return rate;
+    if (srcIsTon && tgtIsUsdt) return 1 / rate;
   }
-  throw new Error("Failed to resolve dynamic USDT->TON rate");
+  throw new Error(
+    "Failed to resolve dynamic USDT->TON rate. Set USDT_TON_FIXED_RATE temporarily in env."
+  );
 }
 
 function generateDepositMemoToken() {
