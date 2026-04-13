@@ -191,22 +191,65 @@ function usdtWithdrawFeePercentDisplay() {
   return Number((USDT_WITHDRAW_FEE_BPS / 100).toFixed(2));
 }
 
+function cryptoPayErrorText(data) {
+  const err = data?.error;
+  if (err == null) return "";
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const name = err.name != null ? String(err.name) : "";
+    const msg = err.message != null ? String(err.message) : "";
+    if (name && msg) return `${name}: ${msg}`;
+    if (name) return name;
+    if (msg) return msg;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function mapCryptoPayErrorForUser(raw) {
+  const s = String(raw || "").toUpperCase();
+  if (s.includes("INSUFFICIENT") || s.includes("NOT_ENOUGH"))
+    return "На балансе вашего Crypto Pay приложения не хватает USDT для выплаты. Пополните кошелёк приложения в @CryptoBot (Crypto Pay → баланс приложения).";
+  if (s.includes("USER_NOT_FOUND") || s.includes("USER_NOT") || s.includes("NOT_REGISTERED"))
+    return "Сначала откройте @CryptoBot в Telegram и нажмите «Старт», затем повторите вывод.";
+  if (s.includes("SPEND_ID") || s.includes("DUPLICATE"))
+    return "Повтор запроса. Подождите минуту и попробуйте снова.";
+  if (s.includes("TRANSFER") && s.includes("DISABLED"))
+    return "В настройках Crypto Pay приложения не включены исходящие переводы (Transfers). Включите в @CryptoBot.";
+  return raw ? String(raw) : "Ошибка Crypto Pay";
+}
+
 async function callCryptoBotApi(method, payload) {
   requireCryptoBot();
-  const res = await fetch(`https://pay.crypt.bot/api/${method}`, {
-    method: "POST",
-    headers: {
-      "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload || {}),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data?.ok) {
-    const msg = data?.error?.name || data?.error?.code || `Crypto Bot API error: ${res.status}`;
-    throw new Error(String(msg));
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 28000);
+  try {
+    const res = await fetch(`https://pay.crypt.bot/api/${method}`, {
+      method: "POST",
+      headers: {
+        "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload || {}),
+      signal: ctrl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok) {
+      const detail = cryptoPayErrorText(data) || `HTTP ${res.status}`;
+      throw new Error(mapCryptoPayErrorForUser(detail));
+    }
+    return data.result;
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      throw new Error("Crypto Pay не ответил вовремя. Проверьте токен и сеть, попробуйте ещё раз.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(t);
   }
-  return data.result;
 }
 
 async function resolveUsdtTonRate() {
@@ -719,17 +762,18 @@ async function requestUsdtWithdrawal(initData, amountTonStr) {
       prefer: "return=minimal",
     });
   } catch (e) {
+    const detail = String(e?.message || e);
     await sbRpc("wallet_fail_withdrawal", { p_op_id: opId }).catch(() => {});
     await sb(`usdt_operations?id=eq.${encodeURIComponent(usdtRow?.id || "")}`, {
       method: "PATCH",
       body: {
         status: "failed",
         updated_at: new Date().toISOString(),
-        meta: { error: String(e?.message || e) },
+        meta: { error: detail.slice(0, 900) },
       },
       prefer: "return=minimal",
     }).catch(() => {});
-    throw new Error("USDT payout failed. Try again later.");
+    throw new Error(detail || "Не удалось выполнить выплату USDT");
   }
 
   return {

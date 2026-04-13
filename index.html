@@ -1289,7 +1289,9 @@
       toast(`Готово: на @CryptoBot отправлено ~${formatBalanceAmountOnly(String(res.usdtAmount || 0))} USDT`, 4800);
       hNote("success");
     }catch(e){
-      toast(e.message || "Ошибка USDT вывода", 4200);
+      const msg = e.message || "Ошибка USDT вывода";
+      toast(msg, 9000);
+      try{ window.Telegram?.WebApp?.showAlert?.(msg); }catch(_e){}
       btn.disabled = false;
       btn.removeAttribute("aria-busy");
       btn.textContent = prevText;
