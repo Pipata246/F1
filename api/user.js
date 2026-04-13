@@ -226,17 +226,47 @@ async function resolveUsdtTonRate() {
     String(v || "")
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, "");
+  const parsedPairs = [];
   for (const row of arr) {
     const src = norm(row?.source || row?.from || row?.left || row?.asset_from || row?.currency_from);
     const tgt = norm(row?.target || row?.to || row?.right || row?.asset_to || row?.currency_to);
     const rate = Number(row?.rate || row?.value || row?.price || row?.exchange_rate || 0);
     if (!Number.isFinite(rate) || rate <= 0) continue;
+    parsedPairs.push({ src, tgt, rate });
     const srcIsUsdt = src.startsWith("USDT");
     const tgtIsUsdt = tgt.startsWith("USDT");
     const srcIsTon = src === "TON" || src === "TONCOIN";
     const tgtIsTon = tgt === "TON" || tgt === "TONCOIN";
     if (srcIsUsdt && tgtIsTon) return rate;
     if (srcIsTon && tgtIsUsdt) return 1 / rate;
+  }
+  // Fallback: derive USDT->TON via USD/USDT cross rates if direct pair is absent.
+  // Example: TON->USD and USDT->USD (or inverse).
+  const getPairRate = (isSrc, isTgt) => {
+    for (const p of parsedPairs) {
+      if (isSrc(p.src) && isTgt(p.tgt)) return p.rate;
+      if (isSrc(p.tgt) && isTgt(p.src)) return p.rate > 0 ? 1 / p.rate : null;
+    }
+    return null;
+  };
+  const isTon = (v) => v === "TON" || v === "TONCOIN";
+  const isUsdt = (v) => v.startsWith("USDT");
+  const isUsd = (v) => v === "USD";
+  const tonPerUsd =
+    getPairRate(isUsd, isTon) ??
+    (() => {
+      const usdPerTon = getPairRate(isTon, isUsd);
+      return usdPerTon && usdPerTon > 0 ? 1 / usdPerTon : null;
+    })();
+  const usdPerUsdt =
+    getPairRate(isUsdt, isUsd) ??
+    (() => {
+      const usdtPerUsd = getPairRate(isUsd, isUsdt);
+      return usdtPerUsd && usdtPerUsd > 0 ? 1 / usdtPerUsd : null;
+    })();
+  if (tonPerUsd && usdPerUsdt) {
+    const derived = tonPerUsd * usdPerUsdt;
+    if (Number.isFinite(derived) && derived > 0) return derived;
   }
   throw new Error(
     "Failed to resolve dynamic USDT->TON rate. Set USDT_TON_FIXED_RATE temporarily in env."
