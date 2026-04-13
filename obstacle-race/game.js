@@ -245,6 +245,9 @@ function ensureStakePicker() {
     var wrap = document.createElement('div');
     wrap.id = 'stakePickerObstacle';
     wrap.style.marginTop = '12px';
+    wrap.style.maxWidth = '360px';
+    wrap.style.marginLeft = 'auto';
+    wrap.style.marginRight = 'auto';
     wrap.innerHTML =
         '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
         '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>';
@@ -550,6 +553,12 @@ function handleMessage(msg) {
 function showScreen(name) {
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $('screen-' + name).classList.add('active');
+    if (name === 'start') {
+        onlineModeSelected = false;
+        if ($('btn-find')) $('btn-find').style.display = '';
+        if ($('btn-bot')) $('btn-bot').style.display = '';
+        setStakePickerVisible(false);
+    }
 }
 
 function startGame(vsBot) {
@@ -562,6 +571,8 @@ function startGame(vsBot) {
     isBotMode = !!vsBot;
     if (!isBotMode && !onlineModeSelected) {
         onlineModeSelected = true;
+        if ($('btn-find')) $('btn-find').style.display = 'none';
+        if ($('btn-bot')) $('btn-bot').style.display = 'none';
         setStakePickerVisible(true);
         refreshBalanceForStakePicker();
         showBottomNotice('Выбери ставку и нажми "Найти соперника" ещё раз');
@@ -569,6 +580,8 @@ function startGame(vsBot) {
     }
     if (isBotMode) {
         onlineModeSelected = false;
+        if ($('btn-find')) $('btn-find').style.display = '';
+        if ($('btn-bot')) $('btn-bot').style.display = '';
         setStakePickerVisible(false);
     }
     currentStakeTon = null;

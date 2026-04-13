@@ -915,20 +915,24 @@ const GamePage = () => {
           <p className="text-gray-400 text-sm text-center w-full truncate px-2" title={displayName}>
             Играешь как: <span className="text-white font-semibold">{displayName}</span>
           </p>
-          <button
-            onClick={() => setMenuMode('online')}
-            className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20"
-          >
-            Онлайн
-          </button>
-          <button
-            onClick={() => startSearchBot()}
-            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
-          >
-            С ботом
-          </button>
+          {menuMode !== 'online' && (
+            <>
+              <button
+                onClick={() => setMenuMode('online')}
+                className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20"
+              >
+                Онлайн
+              </button>
+              <button
+                onClick={() => startSearchBot()}
+                className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
+              >
+                С ботом
+              </button>
+            </>
+          )}
           {menuMode === 'online' && (
-            <div className="w-full">
+            <div className="w-full max-w-xs mx-auto">
               <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">Выбери ставки TON</p>
               <div className="grid grid-cols-3 gap-2">
                 {[1, 5, 10, 25, 50, 100].map((stake) => {
@@ -957,6 +961,12 @@ const GamePage = () => {
                 className="w-full mt-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl"
               >
                 Начать поиск
+              </button>
+              <button
+                onClick={() => setMenuMode('idle')}
+                className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl"
+              >
+                Назад к режимам
               </button>
             </div>
           )}

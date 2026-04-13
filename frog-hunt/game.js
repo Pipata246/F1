@@ -151,6 +151,11 @@ function showScreen(name) {
   var screens = document.querySelectorAll('.screen');
   for (var i = 0; i < screens.length; i++) screens[i].classList.remove('active');
   $('screen-' + name).classList.add('active');
+  if (name === 'start') {
+    onlineModeSelected = false;
+    setModeButtonsVisible(true);
+    setStakePickerVisible(false);
+  }
 }
 
 function showOverlay(id) { $(id).classList.add('active'); }
@@ -191,6 +196,9 @@ function ensureStakePicker() {
   var wrap = document.createElement('div');
   wrap.id = 'stakePickerWrap';
   wrap.style.marginTop = '12px';
+  wrap.style.maxWidth = '360px';
+  wrap.style.marginLeft = 'auto';
+  wrap.style.marginRight = 'auto';
   wrap.innerHTML =
     '<div style="font-size:12px;color:#9aa3b2;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
     '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>';
@@ -230,6 +238,11 @@ function setStakePickerVisible(v){
   wrap.style.display = v ? 'block' : 'none';
 }
 
+function setModeButtonsVisible(v){
+  if ($('btn-find')) $('btn-find').style.display = v ? '' : 'none';
+  if ($('btn-bot')) $('btn-bot').style.display = v ? '' : 'none';
+}
+
 function renderStakePicker() {
   var grid = $('stakeGridFrog');
   if (!grid) return;
@@ -250,6 +263,7 @@ function startSearchOnline() {
   if(!onlineModeSelected){
     onlineModeSelected = true;
     isBotMode = false;
+    setModeButtonsVisible(false);
     setStakePickerVisible(true);
     refreshBalanceForStakePicker();
     showBottomNotice('Выбери ставку и нажми "Найти соперника" ещё раз');
@@ -274,6 +288,7 @@ function startSearchBot() {
   onlineModeSelected = false;
   isBotMode = true;
   currentStakeTon = null;
+  setModeButtonsVisible(true);
   setStakePickerVisible(false);
   function proceed() {
     showScreen('waiting');

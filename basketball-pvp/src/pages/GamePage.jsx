@@ -707,10 +707,14 @@ const GamePage = () => {
         <p className="text-gray-500 text-sm text-center w-full truncate px-2 uppercase tracking-wider" title={displayName}>
           {displayName}
         </p>
-        <button onClick={()=>setMenuMode('online')} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
-        <button onClick={()=>findGameBot()} className="w-full bg-white/5 border-2 border-white/15 text-white py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">С БОТОМ</button>
+        {menuMode !== 'online' && (
+          <>
+            <button onClick={()=>setMenuMode('online')} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
+            <button onClick={()=>findGameBot()} className="w-full bg-white/5 border-2 border-white/15 text-white py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">С БОТОМ</button>
+          </>
+        )}
         {menuMode === 'online' && (
-          <div className="w-full">
+          <div className="w-full max-w-xs mx-auto">
             <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
             <div className="grid grid-cols-3 gap-2">
               {[1, 5, 10, 25, 50, 100].map((stake) => {
@@ -735,6 +739,7 @@ const GamePage = () => {
               })}
             </div>
             <button onClick={()=>findGameOnline()} className="w-full mt-3 bg-emerald-500 text-black py-4 rounded-xl text-lg uppercase tracking-widest active:scale-95">Начать поиск</button>
+            <button onClick={()=>setMenuMode('idle')} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl text-sm uppercase tracking-widest">Назад к режимам</button>
           </div>
         )}
         {!!bottomNotice && (
