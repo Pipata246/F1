@@ -201,7 +201,8 @@ function ensureStakePicker() {
   wrap.style.marginRight = 'auto';
   wrap.innerHTML =
     '<div style="font-size:12px;color:#9aa3b2;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
-    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>';
+    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
+    '<button type="button" id="stakePlayBtnFrog" class="btn primary" style="margin-top:10px">Играть</button>';
   mount.appendChild(wrap);
   var grid = $('stakeGridFrog');
   ALLOWED_STAKES.forEach(function(stake) {
@@ -229,6 +230,8 @@ function ensureStakePicker() {
     };
     grid.appendChild(b);
   });
+  var playBtn = $('stakePlayBtnFrog');
+  if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
   renderStakePicker();
 }
 
@@ -266,9 +269,13 @@ function startSearchOnline() {
     setModeButtonsVisible(false);
     setStakePickerVisible(true);
     refreshBalanceForStakePicker();
-    showBottomNotice('Выбери ставку и нажми "Найти соперника" ещё раз');
+    showBottomNotice('Выбери ставку и нажми "Играть"');
     return;
   }
+  beginOnlineSearch();
+}
+
+function beginOnlineSearch() {
   isBotMode = false;
   currentStakeTon = null;
   if (!selectedStakeOptions.length) {

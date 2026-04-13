@@ -250,7 +250,8 @@ function ensureStakePicker() {
     wrap.style.marginRight = 'auto';
     wrap.innerHTML =
         '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
-        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>';
+        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
+        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>';
     mount.appendChild(wrap);
     var grid = $('stakeGridObstacle');
     ALLOWED_STAKES.forEach(function(stake) {
@@ -275,6 +276,8 @@ function ensureStakePicker() {
         };
         grid.appendChild(b);
     });
+    var playBtn = $('stakePlayBtnObstacle');
+    if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
     renderStakePicker();
 }
 
@@ -575,7 +578,7 @@ function startGame(vsBot) {
         if ($('btn-bot')) $('btn-bot').style.display = 'none';
         setStakePickerVisible(true);
         refreshBalanceForStakePicker();
-        showBottomNotice('Выбери ставку и нажми "Найти соперника" ещё раз');
+        showBottomNotice('Выбери ставку и нажми "Играть"');
         return;
     }
     if (isBotMode) {
@@ -585,13 +588,7 @@ function startGame(vsBot) {
         setStakePickerVisible(false);
     }
     currentStakeTon = null;
-    if (!isBotMode && !selectedStakeOptions.length) {
-        showBottomNotice('Выбери минимум одну ставку');
-        return;
-    }
-    if (!isBotMode) {
-        selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
-    }
+    if (!isBotMode) return beginOnlineSearch();
     stopPvpPolling();
     pvpRoomId = null;
     syncMyNameFromServer(function() {
@@ -607,6 +604,21 @@ function startGame(vsBot) {
             }
             pvpFindMatch();
         });
+    });
+}
+
+function beginOnlineSearch() {
+    isBotMode = false;
+    currentStakeTon = null;
+    if (!selectedStakeOptions.length) {
+        showBottomNotice('Выбери минимум одну ставку');
+        return;
+    }
+    selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
+    stopPvpPolling();
+    pvpRoomId = null;
+    syncMyNameFromServer(function() {
+        connect(function() { pvpFindMatch(); });
     });
 }
 
