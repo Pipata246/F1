@@ -80,6 +80,9 @@ const GamePage = () => {
   const [matchResult, setMatchResult] = useState(null);
   const [selectedStakeOptions, setSelectedStakeOptions] = useState([]);
   const [currentStakeTon, setCurrentStakeTon] = useState(null);
+  const [balanceTon, setBalanceTon] = useState(0);
+  const [menuMode, setMenuMode] = useState('idle');
+  const [bottomNotice, setBottomNotice] = useState('');
   const [announce, setAnnounce] = useState(null);
   const [selectedDistance, setSelectedDistance] = useState(null);
   const [roundResolving, setRoundResolving] = useState(false);
@@ -104,6 +107,7 @@ const GamePage = () => {
   const pvpLastStartKeyRef = useRef('');
   const choiceLockedRef = useRef(false);
   const roundResolvingRef = useRef(false);
+  const noticeTimerRef = useRef(null);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { scoresRef.current = scores; }, [scores]);
@@ -130,9 +134,21 @@ const GamePage = () => {
       .then((data) => {
         if (data?.ok && data.user?.display_name) {
           setDisplayName(String(data.user.display_name).slice(0, 64));
-        } else setDisplayName(fallback);
+          setBalanceTon(Number(data.user.serverBalanceTon || 0));
+        } else {
+          setDisplayName(fallback);
+          setBalanceTon(0);
+        }
       })
-      .catch(() => setDisplayName(fallback));
+      .catch(() => {
+        setDisplayName(fallback);
+        setBalanceTon(0);
+      });
+  }, []);
+  const showBottomNotice = useCallback((msg) => {
+    setBottomNotice(String(msg || ''));
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setBottomNotice(''), 2200);
   }, []);
   useEffect(() => {
     const ping = () => {
@@ -533,19 +549,23 @@ const GamePage = () => {
   }
   const askStakeOptions = () => {
     if (!selectedStakeOptions.length) {
-      window.alert('Выбери минимум одну ставку');
+      showBottomNotice('Выбери минимум одну ставку');
       return null;
     }
     return selectedStakeOptions.slice().sort((a, b) => a - b);
   };
 
   const toggleStakeOption = (stake) => {
+    if (Number(balanceTon || 0) < Number(stake)) {
+      showBottomNotice('У вас недостаточно денег на балансе');
+      return;
+    }
     setSelectedStakeOptions((prev) => (
       prev.includes(stake) ? prev.filter((x) => x !== stake) : [...prev, stake]
     ));
   };
 
-  const findGame = () => {
+  const findGameOnline = () => {
     sfx('click');
     const n = displayName.trim() || 'Player';
     const stakes = askStakeOptions();
@@ -578,6 +598,18 @@ const GamePage = () => {
       playModeRef.current = 'idle';
       setScreen('menu');
     });
+  };
+
+  const findGameBot = () => {
+    sfx('click');
+    const n = displayName.trim() || 'Player';
+    matchSavedRef.current = false;
+    clearPending();
+    stopPvpPolling();
+    pvpRoomIdRef.current = null;
+    setCurrentStakeTon(null);
+    playModeRef.current = 'bot';
+    localOnClientMessage('find_bot', { name: n, tgUserId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null });
   };
 
   const cancelWait = () => {
@@ -675,29 +707,41 @@ const GamePage = () => {
         <p className="text-gray-500 text-sm text-center w-full truncate px-2 uppercase tracking-wider" title={displayName}>
           {displayName}
         </p>
-        <div className="w-full">
-          <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
-          <div className="grid grid-cols-3 gap-2">
-            {[1, 5, 10, 25, 50, 100].map((stake) => {
-              const active = selectedStakeOptions.includes(stake);
-              return (
-                <button
-                  key={stake}
-                  type="button"
-                  onClick={() => toggleStakeOption(stake)}
-                  className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
-                    active
-                      ? 'bg-amber-400/20 border-amber-300 text-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
-                      : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
-                  }`}
-                >
-                  {stake} TON
-                </button>
-              );
-            })}
+        <button onClick={()=>setMenuMode('online')} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
+        <button onClick={()=>findGameBot()} className="w-full bg-white/5 border-2 border-white/15 text-white py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">С БОТОМ</button>
+        {menuMode === 'online' && (
+          <div className="w-full">
+            <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 5, 10, 25, 50, 100].map((stake) => {
+                const active = selectedStakeOptions.includes(stake);
+                const blocked = Number(balanceTon || 0) < Number(stake);
+                return (
+                  <button
+                    key={stake}
+                    type="button"
+                    onClick={() => toggleStakeOption(stake)}
+                    className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
+                      blocked
+                        ? 'bg-red-500/20 border-red-400 text-red-200'
+                        : active
+                          ? 'bg-amber-400/20 border-amber-300 text-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
+                          : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
+                    }`}
+                  >
+                    {stake} TON
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={()=>findGameOnline()} className="w-full mt-3 bg-emerald-500 text-black py-4 rounded-xl text-lg uppercase tracking-widest active:scale-95">Начать поиск</button>
           </div>
-        </div>
-        <button onClick={()=>findGame()} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
+        )}
+        {!!bottomNotice && (
+          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
+            {bottomNotice}
+          </div>
+        )}
       </div>
     </div>
   );

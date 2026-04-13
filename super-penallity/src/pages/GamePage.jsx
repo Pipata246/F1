@@ -153,6 +153,9 @@ const GamePage = () => {
   const [matchResult, setMatchResult] = useState(null);
   const [selectedStakeOptions, setSelectedStakeOptions] = useState([]);
   const [currentStakeTon, setCurrentStakeTon] = useState(null);
+  const [balanceTon, setBalanceTon] = useState(0);
+  const [menuMode, setMenuMode] = useState('idle'); // idle | online
+  const [bottomNotice, setBottomNotice] = useState('');
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -169,6 +172,7 @@ const GamePage = () => {
   const pvpLastStartKeyRef = useRef('');
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
+  const noticeTimerRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
 
@@ -192,12 +196,23 @@ const GamePage = () => {
       .then((data) => {
         if (data?.ok && data.user?.display_name) {
           setDisplayName(String(data.user.display_name).slice(0, 64));
+          setBalanceTon(Number(data.user.serverBalanceTon || 0));
         } else {
           setDisplayName(fallback);
+          setBalanceTon(0);
         }
       })
-      .catch(() => setDisplayName(fallback));
+      .catch(() => {
+        setDisplayName(fallback);
+        setBalanceTon(0);
+      });
   }, []);
+  const showBottomNotice = useCallback((msg) => {
+    setBottomNotice(String(msg || ''));
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setBottomNotice(''), 2200);
+  }, []);
+
 
   useEffect(() => {
     const ping = () => {
@@ -620,19 +635,23 @@ const GamePage = () => {
 
   const askStakeOptions = () => {
     if (!selectedStakeOptions.length) {
-      window.alert('Выбери минимум одну ставку');
+      showBottomNotice('Выбери минимум одну ставку');
       return null;
     }
     return selectedStakeOptions.slice().sort((a, b) => a - b);
   };
 
   const toggleStakeOption = (stake) => {
+    if (Number(balanceTon || 0) < Number(stake)) {
+      showBottomNotice('У вас недостаточно денег на балансе');
+      return;
+    }
     setSelectedStakeOptions((prev) => (
       prev.includes(stake) ? prev.filter((x) => x !== stake) : [...prev, stake]
     ));
   };
 
-  const startSearch = () => {
+  const startSearchOnline = () => {
     const name = displayName.trim() || 'Player';
     const stakes = askStakeOptions();
     if (!stakes) return;
@@ -675,6 +694,38 @@ const GamePage = () => {
       playModeRef.current = 'idle';
       setScreen('menu');
     });
+  };
+
+  const startSearchBot = () => {
+    const name = displayName.trim() || 'Player';
+    setCurrentStakeTon(null);
+    matchSavedRef.current = false;
+    stopPvpPolling();
+    if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
+    if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
+    matchRef.current = null;
+    playModeRef.current = 'bot';
+    setScreen('waiting');
+    localFindTimerRef.current = setTimeout(() => {
+      if (playModeRef.current !== 'bot') return;
+      matchRef.current = {
+        playerName: name,
+        opponentName: 'Бот 🤖',
+        tgUserId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null,
+        scores: [0, 0],
+        round: 0,
+        maxRounds: 10,
+        suddenDeath: false,
+        choices: [null, null],
+        history: [],
+        sdStart: 0,
+        kickerOverride: null,
+        finished: false,
+      };
+      handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
+      localStartRound();
+      localFindTimerRef.current = null;
+    }, 650);
   };
 
   const handleCancelWait = () => {
@@ -864,35 +915,60 @@ const GamePage = () => {
           <p className="text-gray-400 text-sm text-center w-full truncate px-2" title={displayName}>
             Играешь как: <span className="text-white font-semibold">{displayName}</span>
           </p>
-          <div className="w-full">
-            <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">Выбери ставки TON</p>
-            <div className="grid grid-cols-3 gap-2">
-              {[1, 5, 10, 25, 50, 100].map((stake) => {
-                const active = selectedStakeOptions.includes(stake);
-                return (
-                  <button
-                    key={stake}
-                    type="button"
-                    onClick={() => toggleStakeOption(stake)}
-                    className={`aspect-square rounded-xl border text-sm font-black transition-all ${
-                      active
-                        ? 'bg-emerald-500/25 border-emerald-300 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.35)]'
-                        : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
-                    }`}
-                  >
-                    {stake} TON
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <button onClick={() => startSearch()} className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
+          <button
+            onClick={() => setMenuMode('online')}
+            className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20"
+          >
             Онлайн
           </button>
+          <button
+            onClick={() => startSearchBot()}
+            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
+          >
+            С ботом
+          </button>
+          {menuMode === 'online' && (
+            <div className="w-full">
+              <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">Выбери ставки TON</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[1, 5, 10, 25, 50, 100].map((stake) => {
+                  const active = selectedStakeOptions.includes(stake);
+                  const blocked = Number(balanceTon || 0) < Number(stake);
+                  return (
+                    <button
+                      key={stake}
+                      type="button"
+                      onClick={() => toggleStakeOption(stake)}
+                      className={`aspect-square rounded-xl border text-sm font-black transition-all ${
+                        blocked
+                          ? 'bg-red-500/20 border-red-400 text-red-200'
+                          : active
+                            ? 'bg-emerald-500/25 border-emerald-300 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.35)]'
+                            : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                      }`}
+                    >
+                      {stake} TON
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => startSearchOnline()}
+                className="w-full mt-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl"
+              >
+                Начать поиск
+              </button>
+            </div>
+          )}
           <button onClick={() => { window.location.hash = '#/profile'; }} className="text-gray-500 hover:text-gray-300 text-sm mt-2 transition-colors">
             Профиль
           </button>
         </div>
+        {!!bottomNotice && (
+          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
+            {bottomNotice}
+          </div>
+        )}
       </div>
     );
   }
@@ -1114,6 +1190,11 @@ const GamePage = () => {
           </p>
         )}
       </div>
+      {!!bottomNotice && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
+          {bottomNotice}
+        </div>
+      )}
     </div>
   );
 };

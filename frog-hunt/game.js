@@ -31,6 +31,8 @@ var pvpRecovering = false;
 var selectedStakeOptions = [];
 var currentStakeTon = null;
 var ALLOWED_STAKES = [1, 5, 10, 25, 50, 100];
+var currentBalanceTon = 0;
+var bottomNoticeTimer = null;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -131,12 +133,12 @@ document.addEventListener('DOMContentLoaded', function() {
   initSounds();
   startPresenceLoop();
 
-  $('btn-find').onclick = function() { startSearch(); };
-  if ($('btn-bot')) $('btn-bot').style.display = 'none';
+  $('btn-find').onclick = function() { startSearchOnline(); };
+  if ($('btn-bot')) $('btn-bot').onclick = function() { startSearchBot(); };
   ensureStakePicker();
   $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };
   $('btn-confirm').onclick = confirmChoice;
-  $('btn-again').onclick = function() { startSearch(); };
+  $('btn-again').onclick = function() { isBotMode ? startSearchBot() : startSearchOnline(); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
   window.addEventListener('pagehide', function() { leavePvpQueue(); presenceLeaveNet(); });
   window.addEventListener('beforeunload', function() { leavePvpQueue(); presenceLeaveNet(); });
@@ -153,6 +155,31 @@ function hideOverlay(id) { $(id).classList.remove('active'); }
 function hideAllOverlays() {
   var ols = document.querySelectorAll('.overlay');
   for (var i = 0; i < ols.length; i++) ols[i].classList.remove('active');
+}
+
+function showBottomNotice(msg) {
+  var n = $('bottomNotice');
+  if (!n) {
+    n = document.createElement('div');
+    n.id = 'bottomNotice';
+    n.style.position = 'fixed';
+    n.style.left = '50%';
+    n.style.bottom = '20px';
+    n.style.transform = 'translateX(-50%)';
+    n.style.background = 'rgba(0,0,0,.88)';
+    n.style.color = '#fff';
+    n.style.padding = '10px 14px';
+    n.style.borderRadius = '12px';
+    n.style.fontSize = '13px';
+    n.style.fontWeight = '700';
+    n.style.zIndex = '9999';
+    n.style.display = 'none';
+    document.body.appendChild(n);
+  }
+  n.textContent = String(msg || '');
+  n.style.display = 'block';
+  clearTimeout(bottomNoticeTimer);
+  bottomNoticeTimer = setTimeout(function() { n.style.display = 'none'; }, 2200);
 }
 
 function ensureStakePicker() {
@@ -178,6 +205,10 @@ function ensureStakePicker() {
     b.textContent = stake + ' TON';
     b.onclick = function() {
       var n = Number(b.dataset.stake);
+      if (currentBalanceTon < n) {
+        showBottomNotice('У вас недостаточно денег на балансе');
+        return;
+      }
       if (selectedStakeOptions.indexOf(n) >= 0) {
         selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
       } else {
@@ -198,17 +229,19 @@ function renderStakePicker() {
     var b = nodes[i];
     var n = Number(b.dataset.stake);
     var on = selectedStakeOptions.indexOf(n) >= 0;
-    b.style.borderColor = on ? '#78f5b5' : 'rgba(255,255,255,.18)';
-    b.style.background = on ? 'rgba(35,197,94,.22)' : 'rgba(255,255,255,.08)';
-    b.style.color = on ? '#d6ffe9' : '#fff';
+    var blocked = currentBalanceTon < n;
+    b.style.borderColor = blocked ? 'rgba(248,113,113,.8)' : (on ? '#78f5b5' : 'rgba(255,255,255,.18)');
+    b.style.background = blocked ? 'rgba(239,68,68,.18)' : (on ? 'rgba(35,197,94,.22)' : 'rgba(255,255,255,.08)');
+    b.style.color = blocked ? '#fecaca' : (on ? '#d6ffe9' : '#fff');
+    b.style.opacity = blocked ? '0.85' : '1';
   }
 }
 
-function startSearch() {
+function startSearchOnline() {
   isBotMode = false;
   currentStakeTon = null;
   if (!selectedStakeOptions.length) {
-    window.alert('Выбери минимум одну ставку');
+    showBottomNotice('Выбери минимум одну ставку');
     return;
   }
   selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
@@ -216,6 +249,16 @@ function startSearch() {
     showScreen('waiting');
     $('hint-text').textContent = 'Идёт поиск по ставкам: ' + selectedStakeOptions.join(', ') + ' TON';
     pvpFindMatch();
+  }
+  syncMyNameFromServer(proceed);
+}
+
+function startSearchBot() {
+  isBotMode = true;
+  currentStakeTon = null;
+  function proceed() {
+    showScreen('waiting');
+    localStartMatch();
   }
   syncMyNameFromServer(proceed);
 }
@@ -232,6 +275,8 @@ function syncMyNameFromServer(done) {
   function fallback() {
     var u = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
     myName = (u && u.first_name) ? String(u.first_name).slice(0, 64) : 'Игрок';
+    currentBalanceTon = 0;
+    renderStakePicker();
     if (done) done();
   }
   if (!tgInitData) {
@@ -242,7 +287,9 @@ function syncMyNameFromServer(done) {
     .then(function(data) {
       if (data && data.ok && data.user && data.user.display_name) {
         myName = String(data.user.display_name).slice(0, 64);
+        currentBalanceTon = Number(data.user.serverBalanceTon || 0);
       } else fallback();
+      renderStakePicker();
       if (done) done();
     })
     .catch(function() { fallback(); });

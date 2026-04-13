@@ -23,10 +23,12 @@ let overtimePlacing = false;
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
-let isBotMode = false;
+let isBotMode = true;
 let selectedStakeOptions = [];
 let currentStakeTon = null;
 const ALLOWED_STAKES = [1, 5, 10, 25, 50, 100];
+let currentBalanceTon = 0;
+let bottomNoticeTimer = null;
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -134,12 +136,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('focus', presencePing);
     startPresenceLoop();
 
-    $('btn-find').onclick = () => startGame();
-    if ($('btn-bot')) $('btn-bot').style.display = 'none';
+    $('btn-find').onclick = () => startGame(false);
+    if ($('btn-bot')) $('btn-bot').onclick = () => startGame(true);
     ensureStakePicker();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
-    $('btn-again').onclick = () => startGame();
+    $('btn-again').onclick = () => startGame(isBotMode);
     $('btn-menu').onclick = () => window.location.href = '/';
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
@@ -177,6 +179,8 @@ function syncMyNameFromServer(done) {
     function fallback() {
         var u = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
         myName = (u && u.first_name) ? String(u.first_name).slice(0, 64) : '\u0418\u0433\u0440\u043E\u043A';
+        currentBalanceTon = 0;
+        renderStakePicker();
         if (done) done();
     }
     if (!tgInitData) {
@@ -187,10 +191,37 @@ function syncMyNameFromServer(done) {
         .then(function(data) {
             if (data && data.ok && data.user && data.user.display_name) {
                 myName = String(data.user.display_name).slice(0, 64);
+                currentBalanceTon = Number(data.user.serverBalanceTon || 0);
             } else fallback();
+            renderStakePicker();
             if (done) done();
         })
         .catch(function() { fallback(); });
+}
+
+function showBottomNotice(msg) {
+    var n = $('bottomNotice');
+    if (!n) {
+        n = document.createElement('div');
+        n.id = 'bottomNotice';
+        n.style.position = 'fixed';
+        n.style.left = '50%';
+        n.style.bottom = '20px';
+        n.style.transform = 'translateX(-50%)';
+        n.style.background = 'rgba(0,0,0,.88)';
+        n.style.color = '#fff';
+        n.style.padding = '10px 14px';
+        n.style.borderRadius = '12px';
+        n.style.fontSize = '13px';
+        n.style.fontWeight = '700';
+        n.style.zIndex = '9999';
+        n.style.display = 'none';
+        document.body.appendChild(n);
+    }
+    n.textContent = String(msg || '');
+    n.style.display = 'block';
+    clearTimeout(bottomNoticeTimer);
+    bottomNoticeTimer = setTimeout(function() { n.style.display = 'none'; }, 2200);
 }
 
 function ensureStakePicker() {
@@ -216,6 +247,10 @@ function ensureStakePicker() {
         b.textContent = stake + ' TON';
         b.onclick = function() {
             var n = Number(b.dataset.stake);
+            if (currentBalanceTon < n) {
+                showBottomNotice('У вас недостаточно денег на балансе');
+                return;
+            }
             if (selectedStakeOptions.indexOf(n) >= 0) selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
             else selectedStakeOptions.push(n);
             renderStakePicker();
@@ -233,9 +268,11 @@ function renderStakePicker() {
         var b = nodes[i];
         var n = Number(b.dataset.stake);
         var on = selectedStakeOptions.indexOf(n) >= 0;
-        b.style.borderColor = on ? '#8fd1ff' : 'rgba(255,255,255,.18)';
-        b.style.background = on ? 'rgba(59,130,246,.25)' : 'rgba(255,255,255,.08)';
-        b.style.color = on ? '#e6f3ff' : '#fff';
+        var blocked = currentBalanceTon < n;
+        b.style.borderColor = blocked ? 'rgba(248,113,113,.8)' : (on ? '#8fd1ff' : 'rgba(255,255,255,.18)');
+        b.style.background = blocked ? 'rgba(239,68,68,.18)' : (on ? 'rgba(59,130,246,.25)' : 'rgba(255,255,255,.08)');
+        b.style.color = blocked ? '#fecaca' : (on ? '#e6f3ff' : '#fff');
+        b.style.opacity = blocked ? '0.85' : '1';
     }
 }
 
@@ -501,17 +538,28 @@ function startGame(vsBot) {
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
     clearInterval(timerInterval);
     matchSaved = false;
-    isBotMode = false;
+    isBotMode = !!vsBot;
     currentStakeTon = null;
-    if (!selectedStakeOptions.length) {
-        window.alert('Выбери минимум одну ставку');
+    if (!isBotMode && !selectedStakeOptions.length) {
+        showBottomNotice('Выбери минимум одну ставку');
         return;
     }
-    selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
+    if (!isBotMode) {
+        selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
+    }
     stopPvpPolling();
     pvpRoomId = null;
     syncMyNameFromServer(function() {
         connect(function() {
+            if (isBotMode) {
+                sendMsg({
+                    type: 'find_bot',
+                    name: myName,
+                    tgUserId: window._tgUserId || null
+                });
+                showScreen('waiting');
+                return;
+            }
             pvpFindMatch();
         });
     });
