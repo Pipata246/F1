@@ -154,7 +154,6 @@ const GamePage = () => {
   const [selectedStakeOptions, setSelectedStakeOptions] = useState([]);
   const [currentStakeTon, setCurrentStakeTon] = useState(null);
   const [balanceTon, setBalanceTon] = useState(0);
-  const [menuMode, setMenuMode] = useState('idle'); // idle | online
   const [bottomNotice, setBottomNotice] = useState('');
 
   const wsRef = useRef(null);
@@ -915,61 +914,18 @@ const GamePage = () => {
           <p className="text-gray-400 text-sm text-center w-full truncate px-2" title={displayName}>
             Играешь как: <span className="text-white font-semibold">{displayName}</span>
           </p>
-          {menuMode !== 'online' && (
-            <>
-              <button
-                onClick={() => setMenuMode('online')}
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20"
-              >
-                Онлайн
-              </button>
-              <button
-                onClick={() => startSearchBot()}
-                className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
-              >
-                С ботом
-              </button>
-            </>
-          )}
-          {menuMode === 'online' && (
-            <div className="w-full max-w-xs mx-auto">
-              <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">Выбери ставки TON</p>
-              <div className="grid grid-cols-3 gap-2">
-                {[1, 5, 10, 25, 50, 100].map((stake) => {
-                  const active = selectedStakeOptions.includes(stake);
-                  const blocked = Number(balanceTon || 0) < Number(stake);
-                  return (
-                    <button
-                      key={stake}
-                      type="button"
-                      onClick={() => toggleStakeOption(stake)}
-                      className={`aspect-square rounded-xl border text-sm font-black transition-all ${
-                        blocked
-                          ? 'bg-red-500/20 border-red-400 text-red-200'
-                          : active
-                            ? 'bg-emerald-500/25 border-emerald-300 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.35)]'
-                            : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
-                      }`}
-                    >
-                      {stake} TON
-                    </button>
-                  );
-                })}
-              </div>
-              <button
-                onClick={() => startSearchOnline()}
-                className="w-full mt-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl"
-              >
-                Начать поиск
-              </button>
-              <button
-                onClick={() => setMenuMode('idle')}
-                className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl"
-              >
-                Назад к режимам
-              </button>
-            </div>
-          )}
+          <button
+            onClick={() => setScreen('stake-online')}
+            className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20"
+          >
+            Онлайн
+          </button>
+          <button
+            onClick={() => startSearchBot()}
+            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
+          >
+            С ботом
+          </button>
           <button onClick={() => { window.location.hash = '#/profile'; }} className="text-gray-500 hover:text-gray-300 text-sm mt-2 transition-colors">
             Профиль
           </button>
@@ -994,6 +950,47 @@ const GamePage = () => {
           <button onClick={handleCancelWait} className="text-gray-400 hover:text-white text-sm mt-4 px-6 py-2 border border-white/10 rounded-lg transition-colors">
             Отмена
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === 'stake-online') {
+    return (
+      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none relative`} style={safeFrameStyle}>
+        <div className="z-10 flex flex-col items-center gap-6 w-full max-w-xs px-4">
+          <div className="w-full max-w-xs mx-auto">
+            <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider text-center">Выбери ставки TON</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 5, 10, 25, 50, 100].map((stake) => {
+                const active = selectedStakeOptions.includes(stake);
+                const blocked = Number(balanceTon || 0) < Number(stake);
+                return (
+                  <button
+                    key={stake}
+                    type="button"
+                    onClick={() => toggleStakeOption(stake)}
+                    className={`aspect-square rounded-xl border text-sm font-black transition-all ${
+                      blocked
+                        ? 'bg-red-500/20 border-red-400 text-red-200'
+                        : active
+                          ? 'bg-emerald-500/25 border-emerald-300 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.35)]'
+                          : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                    }`}
+                  >
+                    {stake} TON
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => startSearchOnline()} className="w-full mt-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
+            <button onClick={() => setScreen('menu')} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
+          </div>
+          {!!bottomNotice && (
+            <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
+              {bottomNotice}
+            </div>
+          )}
         </div>
       </div>
     );

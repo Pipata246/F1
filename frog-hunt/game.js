@@ -196,12 +196,13 @@ function ensureStakePicker() {
   var wrap = document.createElement('div');
   wrap.id = 'stakePickerWrap';
   wrap.style.marginTop = '12px';
-  wrap.style.maxWidth = '360px';
+  wrap.style.width = '100%';
+  wrap.style.maxWidth = '340px';
   wrap.style.marginLeft = 'auto';
   wrap.style.marginRight = 'auto';
   wrap.innerHTML =
     '<div style="font-size:12px;color:#9aa3b2;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
-    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
+    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch"></div>' +
     '<button type="button" id="stakePlayBtnFrog" class="btn primary" style="margin-top:10px">Играть</button>';
   mount.appendChild(wrap);
   var grid = $('stakeGridFrog');
@@ -210,10 +211,15 @@ function ensureStakePicker() {
     b.type = 'button';
     b.className = 'btn ghost';
     b.dataset.stake = String(stake);
-    b.style.aspectRatio = '1/1';
-    b.style.padding = '0';
+    b.style.height = '74px';
+    b.style.padding = '0 6px';
     b.style.fontWeight = '900';
     b.style.fontSize = '13px';
+    b.style.display = 'flex';
+    b.style.alignItems = 'center';
+    b.style.justifyContent = 'center';
+    b.style.whiteSpace = 'nowrap';
+    b.style.borderRadius = '14px';
     b.textContent = stake + ' TON';
     b.onclick = function() {
       var n = Number(b.dataset.stake);

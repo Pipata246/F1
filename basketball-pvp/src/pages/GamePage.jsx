@@ -81,7 +81,6 @@ const GamePage = () => {
   const [selectedStakeOptions, setSelectedStakeOptions] = useState([]);
   const [currentStakeTon, setCurrentStakeTon] = useState(null);
   const [balanceTon, setBalanceTon] = useState(0);
-  const [menuMode, setMenuMode] = useState('idle');
   const [bottomNotice, setBottomNotice] = useState('');
   const [announce, setAnnounce] = useState(null);
   const [selectedDistance, setSelectedDistance] = useState(null);
@@ -707,41 +706,49 @@ const GamePage = () => {
         <p className="text-gray-500 text-sm text-center w-full truncate px-2 uppercase tracking-wider" title={displayName}>
           {displayName}
         </p>
-        {menuMode !== 'online' && (
-          <>
-            <button onClick={()=>setMenuMode('online')} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
-            <button onClick={()=>findGameBot()} className="w-full bg-white/5 border-2 border-white/15 text-white py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">С БОТОМ</button>
-          </>
-        )}
-        {menuMode === 'online' && (
-          <div className="w-full max-w-xs mx-auto">
-            <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
-            <div className="grid grid-cols-3 gap-2">
-              {[1, 5, 10, 25, 50, 100].map((stake) => {
-                const active = selectedStakeOptions.includes(stake);
-                const blocked = Number(balanceTon || 0) < Number(stake);
-                return (
-                  <button
-                    key={stake}
-                    type="button"
-                    onClick={() => toggleStakeOption(stake)}
-                    className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
-                      blocked
-                        ? 'bg-red-500/20 border-red-400 text-red-200'
-                        : active
-                          ? 'bg-amber-400/20 border-amber-300 text-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
-                          : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
-                    }`}
-                  >
-                    {stake} TON
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={()=>findGameOnline()} className="w-full mt-3 bg-emerald-500 text-black py-4 rounded-xl text-lg uppercase tracking-widest active:scale-95">Начать поиск</button>
-            <button onClick={()=>setMenuMode('idle')} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl text-sm uppercase tracking-widest">Назад к режимам</button>
+        <button onClick={()=>setScreen('stake-online')} className="w-full bg-amber-500 text-black py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">ОНЛАЙН</button>
+        <button onClick={()=>findGameBot()} className="w-full bg-white/5 border-2 border-white/15 text-white py-5 rounded-xl text-xl uppercase tracking-widest active:scale-95">С БОТОМ</button>
+        {!!bottomNotice && (
+          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
+            {bottomNotice}
           </div>
         )}
+      </div>
+    </div>
+  );
+
+  if(screen==='stake-online') return (
+    <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
+      <div className="z-10 flex flex-col items-center gap-5 w-full max-w-sm px-5">
+        <button onClick={()=>setScreen('menu')} className="self-start text-gray-400 hover:text-white text-sm uppercase tracking-wider" style={ST}>← Назад</button>
+        <div className="text-8xl">🏀</div>
+        <h1 className="text-5xl text-white tracking-widest uppercase">STREET<span className="text-amber-400">BALL</span></h1>
+        <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
+        <div className="w-full max-w-xs mx-auto">
+          <div className="grid grid-cols-3 gap-2">
+            {[1, 5, 10, 25, 50, 100].map((stake) => {
+              const active = selectedStakeOptions.includes(stake);
+              const blocked = Number(balanceTon || 0) < Number(stake);
+              return (
+                <button
+                  key={stake}
+                  type="button"
+                  onClick={() => toggleStakeOption(stake)}
+                  className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
+                    blocked
+                      ? 'bg-red-500/20 border-red-400 text-red-200'
+                      : active
+                        ? 'bg-amber-400/20 border-amber-300 text-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
+                        : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
+                  }`}
+                >
+                  {stake} TON
+                </button>
+              );
+            })}
+          </div>
+          <button onClick={()=>findGameOnline()} className="w-full mt-3 bg-emerald-500 text-black py-4 rounded-xl text-lg uppercase tracking-widest active:scale-95">Играть</button>
+        </div>
         {!!bottomNotice && (
           <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
             {bottomNotice}
