@@ -136,14 +136,14 @@ document.addEventListener('DOMContentLoaded', function() {
   initSounds();
   startPresenceLoop();
 
-  $('btn-find').onclick = function() { startSearchOnline(); };
+  if ($('btn-find')) $('btn-find').onclick = function() { startSearchOnline(); };
   if ($('btn-bot')) $('btn-bot').onclick = function() { openDemoIntro(); };
   if ($('btn-demo-play')) $('btn-demo-play').onclick = function() { startSearchBot(); };
   if ($('btn-demo-back')) $('btn-demo-back').onclick = function() { window.location.href = '/'; };
   ensureStakePicker();
   setStakePickerVisible(false);
   refreshBalanceForStakePicker();
-  $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };
+  $('btn-cancel').onclick = function() { leavePvpQueue(); window.location.href = '/'; };
   if ($('btn-accept')) $('btn-accept').onclick = function() { pvpAcceptMatchNow(); };
   if ($('btn-accept-cancel')) $('btn-accept-cancel').onclick = function() { pvpDeclineAcceptAndKeepSearch(); };
   $('btn-confirm').onclick = confirmChoice;
@@ -157,6 +157,8 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(function() { openDemoIntro(); }, 0);
   } else if (launchMode === 'play') {
     setTimeout(function() { startSearchOnline(); }, 0);
+  } else {
+    window.location.href = '/';
   }
 });
 

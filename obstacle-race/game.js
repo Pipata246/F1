@@ -139,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('focus', presencePing);
     startPresenceLoop();
 
-    $('btn-find').onclick = () => startGame(false);
+    if ($('btn-find')) $('btn-find').onclick = () => startGame(false);
     if ($('btn-bot')) $('btn-bot').onclick = () => openDemoIntro();
     if ($('btn-demo-play')) $('btn-demo-play').onclick = () => startGame(true);
     if ($('btn-demo-back')) $('btn-demo-back').onclick = () => window.location.href = '/';
@@ -176,6 +176,8 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => openDemoIntro(), 0);
     } else if (launchMode === 'play') {
         setTimeout(() => startGame(false), 0);
+    } else {
+        window.location.href = '/';
     }
 });
 
