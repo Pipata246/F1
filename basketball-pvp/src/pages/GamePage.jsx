@@ -86,7 +86,6 @@ const GamePage = () => {
   const [selectedDistance, setSelectedDistance] = useState(null);
   const [roundResolving, setRoundResolving] = useState(false);
   const [acceptInfo, setAcceptInfo] = useState(null);
-  const [acceptSent, setAcceptSent] = useState(false);
   const [acceptTick, setAcceptTick] = useState(0);
 
   const wsRef = useRef(null);
@@ -382,7 +381,6 @@ const GamePage = () => {
       const am = s.acceptMatch || {};
       const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
       const meIsP1Accept = String(room.player1_tg_user_id || '') === myTgAccept;
-      setAcceptSent(meIsP1Accept ? !!am.p1Accepted : !!am.p2Accepted);
       setAcceptInfo({
         p1: room.player1_name || 'Игрок 1',
         p2: room.player2_name || 'Игрок 2',
@@ -394,7 +392,6 @@ const GamePage = () => {
     }
     if (String(room.status) === 'waiting') {
       setAcceptInfo(null);
-      setAcceptSent(false);
       setScreen('waiting');
       return;
     }
@@ -483,7 +480,6 @@ const GamePage = () => {
         if (err === 'Room not found' && acceptInfo) {
           pvpRoomIdRef.current = null;
           setAcceptInfo(null);
-          setAcceptSent(false);
           setScreen('waiting');
           showBottomNotice('Пользователь не принял матч');
           findGameOnline();
@@ -668,36 +664,6 @@ const GamePage = () => {
     localOnClientMessage('find_bot', { name: n, tgUserId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null });
   };
 
-  const acceptCurrentMatch = useCallback(() => {
-    if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
-    setAcceptSent(true);
-    apiPost({
-      action: 'pvpAcceptMatch',
-      initData: tgInitDataRef.current,
-      roomId: pvpRoomIdRef.current,
-    }).then((data) => {
-      if (data?.ok && data.room) applyPvpRoomState(data.room);
-    }).catch(() => {
-      setAcceptSent(false);
-      showBottomNotice('Не удалось подтвердить матч');
-    });
-  }, [apiPost, applyPvpRoomState, showBottomNotice]);
-
-  const declineAcceptAndKeepSearch = useCallback(() => {
-    if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
-    const rid = pvpRoomIdRef.current;
-    setAcceptInfo(null);
-    setAcceptSent(false);
-    setScreen('waiting');
-    apiPost({
-      action: 'pvpDeclineAccept',
-      initData: tgInitDataRef.current,
-      roomId: rid,
-    }).finally(() => {
-      pvpRoomIdRef.current = null;
-      findGameOnline();
-    });
-  }, [apiPost, findGameOnline]);
 
   const cancelWait = () => {
     clearPending();
@@ -866,10 +832,7 @@ const GamePage = () => {
             <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
             {acceptInfo.stake != null && <p className="text-amber-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
             <p className={`text-3xl font-black mt-2 ${Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) <= 3 ? 'text-rose-200' : 'text-amber-200'}`}>{Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0)}с</p>
-            <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-amber-300 hover:bg-amber-200 disabled:opacity-60 text-[#2f1d13] py-3 rounded-xl uppercase tracking-wider">
-              {acceptSent ? 'Ожидаем второго игрока...' : 'Принять'}
-            </button>
-            <button onClick={declineAcceptAndKeepSearch} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Отменить</button>
+            <p className="mt-3 text-xs text-amber-100/90 uppercase tracking-wider">Игра начнется автоматически</p>
           </div>
         </div>
       )}

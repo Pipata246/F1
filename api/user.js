@@ -1648,8 +1648,6 @@ const PVP_BOT_WAIT_SPAN_MS = 10_000; // 57..67 sec
 const PVP_BOT_MOVE_MIN_MS = 1000;
 const PVP_BOT_MOVE_MAX_MS = 3000;
 const PVP_ACCEPT_WINDOW_MS = 10_000;
-const PVP_BOT_ACCEPT_MIN_MS = 2000;
-const PVP_BOT_ACCEPT_MAX_MS = 4000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
 
@@ -1703,14 +1701,9 @@ function pvpBotMoveDelayMs() {
   return PVP_BOT_MOVE_MIN_MS + Math.floor(Math.random() * (PVP_BOT_MOVE_MAX_MS - PVP_BOT_MOVE_MIN_MS + 1));
 }
 
-function pvpBotAcceptDelayMs() {
-  return PVP_BOT_ACCEPT_MIN_MS + Math.floor(Math.random() * (PVP_BOT_ACCEPT_MAX_MS - PVP_BOT_ACCEPT_MIN_MS + 1));
-}
-
 function pvpWrapWithAcceptPhase(state, roomLike) {
   const base = { ...asObj(state) };
   const now = Date.now();
-  const isBot = isPvpBotFallbackRoom(roomLike);
   const nextPhase = String(base.phase || "turn_input");
   const nextPhaseAtMs = Number(base.phaseAtMs || now);
   return {
@@ -1720,11 +1713,6 @@ function pvpWrapWithAcceptPhase(state, roomLike) {
     acceptMatch: {
       startedAtMs: now,
       deadlineMs: now + PVP_ACCEPT_WINDOW_MS,
-      p1Accepted: false,
-      p2Accepted: false,
-      p1AcceptedAtMs: null,
-      p2AcceptedAtMs: null,
-      botAutoAcceptAtMs: isBot ? now + pvpBotAcceptDelayMs() : null,
       nextPhase,
       nextPhaseAtMs,
     },
@@ -1738,39 +1726,17 @@ function pvpAdvanceAcceptPhase(room, state) {
   const now = Date.now();
   const am = { ...asObj(s.acceptMatch) };
   const next = { ...s };
-  let changed = false;
-  if (isPvpBotFallbackRoom(room) && !am.p2Accepted) {
-    const due = Number(am.botAutoAcceptAtMs || 0);
-    if (due > 0 && now >= due) {
-      am.p2Accepted = true;
-      am.p2AcceptedAtMs = now;
-      changed = true;
-    }
-  }
-  if (am.p1Accepted && am.p2Accepted) {
-    next.phase = String(am.nextPhase || "turn_input");
-    next.phaseAtMs = now;
-    next.acceptMatch = { ...am, done: true, acceptedAtMs: now };
-    next.updatedAt = new Date().toISOString();
-    return { blocked: false, changed: true, state: next };
-  }
   const deadlineMs = Number(am.deadlineMs || 0);
-  if (deadlineMs > 0 && now > deadlineMs) {
-    next.phase = "accept_timeout";
+  if (deadlineMs > 0 && now >= deadlineMs) {
+    next.phase = String(am.nextPhase || "turn_input");
     next.phaseAtMs = now;
     next.acceptMatch = {
       ...am,
       done: true,
-      timedOutAtMs: now,
-      timeoutBy: !am.p1Accepted && !am.p2Accepted ? "both" : (!am.p1Accepted ? "p1" : "p2"),
+      autoStartedAtMs: now,
     };
     next.updatedAt = new Date().toISOString();
-    return { blocked: true, changed: true, state: next };
-  }
-  if (changed) {
-    next.acceptMatch = am;
-    next.updatedAt = new Date().toISOString();
-    return { blocked: true, changed: true, state: next };
+    return { blocked: false, changed: true, state: next };
   }
   return { blocked: true, changed: false, state: s };
 }

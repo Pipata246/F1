@@ -34,7 +34,6 @@ var ALLOWED_STAKES = [1, 5, 10, 25, 50, 100];
 var currentBalanceTon = 0;
 var bottomNoticeTimer = null;
 var onlineModeSelected = false;
-var pvpAcceptSent = false;
 var pvpAcceptDeadlineMs = 0;
 var gameState = {
   inMatch: false,
@@ -144,8 +143,6 @@ document.addEventListener('DOMContentLoaded', function() {
   setStakePickerVisible(false);
   refreshBalanceForStakePicker();
   $('btn-cancel').onclick = function() { leavePvpQueue(); window.location.href = '/'; };
-  if ($('btn-accept')) $('btn-accept').onclick = function() { pvpAcceptMatchNow(); };
-  if ($('btn-accept-cancel')) $('btn-accept-cancel').onclick = function() { pvpDeclineAcceptAndKeepSearch(); };
   $('btn-confirm').onclick = confirmChoice;
   $('btn-again').onclick = function() { isBotMode ? startSearchBot() : startSearchOnline(); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
@@ -553,20 +550,12 @@ function applyPvpRoomState(room) {
       $('hint-text').textContent = 'Поиск соперника (' + selectedStakeOptions.join(', ') + ' TON)';
     }
     if ($('accept-modal')) $('accept-modal').style.display = 'none';
-    pvpAcceptSent = false;
     pvpAcceptDeadlineMs = 0;
     showScreen('waiting');
     return;
   }
   if (String(room.status) === 'active' && String((s || {}).phase || '') === 'accept_match') {
-    var meIsP1Accept = String(room.player1_tg_user_id) === String(tgUserId);
     var am = s.acceptMatch || {};
-    var accepted = meIsP1Accept ? !!am.p1Accepted : !!am.p2Accepted;
-    pvpAcceptSent = accepted;
-    if ($('btn-accept')) {
-      $('btn-accept').textContent = accepted ? 'Ожидаем второго игрока...' : 'Принять';
-      $('btn-accept').disabled = !!accepted;
-    }
     pvpAcceptDeadlineMs = Number(am.deadlineMs || 0);
     if ($('accept-info')) {
       $('accept-info').textContent =
@@ -696,46 +685,6 @@ function applyPvpRoomState(room) {
       matchScores: [myScore, oppScore]
     });
   }
-}
-
-function pvpAcceptMatchNow() {
-  if (!pvpRoomId || !tgInitData || pvpAcceptSent) return;
-  pvpAcceptSent = true;
-  if ($('btn-accept')) {
-    $('btn-accept').disabled = true;
-    $('btn-accept').textContent = 'Ожидаем второго игрока...';
-  }
-  apiPost({
-    action: 'pvpAcceptMatch',
-    initData: tgInitData,
-    roomId: pvpRoomId,
-  }).then(function(data) {
-    if (data && data.ok && data.room) applyPvpRoomState(data.room);
-  }).catch(function() {
-    pvpAcceptSent = false;
-    if ($('btn-accept')) {
-      $('btn-accept').disabled = false;
-      $('btn-accept').textContent = 'Принять';
-    }
-    showBottomNotice('Не удалось подтвердить матч');
-  });
-}
-
-function pvpDeclineAcceptAndKeepSearch() {
-  if (!pvpRoomId || !tgInitData) return;
-  var oldId = pvpRoomId;
-  pvpAcceptSent = false;
-  pvpAcceptDeadlineMs = 0;
-  if ($('accept-modal')) $('accept-modal').style.display = 'none';
-  apiPost({
-    action: 'pvpDeclineAccept',
-    initData: tgInitData,
-    roomId: oldId,
-  }).finally(function() {
-    pvpRoomId = null;
-    showScreen('waiting');
-    pvpFindMatch();
-  });
 }
 
 function onOpponentLeftVictory(room) {
