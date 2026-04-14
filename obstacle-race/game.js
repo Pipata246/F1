@@ -467,6 +467,16 @@ function applyPvpRoomState(room) {
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+        if (pvpAcceptDeadlineMs > 0 || String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
+            stopPvpPolling();
+            pvpRoomId = null;
+            pvpAcceptDeadlineMs = 0;
+            if ($('accept-modal')) $('accept-modal').style.display = 'none';
+            showScreen('waiting');
+            showBottomNotice('Пользователь не принял матч');
+            pvpFindMatch();
+            return;
+        }
         stopPvpPolling();
         if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(window._tgUserId || '')) {
             onOpponentLeft();
@@ -500,6 +510,7 @@ function pvpPollState() {
             if (err === 'Room not found' && pvpAcceptDeadlineMs > 0) {
                 pvpRoomId = null;
                 showScreen('waiting');
+                showBottomNotice('Пользователь не принял матч');
                 pvpFindMatch();
             }
             return;

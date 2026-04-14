@@ -610,6 +610,7 @@ const GamePage = () => {
           setAcceptInfo(null);
           setAcceptSent(false);
           setScreen('waiting');
+          showBottomNotice('Пользователь не принял матч');
           startSearchOnline();
         }
         return;

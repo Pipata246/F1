@@ -3087,7 +3087,14 @@ async function pvpGetRoomState(initData, roomId) {
   }
   const nextState = asObj(nextRoom?.state_json);
   if (String(nextRoom?.status || "") === "active" && String(nextState.phase || "") === "accept_timeout") {
+    const am = asObj(nextState.acceptMatch);
+    const side = getPvpSide(nextRoom, tgId);
+    const callerAccepted = side === "p1" ? !!am.p1Accepted : !!am.p2Accepted;
     await pvpCancelRooms([nextRoom.id]);
+    if (callerAccepted) {
+      const requeued = await pvpFindMatch(initData, room.game_key, safeName, stakeOptionsFromRoom(room));
+      return requeued;
+    }
     throw new Error("ACCEPT_TIMEOUT");
   }
   return finalizePvpRoomIfNeeded(nextRoom);
