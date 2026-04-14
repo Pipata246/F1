@@ -120,7 +120,7 @@ const GamePage = () => {
     paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
     boxSizing: 'border-box',
   };
-  const [screen, setScreen] = useState('menu');
+  const [screen, setScreen] = useState('stake-online');
   /** Имя с бэка (authSession.display_name), из Telegram */
   const [displayName, setDisplayName] = useState('Player');
   const [opponent, setOpponent] = useState('');
@@ -211,6 +211,9 @@ const GamePage = () => {
     setBottomNotice(String(msg || ''));
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = setTimeout(() => setBottomNotice(''), 2200);
+  }, []);
+  const goHome = useCallback(() => {
+    window.location.href = '/';
   }, []);
 
 
@@ -758,7 +761,7 @@ const GamePage = () => {
     }
     playModeRef.current = 'idle';
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    setScreen('menu');
+    goHome();
   };
 
   const handleChooseZone = (zone) => {
@@ -781,7 +784,7 @@ const GamePage = () => {
     setHistory([]);
     stopPvpPolling();
     pvpRoomIdRef.current = null;
-    setScreen('menu');
+    goHome();
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
   };
 
@@ -914,46 +917,7 @@ const GamePage = () => {
 
   const darkBg = "bg-[#121214]";
 
-  // --- MENU ---
-  if (screen === 'menu') {
-    return (
-      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none relative`} style={safeFrameStyle}>
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,_rgba(59,130,246,0.08),_transparent_70%)] pointer-events-none" />
-
-        <div className="z-10 flex flex-col items-center gap-6 w-full max-w-xs px-4">
-          <button onClick={() => window.history.back()} className="self-start text-gray-400 hover:text-white text-sm transition-colors mb-2">← Назад</button>
-          <h1 className="text-4xl font-black text-white tracking-tight">
-            Super<span className="text-yellow-400">Penallity</span>
-          </h1>
-          <p className="text-gray-500 text-sm -mt-4">PvP Penalty Shootout</p>
-
-          <p className="text-gray-400 text-sm text-center w-full truncate px-2" title={displayName}>
-            Играешь как: <span className="text-white font-semibold">{displayName}</span>
-          </p>
-          <button
-            onClick={() => setScreen('stake-online')}
-            className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20"
-          >
-            Играть
-          </button>
-          <button
-            onClick={() => startSearchBot()}
-            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
-          >
-            Играть ДЭМО
-          </button>
-          <button onClick={() => { window.location.hash = '#/profile'; }} className="text-gray-500 hover:text-gray-300 text-sm mt-2 transition-colors">
-            Профиль
-          </button>
-        </div>
-        {!!bottomNotice && (
-          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
-            {bottomNotice}
-          </div>
-        )}
-      </div>
-    );
-  }
+  if (screen === 'menu') return null;
 
   // --- WAITING ---
   if (screen === 'waiting') {
@@ -1000,7 +964,7 @@ const GamePage = () => {
               })}
             </div>
             <button onClick={() => startSearchOnline()} className="w-full mt-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
-            <button onClick={() => setScreen('menu')} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
+            <button onClick={() => goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
           </div>
           {!!bottomNotice && (
             <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
