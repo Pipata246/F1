@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', function() {
   $('btn-find').onclick = function() { startSearchOnline(); };
   if ($('btn-bot')) $('btn-bot').onclick = function() { openDemoIntro(); };
   if ($('btn-demo-play')) $('btn-demo-play').onclick = function() { startSearchBot(); };
-  if ($('btn-demo-back')) $('btn-demo-back').onclick = function() { showScreen('start'); };
+  if ($('btn-demo-back')) $('btn-demo-back').onclick = function() { window.location.href = '/'; };
   ensureStakePicker();
   setStakePickerVisible(false);
   refreshBalanceForStakePicker();

@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-find').onclick = () => startGame(false);
     if ($('btn-bot')) $('btn-bot').onclick = () => openDemoIntro();
     if ($('btn-demo-play')) $('btn-demo-play').onclick = () => startGame(true);
-    if ($('btn-demo-back')) $('btn-demo-back').onclick = () => showScreen('start');
+    if ($('btn-demo-back')) $('btn-demo-back').onclick = () => window.location.href = '/';
     ensureStakePicker();
     setStakePickerVisible(false);
     refreshBalanceForStakePicker();
