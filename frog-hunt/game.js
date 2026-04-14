@@ -136,7 +136,9 @@ document.addEventListener('DOMContentLoaded', function() {
   startPresenceLoop();
 
   $('btn-find').onclick = function() { startSearchOnline(); };
-  if ($('btn-bot')) $('btn-bot').onclick = function() { startSearchBot(); };
+  if ($('btn-bot')) $('btn-bot').onclick = function() { openDemoIntro(); };
+  if ($('btn-demo-play')) $('btn-demo-play').onclick = function() { startSearchBot(); };
+  if ($('btn-demo-back')) $('btn-demo-back').onclick = function() { showScreen('start'); };
   ensureStakePicker();
   setStakePickerVisible(false);
   refreshBalanceForStakePicker();
@@ -150,7 +152,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   var launchMode = String(urlParams.get('launch') || '').toLowerCase();
   if (launchMode === 'demo') {
-    setTimeout(function() { startSearchBot(); }, 0);
+    setTimeout(function() { openDemoIntro(); }, 0);
   } else if (launchMode === 'play') {
     setTimeout(function() { startSearchOnline(); }, 0);
   }
@@ -319,9 +321,11 @@ function beginOnlineSearch() {
   syncMyNameFromServer(proceed);
 }
 
+function openDemoIntro() {
+  showScreen('demo');
+}
+
 function startSearchBot() {
-  var ok = window.confirm('ДЭМО режим: тренировка против бота без TON-ставки.\n\nНажми "ОК", чтобы начать.');
-  if (!ok) return;
   onlineModeSelected = false;
   isBotMode = true;
   currentStakeTon = null;

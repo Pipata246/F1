@@ -85,7 +85,6 @@ const GamePage = () => {
   const [announce, setAnnounce] = useState(null);
   const [selectedDistance, setSelectedDistance] = useState(null);
   const [roundResolving, setRoundResolving] = useState(false);
-  const [demoIntroOpen, setDemoIntroOpen] = useState(false);
   const [acceptInfo, setAcceptInfo] = useState(null);
   const [acceptSent, setAcceptSent] = useState(false);
   const [acceptTick, setAcceptTick] = useState(0);
@@ -749,7 +748,7 @@ const GamePage = () => {
     if (launchMode !== 'play' && launchMode !== 'demo') return;
     launchHandledRef.current = true;
     if (launchMode === 'demo') {
-      setDemoIntroOpen(true);
+      setScreen('demo-intro');
     } else {
       setScreen('stake-online');
     }
@@ -759,6 +758,20 @@ const GamePage = () => {
   const myName=displayName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
 
   if(screen==='menu') return null;
+
+  if (screen==='demo-intro') return (
+    <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
+      <div className="z-10 w-full max-w-sm px-5 text-center">
+        <h1 className="text-3xl text-white uppercase tracking-widest">ДЭМО РЕЖИМ</h1>
+        <p className="text-gray-300 text-sm mt-3 leading-relaxed">
+          Тренировочная игра против бота в стиле Streetball. Без TON-ставок:
+          можно спокойно тестировать дистанции и ритм бросков.
+        </p>
+        <button onClick={()=>findGameBot()} className="w-full mt-5 bg-emerald-500 text-black py-3 rounded-xl uppercase tracking-wider">Играть</button>
+        <button onClick={()=>goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Назад</button>
+      </div>
+    </div>
+  );
 
   if (screen==='accept' && acceptInfo) {
     const leftSec = Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0);
@@ -815,16 +828,6 @@ const GamePage = () => {
         {!!bottomNotice && (
           <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
             {bottomNotice}
-          </div>
-        )}
-        {demoIntroOpen && (
-          <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-[#151519] border border-white/10 rounded-2xl p-5">
-              <p className="text-white font-bold uppercase tracking-wider">ДЭМО режим</p>
-              <p className="text-gray-300 text-sm mt-2">Кратко: тренировка против бота без TON-ставки. Нажми "Играть", чтобы начать.</p>
-              <button onClick={() => { setDemoIntroOpen(false); findGameBot(); }} className="w-full mt-4 bg-emerald-500 text-black py-3 rounded-xl uppercase tracking-wider">Играть</button>
-              <button onClick={() => { setDemoIntroOpen(false); goHome(); }} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Назад</button>
-            </div>
           </div>
         )}
       </div>

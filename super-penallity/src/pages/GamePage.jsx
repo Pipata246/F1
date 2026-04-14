@@ -155,7 +155,6 @@ const GamePage = () => {
   const [currentStakeTon, setCurrentStakeTon] = useState(null);
   const [balanceTon, setBalanceTon] = useState(0);
   const [bottomNotice, setBottomNotice] = useState('');
-  const [demoIntroOpen, setDemoIntroOpen] = useState(false);
   const [acceptInfo, setAcceptInfo] = useState(null);
   const [acceptSent, setAcceptSent] = useState(false);
   const [acceptTick, setAcceptTick] = useState(0);
@@ -947,7 +946,7 @@ const GamePage = () => {
     if (launchMode !== 'play' && launchMode !== 'demo') return;
     launchHandledRef.current = true;
     if (launchMode === 'demo') {
-      setDemoIntroOpen(true);
+      setScreen('demo-intro');
     } else {
       setScreen('stake-online');
     }
@@ -958,6 +957,22 @@ const GamePage = () => {
   const darkBg = "bg-[#121214]";
 
   if (screen === 'menu') return null;
+
+  if (screen === 'demo-intro') {
+    return (
+      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
+        <div className="z-10 w-full max-w-sm px-5 text-center">
+          <h1 className="text-3xl font-black text-white">ДЭМО РЕЖИМ</h1>
+          <p className="text-gray-300 text-sm mt-3 leading-relaxed">
+            Тренировка против бота в стиле пенальти. Без TON-ставок:
+            можно спокойно тестировать тактику и тайминг ударов.
+          </p>
+          <button onClick={() => startSearchBot()} className="w-full mt-5 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
+          <button onClick={() => goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
+        </div>
+      </div>
+    );
+  }
 
   if (screen === 'accept' && acceptInfo) {
     const leftSec = Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0);
@@ -1029,16 +1044,6 @@ const GamePage = () => {
           {!!bottomNotice && (
             <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
               {bottomNotice}
-            </div>
-          )}
-          {demoIntroOpen && (
-            <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4">
-              <div className="w-full max-w-sm bg-[#151519] border border-white/10 rounded-2xl p-5">
-                <p className="text-white font-black text-lg">ДЭМО режим</p>
-                <p className="text-gray-300 text-sm mt-2">Кратко: тренировка против бота без TON-ставки. Нажми "Играть", чтобы начать.</p>
-                <button onClick={() => { setDemoIntroOpen(false); startSearchBot(); }} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
-                <button onClick={() => { setDemoIntroOpen(false); goHome(); }} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
-              </div>
             </div>
           )}
         </div>

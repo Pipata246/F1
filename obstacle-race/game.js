@@ -139,7 +139,9 @@ document.addEventListener('DOMContentLoaded', () => {
     startPresenceLoop();
 
     $('btn-find').onclick = () => startGame(false);
-    if ($('btn-bot')) $('btn-bot').onclick = () => startGame(true);
+    if ($('btn-bot')) $('btn-bot').onclick = () => openDemoIntro();
+    if ($('btn-demo-play')) $('btn-demo-play').onclick = () => startGame(true);
+    if ($('btn-demo-back')) $('btn-demo-back').onclick = () => showScreen('start');
     ensureStakePicker();
     setStakePickerVisible(false);
     refreshBalanceForStakePicker();
@@ -169,11 +171,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const launchMode = String(urlParams.get('launch') || '').toLowerCase();
     if (launchMode === 'demo') {
-        setTimeout(() => startGame(true), 0);
+        setTimeout(() => openDemoIntro(), 0);
     } else if (launchMode === 'play') {
         setTimeout(() => startGame(false), 0);
     }
 });
+
+function openDemoIntro() {
+    showScreen('demo');
+}
 
 function connect(cb) {
     if (cb) cb();
@@ -619,8 +625,6 @@ function startGame(vsBot) {
         return;
     }
     if (isBotMode) {
-        var ok = window.confirm('ДЭМО режим: тренировка против бота без TON-ставки.\n\nНажми "ОК", чтобы начать.');
-        if (!ok) return;
         onlineModeSelected = false;
         if ($('btn-find')) $('btn-find').style.display = '';
         if ($('btn-bot')) $('btn-bot').style.display = '';
