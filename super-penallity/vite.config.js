@@ -6,6 +6,11 @@ export default defineConfig({
   plugins: [react()],
   // Собранное приложение лежит в /super-penallity/dist/ — иначе в корне остаётся старый захардкоженный бандл.
   base: '/super-penallity/',
+  build: {
+    outDir: 'assets',
+    assetsDir: '',
+    emptyOutDir: false,
+  },
   server: {
     proxy: {
       '/api': 'http://localhost:3001',
