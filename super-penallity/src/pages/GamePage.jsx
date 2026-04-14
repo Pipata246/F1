@@ -155,6 +155,10 @@ const GamePage = () => {
   const [currentStakeTon, setCurrentStakeTon] = useState(null);
   const [balanceTon, setBalanceTon] = useState(0);
   const [bottomNotice, setBottomNotice] = useState('');
+  const [demoIntroOpen, setDemoIntroOpen] = useState(false);
+  const [acceptInfo, setAcceptInfo] = useState(null);
+  const [acceptSent, setAcceptSent] = useState(false);
+  const [acceptTick, setAcceptTick] = useState(0);
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -216,6 +220,12 @@ const GamePage = () => {
     window.location.href = '/';
   }, []);
 
+
+  useEffect(() => {
+    if (screen !== 'accept') return undefined;
+    const id = setInterval(() => setAcceptTick((v) => v + 1), 500);
+    return () => clearInterval(id);
+  }, [screen]);
 
   useEffect(() => {
     const ping = () => {
@@ -481,6 +491,21 @@ const GamePage = () => {
   }, []);
 
   const applyPvpRoomState = useCallback((room) => {
+    if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
+      const am = s.acceptMatch || {};
+      const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+      const meIsP1Accept = String(room.player1_tg_user_id || '') === myTgAccept;
+      const accepted = meIsP1Accept ? !!am.p1Accepted : !!am.p2Accepted;
+      setAcceptSent(accepted);
+      setAcceptInfo({
+        p1: room.player1_name || 'Игрок 1',
+        p2: room.player2_name || 'Игрок 2',
+        stake: room.stake_ton != null ? Number(room.stake_ton) : null,
+        deadlineMs: Number(am.deadlineMs || 0),
+      });
+      setScreen('accept');
+      return;
+    }
     if (!room) return;
     const s = room.state_json || {};
     if (String(room.status) === 'waiting') {
@@ -734,6 +759,21 @@ const GamePage = () => {
     }, 650);
   };
 
+  const acceptCurrentMatch = useCallback(() => {
+    if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
+    setAcceptSent(true);
+    apiPost({
+      action: 'pvpAcceptMatch',
+      initData: tgInitDataRef.current,
+      roomId: pvpRoomIdRef.current,
+    }).then((data) => {
+      if (data?.ok && data.room) applyPvpRoomState(data.room);
+    }).catch(() => {
+      setAcceptSent(false);
+      showBottomNotice('Не удалось подтвердить матч');
+    });
+  }, [apiPost, applyPvpRoomState, showBottomNotice]);
+
   const handleCancelWait = () => {
     if (pvpFindRetryTimerRef.current) {
       clearTimeout(pvpFindRetryTimerRef.current);
@@ -907,7 +947,7 @@ const GamePage = () => {
     if (launchMode !== 'play' && launchMode !== 'demo') return;
     launchHandledRef.current = true;
     if (launchMode === 'demo') {
-      startSearchBot();
+      setDemoIntroOpen(true);
     } else {
       setScreen('stake-online');
     }
@@ -918,6 +958,26 @@ const GamePage = () => {
   const darkBg = "bg-[#121214]";
 
   if (screen === 'menu') return null;
+
+  if (screen === 'accept' && acceptInfo) {
+    const leftSec = Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0);
+    return (
+      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
+        <div className="z-10 w-full max-w-sm px-5">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center">
+            <p className="text-white text-lg font-black">Подтверди матч</p>
+            <p className="text-gray-300 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
+            {acceptInfo.stake != null && <p className="text-emerald-300 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
+            <p className="text-gray-400 text-xs mt-2">Осталось: {leftSec}с</p>
+            <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-black font-black py-3 rounded-xl">
+              {acceptSent ? 'Ожидаем второго игрока...' : 'Принять'}
+            </button>
+            <button onClick={handleCancelWait} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Отмена</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // --- WAITING ---
   if (screen === 'waiting') {
@@ -969,6 +1029,16 @@ const GamePage = () => {
           {!!bottomNotice && (
             <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
               {bottomNotice}
+            </div>
+          )}
+          {demoIntroOpen && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4">
+              <div className="w-full max-w-sm bg-[#151519] border border-white/10 rounded-2xl p-5">
+                <p className="text-white font-black text-lg">ДЭМО режим</p>
+                <p className="text-gray-300 text-sm mt-2">Кратко: тренировка против бота без TON-ставки. Нажми "Играть", чтобы начать.</p>
+                <button onClick={() => { setDemoIntroOpen(false); startSearchBot(); }} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
+                <button onClick={() => { setDemoIntroOpen(false); goHome(); }} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
+              </div>
             </div>
           )}
         </div>

@@ -85,6 +85,10 @@ const GamePage = () => {
   const [announce, setAnnounce] = useState(null);
   const [selectedDistance, setSelectedDistance] = useState(null);
   const [roundResolving, setRoundResolving] = useState(false);
+  const [demoIntroOpen, setDemoIntroOpen] = useState(false);
+  const [acceptInfo, setAcceptInfo] = useState(null);
+  const [acceptSent, setAcceptSent] = useState(false);
+  const [acceptTick, setAcceptTick] = useState(0);
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -153,6 +157,12 @@ const GamePage = () => {
   const goHome = useCallback(() => {
     window.location.href = '/';
   }, []);
+  useEffect(() => {
+    if (screen !== 'accept') return undefined;
+    const id = setInterval(() => setAcceptTick((v) => v + 1), 500);
+    return () => clearInterval(id);
+  }, [screen]);
+
   useEffect(() => {
     const ping = () => {
       const init = tgInitDataRef.current;
@@ -369,6 +379,20 @@ const GamePage = () => {
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
     const s = room.state_json || {};
+    if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
+      const am = s.acceptMatch || {};
+      const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+      const meIsP1Accept = String(room.player1_tg_user_id || '') === myTgAccept;
+      setAcceptSent(meIsP1Accept ? !!am.p1Accepted : !!am.p2Accepted);
+      setAcceptInfo({
+        p1: room.player1_name || 'Игрок 1',
+        p2: room.player2_name || 'Игрок 2',
+        stake: room.stake_ton != null ? Number(room.stake_ton) : null,
+        deadlineMs: Number(am.deadlineMs || 0),
+      });
+      setScreen('accept');
+      return;
+    }
     if (String(room.status) === 'waiting') { setScreen('waiting'); return; }
     if (String(room.status) === 'active' && !room.player2_tg_user_id) { setScreen('waiting'); return; }
 
@@ -622,6 +646,21 @@ const GamePage = () => {
     localOnClientMessage('find_bot', { name: n, tgUserId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null });
   };
 
+  const acceptCurrentMatch = useCallback(() => {
+    if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
+    setAcceptSent(true);
+    apiPost({
+      action: 'pvpAcceptMatch',
+      initData: tgInitDataRef.current,
+      roomId: pvpRoomIdRef.current,
+    }).then((data) => {
+      if (data?.ok && data.room) applyPvpRoomState(data.room);
+    }).catch(() => {
+      setAcceptSent(false);
+      showBottomNotice('Не удалось подтвердить матч');
+    });
+  }, [apiPost, applyPvpRoomState, showBottomNotice]);
+
   const cancelWait = () => {
     clearPending();
     const mode = playModeRef.current;
@@ -710,7 +749,7 @@ const GamePage = () => {
     if (launchMode !== 'play' && launchMode !== 'demo') return;
     launchHandledRef.current = true;
     if (launchMode === 'demo') {
-      findGameBot();
+      setDemoIntroOpen(true);
     } else {
       setScreen('stake-online');
     }
@@ -720,6 +759,26 @@ const GamePage = () => {
   const myName=displayName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
 
   if(screen==='menu') return null;
+
+  if (screen==='accept' && acceptInfo) {
+    const leftSec = Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0);
+    return (
+      <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
+        <div className="w-full max-w-sm px-5">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center">
+            <p className="text-white text-lg uppercase tracking-wider">Подтверди матч</p>
+            <p className="text-gray-300 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
+            {acceptInfo.stake != null && <p className="text-emerald-300 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
+            <p className="text-gray-400 text-xs mt-2">Осталось: {leftSec}с</p>
+            <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-black py-3 rounded-xl uppercase tracking-wider">
+              {acceptSent ? 'Ожидаем второго игрока...' : 'Принять'}
+            </button>
+            <button onClick={cancelWait} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Отмена</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if(screen==='stake-online') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
@@ -756,6 +815,16 @@ const GamePage = () => {
         {!!bottomNotice && (
           <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
             {bottomNotice}
+          </div>
+        )}
+        {demoIntroOpen && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-[#151519] border border-white/10 rounded-2xl p-5">
+              <p className="text-white font-bold uppercase tracking-wider">ДЭМО режим</p>
+              <p className="text-gray-300 text-sm mt-2">Кратко: тренировка против бота без TON-ставки. Нажми "Играть", чтобы начать.</p>
+              <button onClick={() => { setDemoIntroOpen(false); findGameBot(); }} className="w-full mt-4 bg-emerald-500 text-black py-3 rounded-xl uppercase tracking-wider">Играть</button>
+              <button onClick={() => { setDemoIntroOpen(false); goHome(); }} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Назад</button>
+            </div>
           </div>
         )}
       </div>
