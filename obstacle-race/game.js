@@ -164,6 +164,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     generateTrapTrack();
     generateGameTracks(7);
+
+    const launchMode = String(urlParams.get('launch') || '').toLowerCase();
+    if (launchMode === 'demo') {
+        setTimeout(() => startGame(true), 0);
+    } else if (launchMode === 'play') {
+        setTimeout(() => startGame(false), 0);
+    }
 });
 
 function connect(cb) {

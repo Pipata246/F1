@@ -172,6 +172,7 @@ const GamePage = () => {
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
+  const launchHandledRef = useRef(false);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
 
@@ -896,6 +897,18 @@ const GamePage = () => {
       }),
     }).catch(() => { matchSavedRef.current = false; });
   };
+
+  useEffect(() => {
+    if (launchHandledRef.current) return;
+    const launchMode = String(new URLSearchParams(window.location.search).get('launch') || '').toLowerCase();
+    if (launchMode !== 'play' && launchMode !== 'demo') return;
+    launchHandledRef.current = true;
+    if (launchMode === 'demo') {
+      startSearchBot();
+    } else {
+      setScreen('stake-online');
+    }
+  }, []);
 
   // ==================== RENDER ====================
 

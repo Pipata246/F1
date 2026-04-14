@@ -145,6 +145,13 @@ document.addEventListener('DOMContentLoaded', function() {
   $('btn-menu').onclick = function() { window.location.href = '/'; };
   window.addEventListener('pagehide', function() { leavePvpQueue(); presenceLeaveNet(); });
   window.addEventListener('beforeunload', function() { leavePvpQueue(); presenceLeaveNet(); });
+
+  var launchMode = String(urlParams.get('launch') || '').toLowerCase();
+  if (launchMode === 'demo') {
+    setTimeout(function() { startSearchBot(); }, 0);
+  } else if (launchMode === 'play') {
+    setTimeout(function() { startSearchOnline(); }, 0);
+  }
 });
 
 function showScreen(name) {

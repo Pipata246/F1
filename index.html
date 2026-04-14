@@ -679,6 +679,12 @@
               </div>
             </div>
           </div>
+          <div class="divider"></div>
+          <div class="small text2" style="margin-bottom:8px">Режим запуска для всех игр</div>
+          <div class="row" style="gap:8px">
+            <button type="button" class="btn primary" id="gamesModePlay" style="flex:1">Играть</button>
+            <button type="button" class="btn ghost" id="gamesModeDemo" style="flex:1">Дэмо</button>
+          </div>
         </div>
 
         <!-- Frog Hunt PvP -->
@@ -1594,21 +1600,54 @@
   const PENALTY_API = "https://humble-happiness-production-2f85.up.railway.app";
   const BASKETBALL_API = "https://pretty-curiosity-production-6fb5.up.railway.app";
 
+  const GAMES_LAUNCH_MODE_KEY = "f1duel_games_launch_mode_v1";
+  let gamesLaunchMode = (()=>{
+    try{
+      const raw = String(sessionStorage.getItem(GAMES_LAUNCH_MODE_KEY) || "").toLowerCase();
+      return raw === "demo" ? "demo" : "play";
+    }catch(e){ return "play"; }
+  })();
+  const gamesModePlayBtn = document.getElementById("gamesModePlay");
+  const gamesModeDemoBtn = document.getElementById("gamesModeDemo");
+  function renderGamesLaunchMode(){
+    const isDemo = gamesLaunchMode === "demo";
+    if(gamesModePlayBtn){
+      gamesModePlayBtn.classList.toggle("primary", !isDemo);
+      gamesModePlayBtn.classList.toggle("ghost", isDemo);
+    }
+    if(gamesModeDemoBtn){
+      gamesModeDemoBtn.classList.toggle("primary", isDemo);
+      gamesModeDemoBtn.classList.toggle("ghost", !isDemo);
+    }
+  }
+  function setGamesLaunchMode(mode){
+    gamesLaunchMode = mode === "demo" ? "demo" : "play";
+    try{ sessionStorage.setItem(GAMES_LAUNCH_MODE_KEY, gamesLaunchMode); }catch(e){}
+    renderGamesLaunchMode();
+  }
+  function gameLaunchUrl(basePath){
+    const mode = gamesLaunchMode === "demo" ? "demo" : "play";
+    return `${basePath}?launch=${encodeURIComponent(mode)}`;
+  }
+  gamesModePlayBtn?.addEventListener("click", ()=>{ hImpact("light"); setGamesLaunchMode("play"); });
+  gamesModeDemoBtn?.addEventListener("click", ()=>{ hImpact("light"); setGamesLaunchMode("demo"); });
+  renderGamesLaunchMode();
+
   document.getElementById("openFrogHunt").onclick = ()=>{
     hImpact("light");
-    window.location.href = "/frog-hunt/";
+    window.location.href = gameLaunchUrl("/frog-hunt/");
   };
   document.getElementById("openObstacleRace").onclick = ()=>{
     hImpact("light");
-    window.location.href = "/obstacle-race/";
+    window.location.href = gameLaunchUrl("/obstacle-race/");
   };
   document.getElementById("openPenalty").onclick = ()=>{
     hImpact("light");
-    window.location.href = "/super-penallity/";
+    window.location.href = gameLaunchUrl("/super-penallity/");
   };
   document.getElementById("openBasketball").onclick = ()=>{
     hImpact("light");
-    window.location.href = "/basketball-pvp/";
+    window.location.href = gameLaunchUrl("/basketball-pvp/");
   };
 
   function setProfileStatsPlaceholder(noSession){

@@ -107,6 +107,7 @@ const GamePage = () => {
   const choiceLockedRef = useRef(false);
   const roundResolvingRef = useRef(false);
   const noticeTimerRef = useRef(null);
+  const launchHandledRef = useRef(false);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { scoresRef.current = scores; }, [scores]);
@@ -699,6 +700,18 @@ const GamePage = () => {
       }),
     }).catch(() => { matchSavedRef.current = false; });
   }
+
+  useEffect(() => {
+    if (launchHandledRef.current) return;
+    const launchMode = String(new URLSearchParams(window.location.search).get('launch') || '').toLowerCase();
+    if (launchMode !== 'play' && launchMode !== 'demo') return;
+    launchHandledRef.current = true;
+    if (launchMode === 'demo') {
+      findGameBot();
+    } else {
+      setScreen('stake-online');
+    }
+  }, []);
 
   // ============ RENDER ============
   const myName=displayName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
