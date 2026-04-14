@@ -79,9 +79,16 @@
         <div class="center-content">
             <div class="spinner"></div>
             <h2>Ищем соперника...</h2>
-            <p id="accept-info" style="display:none;font-size:13px;opacity:.9;margin-top:8px"></p>
-            <button class="btn primary" id="btn-accept" style="display:none">Принять</button>
             <button class="btn secondary" id="btn-cancel">Отмена</button>
+        </div>
+        <div id="accept-modal" style="display:none;position:absolute;inset:0;background:rgba(8,10,18,.74);backdrop-filter:blur(2px);z-index:20;align-items:center;justify-content:center;padding:16px">
+            <div style="width:100%;max-width:360px;background:linear-gradient(180deg,#2a2f52,#1d213f);border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:14px;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,.45)">
+                <p style="font-weight:900;letter-spacing:.04em;margin:2px 0 8px">Матч найден</p>
+                <p id="accept-info" style="font-size:13px;opacity:.95;margin:0 0 8px"></p>
+                <p id="accept-timer" style="font-size:24px;font-weight:900;color:#8ef0b2;margin:0 0 10px">10с</p>
+                <button class="btn primary" id="btn-accept" style="width:100%">Принять</button>
+                <button class="btn secondary" id="btn-accept-cancel" style="width:100%;margin-top:8px">Отменить</button>
+            </div>
         </div>
     </div>
 

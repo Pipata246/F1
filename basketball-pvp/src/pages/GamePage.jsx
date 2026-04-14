@@ -389,7 +389,7 @@ const GamePage = () => {
         stake: room.stake_ton != null ? Number(room.stake_ton) : null,
         deadlineMs: Number(am.deadlineMs || 0),
       });
-      setScreen('accept');
+      setScreen('waiting');
       return;
     }
     if (String(room.status) === 'waiting') { setScreen('waiting'); return; }
@@ -467,11 +467,28 @@ const GamePage = () => {
       initData: tgInitDataRef.current,
       roomId: pvpRoomIdRef.current,
     }).then((data) => {
-      if (data?.ok && data.room) applyPvpRoomState(data.room);
+      if (!data?.ok) {
+        const err = String(data?.error || '');
+        if (err === 'ACCEPT_TIMEOUT') {
+          stopPvpPolling();
+          pvpRoomIdRef.current = null;
+          goHome();
+          return;
+        }
+        if (err === 'Room not found' && acceptInfo) {
+          pvpRoomIdRef.current = null;
+          setAcceptInfo(null);
+          setAcceptSent(false);
+          setScreen('waiting');
+          findGameOnline();
+        }
+        return;
+      }
+      if (data.room) applyPvpRoomState(data.room);
     }).catch(() => {}).finally(() => {
       pvpPollInFlightRef.current = false;
     });
-  }, [apiPost, applyPvpRoomState]);
+  }, [apiPost, applyPvpRoomState, stopPvpPolling, goHome, acceptInfo]);
 
   const startPvpPolling = useCallback(() => {
     stopPvpPolling();
@@ -660,6 +677,22 @@ const GamePage = () => {
     });
   }, [apiPost, applyPvpRoomState, showBottomNotice]);
 
+  const declineAcceptAndKeepSearch = useCallback(() => {
+    if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
+    const rid = pvpRoomIdRef.current;
+    setAcceptInfo(null);
+    setAcceptSent(false);
+    setScreen('waiting');
+    apiPost({
+      action: 'pvpDeclineAccept',
+      initData: tgInitDataRef.current,
+      roomId: rid,
+    }).finally(() => {
+      pvpRoomIdRef.current = null;
+      findGameOnline();
+    });
+  }, [apiPost, findGameOnline]);
+
   const cancelWait = () => {
     clearPending();
     const mode = playModeRef.current;
@@ -773,26 +806,6 @@ const GamePage = () => {
     </div>
   );
 
-  if (screen==='accept' && acceptInfo) {
-    const leftSec = Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0);
-    return (
-      <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
-        <div className="w-full max-w-sm px-5">
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center">
-            <p className="text-white text-lg uppercase tracking-wider">Подтверди матч</p>
-            <p className="text-gray-300 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
-            {acceptInfo.stake != null && <p className="text-emerald-300 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
-            <p className="text-gray-400 text-xs mt-2">Осталось: {leftSec}с</p>
-            <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-black py-3 rounded-xl uppercase tracking-wider">
-              {acceptSent ? 'Ожидаем второго игрока...' : 'Принять'}
-            </button>
-            <button onClick={cancelWait} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Отмена</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if(screen==='stake-online') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
       <div className="z-10 flex flex-col items-center gap-5 w-full max-w-sm px-5">
@@ -840,6 +853,20 @@ const GamePage = () => {
       <p className="text-white text-3xl uppercase tracking-widest mt-6">ИЩЕМ...</p>
       {!!selectedStakeOptions.length && <p className="text-gray-400 text-sm uppercase mt-2">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
       <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>
+      {!!acceptInfo && (
+        <div className="fixed inset-0 z-[999] bg-black/65 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-gradient-to-b from-[#3a3158] to-[#241d3f] border border-white/20 rounded-2xl p-5 text-center shadow-2xl">
+            <p className="text-white text-lg uppercase tracking-wider">Матч найден</p>
+            <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
+            {acceptInfo.stake != null && <p className="text-emerald-300 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
+            <p className="text-emerald-300 text-3xl font-black mt-2">{Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0)}с</p>
+            <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-black py-3 rounded-xl uppercase tracking-wider">
+              {acceptSent ? 'Ожидаем второго игрока...' : 'Принять'}
+            </button>
+            <button onClick={declineAcceptAndKeepSearch} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Отменить</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 

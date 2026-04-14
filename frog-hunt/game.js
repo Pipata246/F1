@@ -35,6 +35,7 @@ var currentBalanceTon = 0;
 var bottomNoticeTimer = null;
 var onlineModeSelected = false;
 var pvpAcceptSent = false;
+var pvpAcceptDeadlineMs = 0;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -144,6 +145,7 @@ document.addEventListener('DOMContentLoaded', function() {
   refreshBalanceForStakePicker();
   $('btn-cancel').onclick = function() { leavePvpQueue(); showScreen('start'); };
   if ($('btn-accept')) $('btn-accept').onclick = function() { pvpAcceptMatchNow(); };
+  if ($('btn-accept-cancel')) $('btn-accept-cancel').onclick = function() { pvpDeclineAcceptAndKeepSearch(); };
   $('btn-confirm').onclick = confirmChoice;
   $('btn-again').onclick = function() { isBotMode ? startSearchBot() : startSearchOnline(); };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
@@ -168,9 +170,9 @@ function showScreen(name) {
     setStakePickerVisible(false);
   }
   if (name === 'waiting') {
-    if ($('btn-accept')) $('btn-accept').style.display = 'none';
-    if ($('accept-info')) $('accept-info').style.display = 'none';
+    if ($('accept-modal')) $('accept-modal').style.display = 'none';
     pvpAcceptSent = false;
+    pvpAcceptDeadlineMs = 0;
   }
 }
 
@@ -482,7 +484,22 @@ function pvpPollState() {
     initData: tgInitData,
     roomId: pvpRoomId
   }).then(function(data) {
-    if (!data || !data.ok || !data.room) return;
+    if (!data || !data.ok) {
+      var err = String((data && data.error) || '');
+      if (err === 'ACCEPT_TIMEOUT') {
+        stopPvpPolling();
+        pvpRoomId = null;
+        window.location.href = '/';
+        return;
+      }
+      if (err === 'Room not found' && pvpAcceptDeadlineMs > 0) {
+        pvpRoomId = null;
+        showScreen('waiting');
+        pvpFindMatch();
+      }
+      return;
+    }
+    if (!data.room) return;
     applyPvpRoomState(data.room);
   }).catch(function() {}).finally(function() {
     pvpPollInFlight = false;
@@ -533,22 +550,22 @@ function applyPvpRoomState(room) {
     var accepted = meIsP1Accept ? !!am.p1Accepted : !!am.p2Accepted;
     pvpAcceptSent = accepted;
     if ($('btn-accept')) {
-      $('btn-accept').style.display = '';
       $('btn-accept').textContent = accepted ? 'Ожидаем второго игрока...' : 'Принять';
       $('btn-accept').disabled = !!accepted;
     }
+    pvpAcceptDeadlineMs = Number(am.deadlineMs || 0);
     if ($('accept-info')) {
-      var secLeft = Math.max(0, Math.ceil((Number(am.deadlineMs || 0) - Date.now()) / 1000));
-      $('accept-info').style.display = '';
       $('accept-info').textContent =
         (room.player1_name || 'Игрок 1') + ' vs ' + (room.player2_name || 'Игрок 2') +
-        (room.stake_ton != null ? (' · ' + Number(room.stake_ton) + ' TON') : '') +
-        ' · ' + secLeft + 'с';
+        (room.stake_ton != null ? (' · ' + Number(room.stake_ton) + ' TON') : '');
     }
     $('hint-text').textContent = 'Подтверди матч';
     showScreen('waiting');
+    if ($('accept-timer')) $('accept-timer').textContent = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000)) + 'с';
+    if ($('accept-modal')) $('accept-modal').style.display = 'flex';
     return;
   }
+  if ($('accept-modal')) $('accept-modal').style.display = 'none';
   var meIsP1 = String(room.player1_tg_user_id) === String(tgUserId);
   var mySide = meIsP1 ? 'p1' : 'p2';
   var oppSide = meIsP1 ? 'p2' : 'p1';
@@ -687,6 +704,23 @@ function pvpAcceptMatchNow() {
       $('btn-accept').textContent = 'Принять';
     }
     showBottomNotice('Не удалось подтвердить матч');
+  });
+}
+
+function pvpDeclineAcceptAndKeepSearch() {
+  if (!pvpRoomId || !tgInitData) return;
+  var oldId = pvpRoomId;
+  pvpAcceptSent = false;
+  pvpAcceptDeadlineMs = 0;
+  if ($('accept-modal')) $('accept-modal').style.display = 'none';
+  apiPost({
+    action: 'pvpDeclineAccept',
+    initData: tgInitData,
+    roomId: oldId,
+  }).finally(function() {
+    pvpRoomId = null;
+    showScreen('waiting');
+    pvpFindMatch();
   });
 }
 

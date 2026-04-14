@@ -3088,8 +3088,7 @@ async function pvpGetRoomState(initData, roomId) {
   const nextState = asObj(nextRoom?.state_json);
   if (String(nextRoom?.status || "") === "active" && String(nextState.phase || "") === "accept_timeout") {
     await pvpCancelRooms([nextRoom.id]);
-    const requeued = await pvpFindMatch(initData, room.game_key, safeName, stakeOptionsFromRoom(room));
-    return requeued;
+    throw new Error("ACCEPT_TIMEOUT");
   }
   return finalizePvpRoomIfNeeded(nextRoom);
 }
@@ -3140,6 +3139,25 @@ async function pvpAcceptMatch(initData, roomId) {
     if (patched?.length) return patched[0];
   }
   throw new Error("Room update conflict");
+}
+
+async function pvpDeclineAccept(initData, roomId) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const id = Number(roomId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
+  const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
+  const room = rows?.[0];
+  if (!room) throw new Error("Room not found");
+  if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
+  const phase = String(asObj(room.state_json).phase || "");
+  if (String(room.status || "") !== "active" || phase !== "accept_match") {
+    return { declined: false, status: room.status };
+  }
+  await pvpCancelRooms([id]);
+  return { declined: true };
 }
 
 async function pvpSubmitMove(initData, roomId, move) {
@@ -3734,6 +3752,10 @@ module.exports = async (req, res) => {
     if (action === "pvpAcceptMatch") {
       const room = await pvpAcceptMatch(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, room });
+    }
+    if (action === "pvpDeclineAccept") {
+      const result = await pvpDeclineAccept(req.body?.initData || "", req.body?.roomId || 0);
+      return res.status(200).json({ ok: true, ...result });
     }
     if (action === "pvpSubmitMove") {
       const room = await pvpSubmitMove(
