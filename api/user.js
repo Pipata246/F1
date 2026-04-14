@@ -1647,7 +1647,7 @@ const PVP_BOT_WAIT_MIN_MS = 57_000;
 const PVP_BOT_WAIT_SPAN_MS = 10_000; // 57..67 sec
 const PVP_BOT_MOVE_MIN_MS = 1000;
 const PVP_BOT_MOVE_MAX_MS = 3000;
-const PVP_ACCEPT_WINDOW_MS = 10_000;
+const PVP_ACCEPT_WINDOW_MS = 5_000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
 
@@ -3020,11 +3020,26 @@ async function pvpMaybeFallbackToBot(room, tgId) {
   }
 }
 
+function pvpAutoStartFromAcceptState(state) {
+  const s = asObj(state);
+  if (String(s.phase || "") !== "accept_match") return s;
+  const am = asObj(s.acceptMatch);
+  const deadlineMs = Number(am.deadlineMs || 0);
+  const now = Date.now();
+  if (!(deadlineMs > 0) || now < deadlineMs) return s;
+  return {
+    ...s,
+    phase: String(am.nextPhase || "turn_input"),
+    phaseAtMs: now,
+    acceptMatch: { ...am, done: true, autoStartedAtMs: now },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 async function pvpGetRoomState(initData, roomId) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
-  const safeName = displayNameFromTg(verified.user).slice(0, 64);
   touchPresenceTgId(tgId);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
@@ -3052,16 +3067,16 @@ async function pvpGetRoomState(initData, roomId) {
     if (patched?.length) nextRoom = patched[0];
   }
   const nextState = asObj(nextRoom?.state_json);
-  if (String(nextRoom?.status || "") === "active" && String(nextState.phase || "") === "accept_timeout") {
-    const am = asObj(nextState.acceptMatch);
-    const side = getPvpSide(nextRoom, tgId);
-    const callerAccepted = side === "p1" ? !!am.p1Accepted : !!am.p2Accepted;
-    await pvpCancelRooms([nextRoom.id]);
-    if (callerAccepted) {
-      const requeued = await pvpFindMatch(initData, room.game_key, safeName, stakeOptionsFromRoom(room));
-      return requeued;
+  if (String(nextRoom?.status || "") === "active" && String(nextState.phase || "") === "accept_match") {
+    const forced = pvpAutoStartFromAcceptState(nextState);
+    if (String(forced.phase || "") !== "accept_match") {
+      const patched = await sb(`pvp_rooms?id=eq.${id}&status=eq.active`, {
+        method: "PATCH",
+        body: { state_json: forced, updated_at: new Date().toISOString() },
+        prefer: "return=representation",
+      });
+      if (patched?.length) nextRoom = patched[0];
     }
-    throw new Error("ACCEPT_TIMEOUT");
   }
   return finalizePvpRoomIfNeeded(nextRoom);
 }
@@ -3721,14 +3736,6 @@ module.exports = async (req, res) => {
     if (action === "pvpGetRoomState") {
       const room = await pvpGetRoomState(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, room });
-    }
-    if (action === "pvpAcceptMatch") {
-      const room = await pvpAcceptMatch(req.body?.initData || "", req.body?.roomId || 0);
-      return res.status(200).json({ ok: true, room });
-    }
-    if (action === "pvpDeclineAccept") {
-      const result = await pvpDeclineAccept(req.body?.initData || "", req.body?.roomId || 0);
-      return res.status(200).json({ ok: true, ...result });
     }
     if (action === "pvpSubmitMove") {
       const room = await pvpSubmitMove(
