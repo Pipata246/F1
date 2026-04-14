@@ -490,6 +490,8 @@ const GamePage = () => {
   }, []);
 
   const applyPvpRoomState = useCallback((room) => {
+    if (!room) return;
+    const s = room.state_json || {};
     if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
       const am = s.acceptMatch || {};
       const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
@@ -505,9 +507,9 @@ const GamePage = () => {
       setScreen('waiting');
       return;
     }
-    if (!room) return;
-    const s = room.state_json || {};
     if (String(room.status) === 'waiting') {
+      setAcceptInfo(null);
+      setAcceptSent(false);
       setScreen('waiting');
       return;
     }
@@ -1021,13 +1023,13 @@ const GamePage = () => {
           </button>
         </div>
         {!!acceptInfo && (
-          <div className="fixed inset-0 z-[999] bg-black/65 backdrop-blur-[2px] flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-gradient-to-b from-[#2d3f83] to-[#1b2754] border border-white/20 rounded-2xl p-5 text-center shadow-2xl">
+          <div className="fixed inset-0 z-[999] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-gradient-to-b from-[#1f6a37] to-[#1a3f2a] border border-emerald-200/35 rounded-2xl p-5 text-center shadow-2xl">
               <p className="text-white text-lg font-black">Матч найден</p>
               <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
-              {acceptInfo.stake != null && <p className="text-emerald-300 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
-              <p className="text-emerald-300 text-3xl font-black mt-2">{leftSec}с</p>
-              <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-black font-black py-3 rounded-xl">
+              {acceptInfo.stake != null && <p className="text-lime-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
+              <p className={`text-3xl font-black mt-2 ${leftSec <= 3 ? 'text-rose-200' : 'text-lime-200'}`}>{leftSec}с</p>
+              <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-lime-300 hover:bg-lime-200 disabled:opacity-60 text-[#12351f] font-black py-3 rounded-xl">
                 {acceptSent ? 'Ожидаем второго игрока...' : 'Принять'}
               </button>
               <button onClick={declineAcceptAndKeepSearch} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Отменить</button>

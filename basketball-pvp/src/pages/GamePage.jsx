@@ -392,7 +392,12 @@ const GamePage = () => {
       setScreen('waiting');
       return;
     }
-    if (String(room.status) === 'waiting') { setScreen('waiting'); return; }
+    if (String(room.status) === 'waiting') {
+      setAcceptInfo(null);
+      setAcceptSent(false);
+      setScreen('waiting');
+      return;
+    }
     if (String(room.status) === 'active' && !room.player2_tg_user_id) { setScreen('waiting'); return; }
 
     const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
@@ -855,12 +860,12 @@ const GamePage = () => {
       <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>
       {!!acceptInfo && (
         <div className="fixed inset-0 z-[999] bg-black/65 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-gradient-to-b from-[#3a3158] to-[#241d3f] border border-white/20 rounded-2xl p-5 text-center shadow-2xl">
+          <div className="w-full max-w-sm bg-gradient-to-b from-[#6a3b1f] to-[#3f2517] border border-amber-200/35 rounded-2xl p-5 text-center shadow-2xl">
             <p className="text-white text-lg uppercase tracking-wider">Матч найден</p>
             <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
-            {acceptInfo.stake != null && <p className="text-emerald-300 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
-            <p className="text-emerald-300 text-3xl font-black mt-2">{Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0)}с</p>
-            <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-black py-3 rounded-xl uppercase tracking-wider">
+            {acceptInfo.stake != null && <p className="text-amber-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
+            <p className={`text-3xl font-black mt-2 ${Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) <= 3 ? 'text-rose-200' : 'text-amber-200'}`}>{Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0)}с</p>
+            <button onClick={acceptCurrentMatch} disabled={acceptSent} className="w-full mt-4 bg-amber-300 hover:bg-amber-200 disabled:opacity-60 text-[#2f1d13] py-3 rounded-xl uppercase tracking-wider">
               {acceptSent ? 'Ожидаем второго игрока...' : 'Принять'}
             </button>
             <button onClick={declineAcceptAndKeepSearch} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Отменить</button>

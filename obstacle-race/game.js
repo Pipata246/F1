@@ -404,6 +404,8 @@ function applyPvpRoomState(room) {
     }
     if (String(room.status) === 'waiting') {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
+        pvpAcceptSent = false;
+        pvpAcceptDeadlineMs = 0;
         showScreen('waiting');
         return;
     }

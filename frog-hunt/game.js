@@ -170,9 +170,7 @@ function showScreen(name) {
     setStakePickerVisible(false);
   }
   if (name === 'waiting') {
-    if ($('accept-modal')) $('accept-modal').style.display = 'none';
-    pvpAcceptSent = false;
-    pvpAcceptDeadlineMs = 0;
+    // Waiting screen is also used under accept modal.
   }
 }
 
@@ -541,6 +539,9 @@ function applyPvpRoomState(room) {
     if (Array.isArray(selectedStakeOptions) && selectedStakeOptions.length) {
       $('hint-text').textContent = 'Поиск соперника (' + selectedStakeOptions.join(', ') + ' TON)';
     }
+    if ($('accept-modal')) $('accept-modal').style.display = 'none';
+    pvpAcceptSent = false;
+    pvpAcceptDeadlineMs = 0;
     showScreen('waiting');
     return;
   }
