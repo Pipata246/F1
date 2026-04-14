@@ -491,6 +491,7 @@ function pvpPollState() {
       }
       if (err === 'Room not found' && pvpAcceptDeadlineMs > 0) {
         pvpRoomId = null;
+        pvpAcceptDeadlineMs = 0;
         showScreen('waiting');
         showBottomNotice('Пользователь не принял матч');
         pvpFindMatch();
@@ -508,7 +509,7 @@ function applyPvpRoomState(room) {
   if (!room) return;
   var s = room.state_json || {};
   if (String(room.status) === 'cancelled' || String(room.status) === 'finished') {
-    if (pvpAcceptDeadlineMs > 0 || String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
+    if (String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
       stopPvpPolling();
       pvpRoomId = null;
       pvpAcceptDeadlineMs = 0;
@@ -578,6 +579,7 @@ function applyPvpRoomState(room) {
   playerIndex = 0;
   opponentName = meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник');
   currentStakeTon = room.stake_ton != null ? Number(room.stake_ton) : null;
+  pvpAcceptDeadlineMs = 0;
   if (currentStakeTon != null && isFinite(currentStakeTon)) {
     $('hint-text').textContent = 'Матч на сумму ' + currentStakeTon + ' TON';
   }

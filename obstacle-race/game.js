@@ -407,6 +407,7 @@ function applyPvpRoomState(room) {
     playerIndex = sides.playerIndex;
     opponentName = sides.meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник');
     currentStakeTon = room.stake_ton != null ? Number(room.stake_ton) : null;
+    pvpAcceptDeadlineMs = 0;
     if ($('opp-name-traps')) {
         $('opp-name-traps').textContent = currentStakeTon != null && isFinite(currentStakeTon)
             ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
@@ -459,7 +460,7 @@ function applyPvpRoomState(room) {
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
-        if (pvpAcceptDeadlineMs > 0 || String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
+        if (String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
             stopPvpPolling();
             pvpRoomId = null;
             pvpAcceptDeadlineMs = 0;
@@ -501,6 +502,7 @@ function pvpPollState() {
             }
             if (err === 'Room not found' && pvpAcceptDeadlineMs > 0) {
                 pvpRoomId = null;
+                pvpAcceptDeadlineMs = 0;
                 showScreen('waiting');
                 showBottomNotice('Пользователь не принял матч');
                 pvpFindMatch();

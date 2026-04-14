@@ -521,6 +521,7 @@ const GamePage = () => {
     const mySide = meIsP1 ? 'p1' : 'p2';
     const myIdx = meIsP1 ? 0 : 1;
     setScreen('game');
+    setAcceptInfo(null);
     setPlayerIndex(myIdx);
     playerIndexRef.current = myIdx;
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));

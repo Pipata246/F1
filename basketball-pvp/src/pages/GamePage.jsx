@@ -402,6 +402,7 @@ const GamePage = () => {
     const myIdx = meIsP1 ? 0 : 1;
     const mySide = meIsP1 ? 'p1' : 'p2';
     setScreen('game');
+    setAcceptInfo(null);
     setPlayerIndex(myIdx);
     piRef.current = myIdx;
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
