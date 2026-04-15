@@ -424,6 +424,7 @@ function startRematchWindow() {
             gameKey: 'obstacle_race',
             opponentTgId: pvpOpponentTgId,
             stakeTon: Number(currentStakeTon || 0),
+            roomId: pvpRoomId,
         }).then(function(data) {
             if (!data || !data.ok || !data.rematch) return;
             var r = data.rematch;
@@ -456,6 +457,7 @@ function requestRematch() {
         gameKey: 'obstacle_race',
         opponentTgId: pvpOpponentTgId,
         stakeTon: Number(currentStakeTon),
+        roomId: pvpRoomId,
         playerName: myName || 'Игрок',
         opponentName: opponentName || 'Соперник'
     };

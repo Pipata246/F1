@@ -877,6 +877,7 @@ const GamePage = () => {
       gameKey: 'super_penalty',
       opponentTgId: pvpOpponentTgIdRef.current,
       stakeTon: stake,
+      roomId: pvpRoomIdRef.current,
     };
     const tick = () => apiPost(payload).then((data) => {
       if (!data?.ok || !data?.rematch) return;
@@ -909,6 +910,7 @@ const GamePage = () => {
       gameKey: 'super_penalty',
       opponentTgId: pvpOpponentTgIdRef.current,
       stakeTon: stake,
+      roomId: pvpRoomIdRef.current,
     }).then((data) => {
       if (!data?.ok || !data?.rematch) return;
       const r = data.rematch;

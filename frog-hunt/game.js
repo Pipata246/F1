@@ -472,7 +472,8 @@ function startRematchWindow() {
       initData: tgInitData,
       gameKey: 'frog_hunt',
       opponentTgId: pvpOpponentTgId,
-      stakeTon: Number(currentStakeTon || 0)
+      stakeTon: Number(currentStakeTon || 0),
+      roomId: pvpRoomId
     }).then(function(data) {
       if (!data || !data.ok || !data.rematch) return;
       var r = data.rematch;
@@ -505,6 +506,7 @@ function requestRematch() {
     gameKey: 'frog_hunt',
     opponentTgId: pvpOpponentTgId,
     stakeTon: Number(currentStakeTon),
+    roomId: pvpRoomId,
     playerName: myName || 'Игрок',
     opponentName: opponentName || 'Соперник'
   };

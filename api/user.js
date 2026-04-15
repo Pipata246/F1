@@ -3451,28 +3451,52 @@ async function pvpCreateDirectRematch(gameKey, p1, p2, stakeTon) {
   return joined;
 }
 
-async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, myNameRaw, opponentNameRaw) {
+async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, roomIdRaw, myNameRaw, opponentNameRaw) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
-  const gameKey = normalizeGameKey(gameKeyRaw);
   const me = String(verified.user.id || "");
-  const opp = String(opponentTgIdRaw || "");
-  const stakeTon = Number(stakeTonRaw || 0);
-  if (!opp) throw new Error("Missing opponent");
-  if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
-  if (opp.startsWith("bot_fallback_")) {
-    return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+  const roomId = Number(roomIdRaw || 0);
+  let gameKey = normalizeGameKey(gameKeyRaw);
+  let opp = String(opponentTgIdRaw || "");
+  let stakeTon = Number(stakeTonRaw || 0);
+  let p1 = { tgId: me, name: String(myNameRaw || displayNameFromTg(verified.user) || "Игрок 1").slice(0, 64) };
+  let p2 = { tgId: opp, name: String(opponentNameRaw || "Игрок 2").slice(0, 64) };
+  let key = "";
+  if (Number.isInteger(roomId) && roomId > 0) {
+    const rows = await sb(`pvp_rooms?id=eq.${roomId}&limit=1`, { method: "GET" });
+    const room = rows?.[0];
+    if (!room) throw new Error("Room not found");
+    const p1id = String(room.player1_tg_user_id || "");
+    const p2id = String(room.player2_tg_user_id || "");
+    if (me !== p1id && me !== p2id) throw new Error("Not room participant");
+    if (p1id.startsWith("bot_fallback_") || p2id.startsWith("bot_fallback_")) {
+      return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+    }
+    gameKey = normalizeGameKey(room.game_key || gameKeyRaw);
+    stakeTon = Number(room.stake_ton || stakeTonRaw || 0);
+    if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
+    const meIsP1 = me === p1id;
+    p1 = { tgId: p1id, name: String(room.player1_name || "Игрок 1").slice(0, 64) };
+    p2 = { tgId: p2id, name: String(room.player2_name || "Игрок 2").slice(0, 64) };
+    opp = meIsP1 ? p2id : p1id;
+    key = `room:${roomId}`;
+  } else {
+    if (!opp) throw new Error("Missing opponent");
+    if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
+    if (opp.startsWith("bot_fallback_")) {
+      return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+    }
+    key = pvpRematchKey(gameKey, me, opp, stakeTon);
   }
   pvpRematchCleanup();
-  const key = pvpRematchKey(gameKey, me, opp, stakeTon);
   const now = Date.now();
   let s = PVP_REMATCH_SESSIONS.get(key);
   if (!s || Number(s.expiresAtMs || 0) < now) {
     s = {
       gameKey,
       stakeTon,
-      p1: { tgId: me, name: String(myNameRaw || displayNameFromTg(verified.user) || "Игрок 1").slice(0, 64) },
-      p2: { tgId: opp, name: String(opponentNameRaw || "Игрок 2").slice(0, 64) },
+      p1,
+      p2,
       requestedBy: {},
       expiresAtMs: now + PVP_REMATCH_WINDOW_MS,
       nextRoomId: null,
@@ -3501,20 +3525,39 @@ async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTon
   };
 }
 
-async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw) {
+async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, roomIdRaw) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
-  const gameKey = normalizeGameKey(gameKeyRaw);
   const me = String(verified.user.id || "");
-  const opp = String(opponentTgIdRaw || "");
-  const stakeTon = Number(stakeTonRaw || 0);
-  if (!opp) throw new Error("Missing opponent");
-  if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
-  if (opp.startsWith("bot_fallback_")) {
-    return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+  const roomId = Number(roomIdRaw || 0);
+  let gameKey = normalizeGameKey(gameKeyRaw);
+  let opp = String(opponentTgIdRaw || "");
+  let stakeTon = Number(stakeTonRaw || 0);
+  let key = "";
+  if (Number.isInteger(roomId) && roomId > 0) {
+    const rows = await sb(`pvp_rooms?id=eq.${roomId}&limit=1`, { method: "GET" });
+    const room = rows?.[0];
+    if (!room) throw new Error("Room not found");
+    const p1id = String(room.player1_tg_user_id || "");
+    const p2id = String(room.player2_tg_user_id || "");
+    if (me !== p1id && me !== p2id) throw new Error("Not room participant");
+    if (p1id.startsWith("bot_fallback_") || p2id.startsWith("bot_fallback_")) {
+      return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+    }
+    gameKey = normalizeGameKey(room.game_key || gameKeyRaw);
+    stakeTon = Number(room.stake_ton || stakeTonRaw || 0);
+    if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
+    opp = me === p1id ? p2id : p1id;
+    key = `room:${roomId}`;
+  } else {
+    if (!opp) throw new Error("Missing opponent");
+    if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
+    if (opp.startsWith("bot_fallback_")) {
+      return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+    }
+    key = pvpRematchKey(gameKey, me, opp, stakeTon);
   }
   pvpRematchCleanup();
-  const key = pvpRematchKey(gameKey, me, opp, stakeTon);
   const s = PVP_REMATCH_SESSIONS.get(key);
   if (!s) {
     return {
@@ -3899,6 +3942,7 @@ module.exports = async (req, res) => {
         req.body?.gameKey || "frog_hunt",
         req.body?.opponentTgId || "",
         req.body?.stakeTon || req.body?.stake || 0,
+        req.body?.roomId || 0,
         req.body?.playerName || "",
         req.body?.opponentName || ""
       );
@@ -3909,7 +3953,8 @@ module.exports = async (req, res) => {
         req.body?.initData || "",
         req.body?.gameKey || "frog_hunt",
         req.body?.opponentTgId || "",
-        req.body?.stakeTon || req.body?.stake || 0
+        req.body?.stakeTon || req.body?.stake || 0,
+        req.body?.roomId || 0
       );
       return res.status(200).json(data);
     }
