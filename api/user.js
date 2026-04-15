@@ -3451,17 +3451,38 @@ async function pvpCreateDirectRematch(gameKey, p1, p2, stakeTon) {
   return joined;
 }
 
+async function pvpFindLatestRematchBaseRoom(gameKey, tgA, tgB, stakeTon) {
+  const a = String(tgA || "");
+  const b = String(tgB || "");
+  if (!a || !b) return null;
+  const key = normalizeGameKey(gameKey);
+  const stake = Number(stakeTon || 0);
+  if (!Number.isFinite(stake) || stake <= 0) return null;
+  const pair1 = `and(player1_tg_user_id.eq.${encodeURIComponent(a)},player2_tg_user_id.eq.${encodeURIComponent(b)})`;
+  const pair2 = `and(player1_tg_user_id.eq.${encodeURIComponent(b)},player2_tg_user_id.eq.${encodeURIComponent(a)})`;
+  const rows = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(key)}&stake_ton=eq.${encodeURIComponent(stake)}&or=(${pair1},${pair2})&order=id.desc&limit=1`,
+    { method: "GET" }
+  );
+  return rows?.[0] || null;
+}
+
 async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, roomIdRaw, myNameRaw, opponentNameRaw) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const me = String(verified.user.id || "");
-  const roomId = Number(roomIdRaw || 0);
+  let roomId = Number(roomIdRaw || 0);
   let gameKey = normalizeGameKey(gameKeyRaw);
   let opp = String(opponentTgIdRaw || "");
   let stakeTon = Number(stakeTonRaw || 0);
   let p1 = { tgId: me, name: String(myNameRaw || displayNameFromTg(verified.user) || "Игрок 1").slice(0, 64) };
   let p2 = { tgId: opp, name: String(opponentNameRaw || "Игрок 2").slice(0, 64) };
   let key = "";
+  if (!(Number.isInteger(roomId) && roomId > 0) && opp) {
+    const latest = await pvpFindLatestRematchBaseRoom(gameKey, me, opp, stakeTon);
+    const latestId = Number(latest?.id || 0);
+    if (Number.isInteger(latestId) && latestId > 0) roomId = latestId;
+  }
   if (Number.isInteger(roomId) && roomId > 0) {
     const rows = await sb(`pvp_rooms?id=eq.${roomId}&limit=1`, { method: "GET" });
     const room = rows?.[0];
@@ -3574,11 +3595,16 @@ async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeT
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const me = String(verified.user.id || "");
-  const roomId = Number(roomIdRaw || 0);
+  let roomId = Number(roomIdRaw || 0);
   let gameKey = normalizeGameKey(gameKeyRaw);
   let opp = String(opponentTgIdRaw || "");
   let stakeTon = Number(stakeTonRaw || 0);
   let key = "";
+  if (!(Number.isInteger(roomId) && roomId > 0) && opp) {
+    const latest = await pvpFindLatestRematchBaseRoom(gameKey, me, opp, stakeTon);
+    const latestId = Number(latest?.id || 0);
+    if (Number.isInteger(latestId) && latestId > 0) roomId = latestId;
+  }
   if (Number.isInteger(roomId) && roomId > 0) {
     const rows = await sb(`pvp_rooms?id=eq.${roomId}&limit=1`, { method: "GET" });
     const room = rows?.[0];
