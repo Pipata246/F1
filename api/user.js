@@ -3467,6 +3467,13 @@ async function pvpFindLatestRematchBaseRoom(gameKey, tgA, tgB, stakeTon) {
   return rows?.[0] || null;
 }
 
+async function pvpLoadRoomForRematch(roomId) {
+  const rid = Number(roomId || 0);
+  if (!Number.isInteger(rid) || rid <= 0) return null;
+  const rows = await sb(`pvp_rooms?id=eq.${rid}&limit=1`, { method: "GET" });
+  return rows?.[0] || null;
+}
+
 async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, roomIdRaw, myNameRaw, opponentNameRaw) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -3484,8 +3491,7 @@ async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTon
     if (Number.isInteger(latestId) && latestId > 0) roomId = latestId;
   }
   if (Number.isInteger(roomId) && roomId > 0) {
-    const rows = await sb(`pvp_rooms?id=eq.${roomId}&limit=1`, { method: "GET" });
-    const room = rows?.[0];
+    const room = await pvpLoadRoomForRematch(roomId);
     if (!room) throw new Error("Room not found");
     const p1id = String(room.player1_tg_user_id || "");
     const p2id = String(room.player2_tg_user_id || "");
@@ -3500,37 +3506,89 @@ async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTon
     p1 = { tgId: p1id, name: String(room.player1_name || "Игрок 1").slice(0, 64) };
     p2 = { tgId: p2id, name: String(room.player2_name || "Игрок 2").slice(0, 64) };
     opp = meIsP1 ? p2id : p1id;
-    const now = Date.now();
-    const state = asObj(room.state_json);
-    const rematch = asObj(state.rematch);
-    const requestedBy = asObj(rematch.requestedBy);
-    const prevDeadline = Number(rematch.deadlineMs || 0);
-    const prevStartedRoomId = Number(rematch.roomId || 0);
-    const expired = prevDeadline > 0 && now > prevDeadline;
-    const mustReset = !prevStartedRoomId && (prevDeadline <= 0 || expired);
-    const nextRequestedBy = mustReset ? {} : requestedBy;
-    const nextDeadline = mustReset ? (now + PVP_REMATCH_WINDOW_MS) : prevDeadline;
-    nextRequestedBy[me] = true;
-    let startedRoomId = prevStartedRoomId > 0 ? prevStartedRoomId : 0;
-    if (!!nextRequestedBy[me] && !!nextRequestedBy[opp] && !startedRoomId) {
-      const first = String(p1.tgId) < String(p2.tgId) ? p1 : p2;
-      const second = first === p1 ? p2 : p1;
-      const newRoom = await pvpCreateDirectRematch(gameKey, first, second, stakeTon);
-      startedRoomId = Number(newRoom.id || 0);
+    let startedRoomId = 0;
+    let nextRequestedBy = {};
+    let nextDeadline = 0;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const current = await pvpLoadRoomForRematch(roomId);
+      if (!current) throw new Error("Room not found");
+      const currentState = asObj(current.state_json);
+      const currentRematch = asObj(currentState.rematch);
+      const currentRequestedBy = asObj(currentRematch.requestedBy);
+      const currentDeadline = Number(currentRematch.deadlineMs || 0);
+      const currentRoomId = Number(currentRematch.roomId || 0);
+      const now = Date.now();
+      const expired = currentDeadline > 0 && now > currentDeadline;
+      const mustReset = !currentRoomId && (currentDeadline <= 0 || expired);
+      nextRequestedBy = mustReset ? {} : currentRequestedBy;
+      nextDeadline = mustReset ? (now + PVP_REMATCH_WINDOW_MS) : currentDeadline;
+      nextRequestedBy[me] = true;
+      startedRoomId = currentRoomId > 0 ? currentRoomId : 0;
+      currentState.rematch = {
+        requestedBy: nextRequestedBy,
+        deadlineMs: Number(nextDeadline || 0),
+        roomId: startedRoomId || 0,
+      };
+      const patched = await sb(
+        `pvp_rooms?id=eq.${roomId}&updated_at=eq.${encodeURIComponent(String(current.updated_at || ""))}`,
+        {
+          method: "PATCH",
+          body: {
+            state_json: currentState,
+            updated_at: new Date().toISOString(),
+          },
+          prefer: "return=representation",
+        }
+      );
+      if (Array.isArray(patched) && patched.length) break;
+      if (attempt === 5) throw new Error("Failed to sync rematch state");
     }
-    state.rematch = {
-      requestedBy: nextRequestedBy,
-      deadlineMs: Number(nextDeadline || 0),
-      roomId: startedRoomId || 0,
-    };
-    await sb(`pvp_rooms?id=eq.${roomId}`, {
-      method: "PATCH",
-      body: {
-        state_json: state,
-        updated_at: new Date().toISOString(),
-      },
-      prefer: "return=minimal",
-    });
+    if (!!nextRequestedBy[me] && !!nextRequestedBy[opp] && !startedRoomId) {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const current = await pvpLoadRoomForRematch(roomId);
+        if (!current) throw new Error("Room not found");
+        const currentState = asObj(current.state_json);
+        const currentRematch = asObj(currentState.rematch);
+        const currentRequestedBy = asObj(currentRematch.requestedBy);
+        const currentDeadline = Number(currentRematch.deadlineMs || 0);
+        const currentRoomId = Number(currentRematch.roomId || 0);
+        if (currentRoomId > 0) {
+          startedRoomId = currentRoomId;
+          nextRequestedBy = currentRequestedBy;
+          nextDeadline = currentDeadline;
+          break;
+        }
+        if (!(currentRequestedBy[me] && currentRequestedBy[opp])) break;
+        const first = String(p1.tgId) < String(p2.tgId) ? p1 : p2;
+        const second = first === p1 ? p2 : p1;
+        const created = await pvpCreateDirectRematch(gameKey, first, second, stakeTon);
+        const createdRoomId = Number(created?.id || 0);
+        if (!(createdRoomId > 0)) break;
+        currentState.rematch = {
+          requestedBy: currentRequestedBy,
+          deadlineMs: Number(currentDeadline || 0),
+          roomId: createdRoomId,
+        };
+        const patched = await sb(
+          `pvp_rooms?id=eq.${roomId}&updated_at=eq.${encodeURIComponent(String(current.updated_at || ""))}`,
+          {
+            method: "PATCH",
+            body: {
+              state_json: currentState,
+              updated_at: new Date().toISOString(),
+            },
+            prefer: "return=representation",
+          }
+        );
+        if (Array.isArray(patched) && patched.length) {
+          startedRoomId = createdRoomId;
+          nextRequestedBy = currentRequestedBy;
+          nextDeadline = currentDeadline;
+          break;
+        }
+        await pvpCancelRooms([createdRoomId]);
+      }
+    }
     return {
       ok: true,
       rematch: {
