@@ -3521,6 +3521,8 @@ async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTon
       deadlineMs: Number(s.expiresAtMs || 0),
       started: !!s.nextRoomId,
       roomId: s.nextRoomId || null,
+      requestedByMe: !!s.requestedBy[me],
+      requestedByOpponent: !!s.requestedBy[opp],
     },
   };
 }
@@ -3570,6 +3572,7 @@ async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeT
         started: false,
         roomId: null,
         requestedByMe: false,
+        requestedByOpponent: false,
       },
     };
   }
@@ -3583,6 +3586,7 @@ async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeT
       started: !!s.nextRoomId,
       roomId: s.nextRoomId || null,
       requestedByMe: !!s.requestedBy[me],
+      requestedByOpponent: !!s.requestedBy[opp],
     },
   };
 }

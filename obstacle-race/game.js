@@ -41,6 +41,7 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 let rematchDeadlineMs = 0;
 let rematchRequested = false;
+let rematchRequestedByOpponent = false;
 let rematchRequestedCount = 0;
 let rematchPollTimer = null;
 const SETTINGS_KEY = "f1duel_global_settings_v1";
@@ -372,6 +373,7 @@ function clearRematchUi() {
     stopRematchPolling();
     rematchDeadlineMs = 0;
     rematchRequested = false;
+    rematchRequestedByOpponent = false;
     rematchRequestedCount = 0;
     var box = $('rematch-box');
     if (box) box.remove();
@@ -402,11 +404,15 @@ function tickRematchUi() {
     var left = Math.max(0, Math.ceil((rematchDeadlineMs - Date.now()) / 1000));
     if ($('rematch-time')) $('rematch-time').textContent = 'Реванш: ' + left + 'с';
     if ($('rematch-status')) $('rematch-status').textContent = String(Math.min(2, rematchRequestedCount)) + ' из 2';
+    if ($('rematch-status')) {
+        if (rematchRequested && rematchRequestedByOpponent) $('rematch-status').textContent = 'Оба согласились';
+        else if (rematchRequestedByOpponent) $('rematch-status').textContent = 'Соперник согласился';
+        else if (rematchRequested) $('rematch-status').textContent = 'Вы согласились';
+    }
     if ($('btn-rematch')) {
         $('btn-rematch').disabled = !!rematchRequested;
         $('btn-rematch').textContent = rematchRequested ? 'Ожидаем соперника' : 'Запросить реванш';
     }
-    if (left <= 0) clearRematchUi();
 }
 
 function startRematchWindow() {
@@ -417,7 +423,6 @@ function startRematchWindow() {
     tickRematchUi();
     rematchPollTimer = setInterval(function() {
         tickRematchUi();
-        if (!rematchDeadlineMs || Date.now() >= rematchDeadlineMs) return;
         apiPost({
             action: 'pvpGetRematchStatus',
             initData: tgInitData,
@@ -430,10 +435,14 @@ function startRematchWindow() {
             var r = data.rematch;
             if (!r.available) return;
             rematchRequested = rematchRequested || !!r.requestedByMe;
+            rematchRequestedByOpponent = rematchRequestedByOpponent || !!r.requestedByOpponent;
             rematchRequestedCount = Math.max(rematchRequestedCount, Number(r.requestedCount || 0));
             if (Number(r.deadlineMs || 0) > 0) rematchDeadlineMs = Number(r.deadlineMs);
             tickRematchUi();
             if (r.started && r.roomId) startDirectRematchRoom(r.roomId);
+            if (!r.started && rematchDeadlineMs > 0 && Date.now() > rematchDeadlineMs && rematchRequestedCount < 2) {
+                clearRematchUi();
+            }
         }).catch(function() {});
     }, 900);
 }
@@ -451,6 +460,8 @@ function startDirectRematchRoom(roomId) {
 
 function requestRematch() {
     if (rematchRequested || !tgInitData || !pvpOpponentTgId || !(Number(currentStakeTon) > 0)) return;
+    rematchRequested = true;
+    tickRematchUi();
     var payload = {
         action: 'pvpRequestRematch',
         initData: tgInitData,
@@ -467,11 +478,15 @@ function requestRematch() {
             var r = data.rematch;
             if (!r.available) return;
             rematchRequested = rematchRequested || !!r.requestedByMe;
+            rematchRequestedByOpponent = rematchRequestedByOpponent || !!r.requestedByOpponent;
             rematchRequestedCount = Math.max(rematchRequestedCount, Number(r.requestedCount || 0));
             rematchDeadlineMs = Number(r.deadlineMs || rematchDeadlineMs || 0);
             tickRematchUi();
             if (r.started && r.roomId) startDirectRematchRoom(r.roomId);
-        }).catch(function() {});
+        }).catch(function() {
+            rematchRequested = false;
+            tickRematchUi();
+        });
     };
     tick();
 }
