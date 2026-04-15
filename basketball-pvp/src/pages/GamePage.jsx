@@ -87,8 +87,6 @@ const GamePage = () => {
   const [roundResolving, setRoundResolving] = useState(false);
   const [acceptInfo, setAcceptInfo] = useState(null);
   const [acceptTick, setAcceptTick] = useState(0);
-  const [rematchInfo, setRematchInfo] = useState(null);
-  const [rematchTick, setRematchTick] = useState(0);
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -103,7 +101,6 @@ const GamePage = () => {
   const localMatchRef = useRef(null);
   const playModeRef = useRef('idle'); // idle | bot | pvp
   const pvpRoomIdRef = useRef(null);
-  const rematchSourceRoomIdRef = useRef(null);
   const pvpOpponentTgIdRef = useRef(null);
   const pvpOpponentIsBotRef = useRef(false);
   const pvpPollTimerRef = useRef(null);
@@ -114,7 +111,6 @@ const GamePage = () => {
   const choiceLockedRef = useRef(false);
   const roundResolvingRef = useRef(false);
   const noticeTimerRef = useRef(null);
-  const rematchPollTimerRef = useRef(null);
   const launchHandledRef = useRef(false);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
@@ -166,12 +162,6 @@ const GamePage = () => {
     const id = setInterval(() => setAcceptTick((v) => v + 1), 500);
     return () => clearInterval(id);
   }, [screen]);
-  useEffect(() => {
-    if (screen !== 'result' || !rematchInfo) return undefined;
-    const id = setInterval(() => setRematchTick((v) => v + 1), 500);
-    return () => clearInterval(id);
-  }, [screen, rematchInfo]);
-
   useEffect(() => {
     const ping = () => {
       const init = tgInitDataRef.current;
@@ -264,7 +254,6 @@ const GamePage = () => {
     wsRef.current?.close();
     clearInterval(timerRef.current);
     if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
-    if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
     pending.current.forEach(clearTimeout);
   }, []);
 
@@ -462,7 +451,6 @@ const GamePage = () => {
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
       stopPvpPolling();
-      rematchSourceRoomIdRef.current = Number(room.id || 0) || rematchSourceRoomIdRef.current;
       pvpRoomIdRef.current = null;
       const arr = [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)];
       let youWon = false;
@@ -730,49 +718,14 @@ const GamePage = () => {
   };
 
   const playAgain = () => {
-    if (rematchPollTimerRef.current) {
-      clearInterval(rematchPollTimerRef.current);
-      rematchPollTimerRef.current = null;
-    }
-    setRematchInfo(null);
     clearPending();
     stopPvpPolling();
     pvpRoomIdRef.current = null;
-    rematchSourceRoomIdRef.current = null;
     playModeRef.current = 'idle';
     setMatchResult(null);
     setGamePhase(null);
     goHome();
   };
-  const startDirectRematch = useCallback((roomId) => {
-    const rid = Number(roomId || 0);
-    if (!Number.isInteger(rid) || rid <= 0) return;
-    if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
-    setRematchInfo(null);
-    setMatchResult(null);
-    setAcceptInfo(null);
-    playModeRef.current = 'pvp';
-    pvpRoomIdRef.current = rid;
-    rematchSourceRoomIdRef.current = rid;
-    pvpLastRoundMarkerRef.current = 0;
-    pvpLastPhaseKeyRef.current = '';
-    pvpLastStartKeyRef.current = '';
-    setScreen('waiting');
-    startPvpPolling();
-  }, [startPvpPolling]);
-  const requestRematch = useCallback(() => {
-    // Rematch feature removed.
-  }, []);
-  useEffect(() => {
-    return undefined;
-  }, [screen, rematchInfo?.deadlineMs, currentStakeTon, apiPost, startDirectRematch]);
-  useEffect(() => {
-    setRematchInfo(null);
-    if (rematchPollTimerRef.current) {
-      clearInterval(rematchPollTimerRef.current);
-      rematchPollTimerRef.current = null;
-    }
-  }, [screen, matchResult, currentStakeTon]);
   function saveMatchToBackend(youWon, finalScores) {
     if (matchSavedRef.current || !tgInitDataRef.current) return;
     matchSavedRef.current = true;

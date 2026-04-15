@@ -37,11 +37,6 @@ var onlineModeSelected = false;
 var pvpAcceptDeadlineMs = 0;
 var pvpOpponentTgId = '';
 var pvpOpponentIsBot = false;
-var rematchDeadlineMs = 0;
-var rematchRequested = false;
-var rematchRequestedByOpponent = false;
-var rematchRequestedCount = 0;
-var rematchPollTimer = null;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -170,7 +165,6 @@ function showScreen(name) {
   var screens = document.querySelectorAll('.screen');
   for (var i = 0; i < screens.length; i++) screens[i].classList.remove('active');
   $('screen-' + name).classList.add('active');
-  if (name !== 'result') clearRematchUi();
   if (name === 'start') {
     onlineModeSelected = false;
     setModeButtonsVisible(true);
@@ -411,36 +405,6 @@ function stopPvpPolling() {
   pvpPollTimer = null;
   pvpPollInFlight = false;
   pvpPendingSubmit = false;
-}
-
-function stopRematchPolling() {
-  if (rematchPollTimer) clearInterval(rematchPollTimer);
-  rematchPollTimer = null;
-}
-
-function clearRematchUi() {
-  // Rematch feature removed.
-}
-
-function ensureRematchUi() {
-  // Rematch feature removed.
-  return null;
-}
-
-function tickRematchUi() {
-  // Rematch feature removed.
-}
-
-function startRematchWindow() {
-  // Rematch feature removed.
-}
-
-function startDirectRematchRoom(roomId) {
-  // Rematch feature removed.
-}
-
-function requestRematch() {
-  // Rematch feature removed.
 }
 
 function leavePvpQueue() {

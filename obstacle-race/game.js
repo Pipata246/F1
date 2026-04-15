@@ -39,11 +39,6 @@ let pvpLastXrayMarker = 0;
 let pvpLastStartKey = '';
 let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
-let rematchDeadlineMs = 0;
-let rematchRequested = false;
-let rematchRequestedByOpponent = false;
-let rematchRequestedCount = 0;
-let rematchPollTimer = null;
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 const PVP_POLL_MS = 900;
 
@@ -364,36 +359,6 @@ function stopPvpPolling() {
     pvpPollInFlight = false;
 }
 
-function stopRematchPolling() {
-    if (rematchPollTimer) clearInterval(rematchPollTimer);
-    rematchPollTimer = null;
-}
-
-function clearRematchUi() {
-    // Rematch feature removed.
-}
-
-function ensureRematchUi() {
-    // Rematch feature removed.
-    return null;
-}
-
-function tickRematchUi() {
-    // Rematch feature removed.
-}
-
-function startRematchWindow() {
-    // Rematch feature removed.
-}
-
-function startDirectRematchRoom(roomId) {
-    // Rematch feature removed.
-}
-
-function requestRematch() {
-    // Rematch feature removed.
-}
-
 function startPvpPolling() {
     stopPvpPolling();
     pvpPollTimer = setInterval(function() { pvpPollState(); }, PVP_POLL_MS);
@@ -656,7 +621,6 @@ function handleMessage(msg) {
 function showScreen(name) {
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $('screen-' + name).classList.add('active');
-    if (name !== 'result') clearRematchUi();
     if (name !== 'waiting') {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
