@@ -415,7 +415,26 @@ function startRematchWindow() {
     rematchDeadlineMs = Date.now() + 10000;
     ensureRematchUi();
     tickRematchUi();
-    rematchPollTimer = setInterval(tickRematchUi, 400);
+    rematchPollTimer = setInterval(function() {
+        tickRematchUi();
+        if (!rematchDeadlineMs || Date.now() >= rematchDeadlineMs) return;
+        apiPost({
+            action: 'pvpGetRematchStatus',
+            initData: tgInitData,
+            gameKey: 'obstacle_race',
+            opponentTgId: pvpOpponentTgId,
+            stakeTon: Number(currentStakeTon || 0),
+        }).then(function(data) {
+            if (!data || !data.ok || !data.rematch) return;
+            var r = data.rematch;
+            if (!r.available) return;
+            rematchRequested = !!r.requestedByMe;
+            rematchRequestedCount = Number(r.requestedCount || 0);
+            if (Number(r.deadlineMs || 0) > 0) rematchDeadlineMs = Number(r.deadlineMs);
+            tickRematchUi();
+            if (r.started && r.roomId) startDirectRematchRoom(r.roomId);
+        }).catch(function() {});
+    }, 900);
 }
 
 function startDirectRematchRoom(roomId) {
@@ -445,7 +464,7 @@ function requestRematch() {
             if (!data || !data.ok || !data.rematch) return;
             var r = data.rematch;
             if (!r.available) return;
-            rematchRequested = true;
+            rematchRequested = !!r.requestedByMe;
             rematchRequestedCount = Number(r.requestedCount || 0);
             rematchDeadlineMs = Number(r.deadlineMs || rematchDeadlineMs || 0);
             tickRematchUi();
@@ -453,14 +472,6 @@ function requestRematch() {
         }).catch(function() {});
     };
     tick();
-    stopRematchPolling();
-    rematchPollTimer = setInterval(function() {
-        if (Date.now() >= rematchDeadlineMs) {
-            clearRematchUi();
-            return;
-        }
-        tick();
-    }, 900);
 }
 
 function startPvpPolling() {
@@ -1689,7 +1700,6 @@ function onOpponentLeft() {
     $('fs-name-0').textContent = ''; $('fs-val-0').textContent = '';
     $('fs-name-1').textContent = ''; $('fs-val-1').textContent = '';
     showScreen('result');
-    startRematchWindow();
 }
 
 function saveMatchToBackend(winner, myScore, oppScore) {

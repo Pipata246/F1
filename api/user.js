@@ -3501,6 +3501,49 @@ async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTon
   };
 }
 
+async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const gameKey = normalizeGameKey(gameKeyRaw);
+  const me = String(verified.user.id || "");
+  const opp = String(opponentTgIdRaw || "");
+  const stakeTon = Number(stakeTonRaw || 0);
+  if (!opp) throw new Error("Missing opponent");
+  if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
+  if (opp.startsWith("bot_fallback_")) {
+    return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+  }
+  pvpRematchCleanup();
+  const key = pvpRematchKey(gameKey, me, opp, stakeTon);
+  const s = PVP_REMATCH_SESSIONS.get(key);
+  if (!s) {
+    return {
+      ok: true,
+      rematch: {
+        available: true,
+        requestedCount: 0,
+        total: 2,
+        deadlineMs: 0,
+        started: false,
+        roomId: null,
+        requestedByMe: false,
+      },
+    };
+  }
+  return {
+    ok: true,
+    rematch: {
+      available: true,
+      requestedCount: Number(!!s.requestedBy[me]) + Number(!!s.requestedBy[opp]),
+      total: 2,
+      deadlineMs: Number(s.expiresAtMs || 0),
+      started: !!s.nextRoomId,
+      roomId: s.nextRoomId || null,
+      requestedByMe: !!s.requestedBy[me],
+    },
+  };
+}
+
 async function recordMatchInternal(req) {
   assertInternalApiKey(req);
   const b = req.body || {};
@@ -3858,6 +3901,15 @@ module.exports = async (req, res) => {
         req.body?.stakeTon || req.body?.stake || 0,
         req.body?.playerName || "",
         req.body?.opponentName || ""
+      );
+      return res.status(200).json(data);
+    }
+    if (action === "pvpGetRematchStatus") {
+      const data = await pvpGetRematchStatus(
+        req.body?.initData || "",
+        req.body?.gameKey || "frog_hunt",
+        req.body?.opponentTgId || "",
+        req.body?.stakeTon || req.body?.stake || 0
       );
       return res.status(200).json(data);
     }

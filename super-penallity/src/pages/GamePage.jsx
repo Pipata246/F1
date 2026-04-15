@@ -246,6 +246,7 @@ const GamePage = () => {
       return;
     }
     const canRematch = playModeRef.current === 'pvp'
+      && !matchResult?.opponentLeft
       && !pvpOpponentIsBotRef.current
       && Number(currentStakeTon || 0) > 0
       && !!pvpOpponentTgIdRef.current;
@@ -872,13 +873,10 @@ const GamePage = () => {
     const stake = Number(currentStakeTon || 0);
     if (!(stake > 0)) return;
     const payload = {
-      action: 'pvpRequestRematch',
       initData: tgInitDataRef.current,
       gameKey: 'super_penalty',
       opponentTgId: pvpOpponentTgIdRef.current,
       stakeTon: stake,
-      playerName: displayName || 'Player',
-      opponentName: opponent || 'Соперник',
     };
     const tick = () => apiPost(payload).then((data) => {
       if (!data?.ok || !data?.rematch) return;
@@ -888,14 +886,42 @@ const GamePage = () => {
         requestedCount: Number(r.requestedCount || 0),
         total: Number(r.total || 2),
         deadlineMs: Number(r.deadlineMs || 0),
-        requested: true,
+        requested: !!r.requestedByMe,
       });
       if (r.started && r.roomId) {
         startDirectRematch(r.roomId);
       }
     }).catch(() => {});
+    payload.action = 'pvpRequestRematch';
+    payload.playerName = displayName || 'Player';
+    payload.opponentName = opponent || 'Соперник';
     tick();
+  }, [matchResult, currentStakeTon, displayName, opponent, apiPost, startDirectRematch]);
+
+  useEffect(() => {
+    if (screen !== 'result' || !rematchInfo) return undefined;
+    const stake = Number(currentStakeTon || 0);
+    if (!(stake > 0) || !tgInitDataRef.current || !pvpOpponentTgIdRef.current) return undefined;
     if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
+    const tick = () => apiPost({
+      action: 'pvpGetRematchStatus',
+      initData: tgInitDataRef.current,
+      gameKey: 'super_penalty',
+      opponentTgId: pvpOpponentTgIdRef.current,
+      stakeTon: stake,
+    }).then((data) => {
+      if (!data?.ok || !data?.rematch) return;
+      const r = data.rematch;
+      if (!r.available) return;
+      setRematchInfo((prev) => ({
+        requestedCount: Number(r.requestedCount || 0),
+        total: Number(r.total || 2),
+        deadlineMs: Number(r.deadlineMs || 0) || Number(prev?.deadlineMs || 0),
+        requested: !!r.requestedByMe,
+      }));
+      if (r.started && r.roomId) startDirectRematch(r.roomId);
+    }).catch(() => {});
+    tick();
     rematchPollTimerRef.current = setInterval(() => {
       const leftMs = Number(rematchInfo?.deadlineMs || 0) - Date.now();
       if (leftMs <= 0) {
@@ -905,7 +931,13 @@ const GamePage = () => {
       }
       tick();
     }, 900);
-  }, [matchResult, rematchInfo?.deadlineMs, currentStakeTon, displayName, opponent, apiPost, startDirectRematch]);
+    return () => {
+      if (rematchPollTimerRef.current) {
+        clearInterval(rematchPollTimerRef.current);
+        rematchPollTimerRef.current = null;
+      }
+    };
+  }, [screen, rematchInfo?.deadlineMs, currentStakeTon, apiPost, startDirectRematch]);
 
   const handlePlayAgain = () => {
     if (rematchPollTimerRef.current) {
