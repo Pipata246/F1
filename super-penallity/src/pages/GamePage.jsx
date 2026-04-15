@@ -883,10 +883,10 @@ const GamePage = () => {
       const r = data.rematch;
       if (!r.available) return;
       setRematchInfo({
-        requestedCount: Number(r.requestedCount || 0),
+        requestedCount: Math.max(Number(rematchInfo?.requestedCount || 0), Number(r.requestedCount || 0)),
         total: Number(r.total || 2),
         deadlineMs: Number(r.deadlineMs || 0),
-        requested: !!r.requestedByMe,
+        requested: !!rematchInfo?.requested || !!r.requestedByMe,
       });
       if (r.started && r.roomId) {
         startDirectRematch(r.roomId);
@@ -914,10 +914,10 @@ const GamePage = () => {
       const r = data.rematch;
       if (!r.available) return;
       setRematchInfo((prev) => ({
-        requestedCount: Number(r.requestedCount || 0),
+        requestedCount: Math.max(Number(prev?.requestedCount || 0), Number(r.requestedCount || 0)),
         total: Number(r.total || 2),
         deadlineMs: Number(r.deadlineMs || 0) || Number(prev?.deadlineMs || 0),
-        requested: !!r.requestedByMe,
+        requested: !!prev?.requested || !!r.requestedByMe,
       }));
       if (r.started && r.roomId) startDirectRematch(r.roomId);
     }).catch(() => {});

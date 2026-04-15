@@ -477,8 +477,8 @@ function startRematchWindow() {
       if (!data || !data.ok || !data.rematch) return;
       var r = data.rematch;
       if (!r.available) return;
-      rematchRequested = !!r.requestedByMe;
-      rematchRequestedCount = Number(r.requestedCount || 0);
+      rematchRequested = rematchRequested || !!r.requestedByMe;
+      rematchRequestedCount = Math.max(rematchRequestedCount, Number(r.requestedCount || 0));
       if (Number(r.deadlineMs || 0) > 0) rematchDeadlineMs = Number(r.deadlineMs);
       tickRematchUi();
       if (r.started && r.roomId) startDirectRematchRoom(r.roomId);
@@ -513,8 +513,8 @@ function requestRematch() {
       if (!data || !data.ok || !data.rematch) return;
       var r = data.rematch;
       if (!r.available) return;
-      rematchRequested = !!r.requestedByMe;
-      rematchRequestedCount = Number(r.requestedCount || 0);
+      rematchRequested = rematchRequested || !!r.requestedByMe;
+      rematchRequestedCount = Math.max(rematchRequestedCount, Number(r.requestedCount || 0));
       rematchDeadlineMs = Number(r.deadlineMs || rematchDeadlineMs || 0);
       tickRematchUi();
       if (r.started && r.roomId) startDirectRematchRoom(r.roomId);
