@@ -778,6 +778,7 @@ const GamePage = () => {
         total: Number(r.total || 2),
         deadlineMs: Number(r.deadlineMs || 0),
         requested: !!rematchInfo?.requested || !!r.requestedByMe,
+        requestedByOpponent: !!r.requestedByOpponent || !!rematchInfo?.requestedByOpponent,
       });
       if (r.started && r.roomId) startDirectRematch(r.roomId);
     }).catch(() => {});
@@ -807,6 +808,7 @@ const GamePage = () => {
         total: Number(r.total || 2),
         deadlineMs: Number(r.deadlineMs || 0) || Number(prev?.deadlineMs || 0),
         requested: !!prev?.requested || !!r.requestedByMe,
+        requestedByOpponent: !!prev?.requestedByOpponent || !!r.requestedByOpponent,
       }));
       if (r.started && r.roomId) startDirectRematch(r.roomId);
     }).catch(() => {});
@@ -816,6 +818,7 @@ const GamePage = () => {
       if (leftMs <= 0) {
         clearInterval(rematchPollTimerRef.current);
         rematchPollTimerRef.current = null;
+        setRematchInfo((prev) => (prev && !prev.started ? null : prev));
         return;
       }
       tick();
@@ -845,7 +848,7 @@ const GamePage = () => {
       setRematchInfo(null);
       return;
     }
-    setRematchInfo({ requestedCount: 0, total: 2, deadlineMs: Date.now() + 10_000, requested: false });
+    setRematchInfo({ requestedCount: 0, total: 2, deadlineMs: Date.now() + 10_000, requested: false, requestedByOpponent: false });
   }, [screen, matchResult, currentStakeTon]);
   function saveMatchToBackend(youWon, finalScores) {
     if (matchSavedRef.current || !tgInitDataRef.current) return;
@@ -989,7 +992,15 @@ const GamePage = () => {
         {!!rematchInfo && rematchLeft > 0 && (
           <div className="mt-3 w-full max-w-xs bg-white/5 border border-white/15 rounded-2xl p-3 text-center">
             <p className="text-xs uppercase text-gray-300 tracking-wider">Реванш: {rematchLeft}с</p>
-            <p className="text-xs text-amber-300 mt-1">{Math.min(rematchInfo.total, rematchInfo.requestedCount)} из {rematchInfo.total}</p>
+            <p className="text-xs text-amber-300 mt-1">
+              {rematchInfo.requested && rematchInfo.requestedByOpponent
+                ? 'Оба согласились'
+                : rematchInfo.requestedByOpponent
+                  ? 'Соперник согласился'
+                  : rematchInfo.requested
+                    ? 'Вы согласились'
+                    : `${Math.min(rematchInfo.total, rematchInfo.requestedCount)} из ${rematchInfo.total}`}
+            </p>
             <button
               onClick={requestRematch}
               disabled={!!rematchInfo.requested}

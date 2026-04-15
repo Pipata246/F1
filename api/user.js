@@ -3479,7 +3479,50 @@ async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTon
     p1 = { tgId: p1id, name: String(room.player1_name || "Игрок 1").slice(0, 64) };
     p2 = { tgId: p2id, name: String(room.player2_name || "Игрок 2").slice(0, 64) };
     opp = meIsP1 ? p2id : p1id;
-    key = `room:${roomId}`;
+    const now = Date.now();
+    const state = asObj(room.state_json);
+    const rematch = asObj(state.rematch);
+    const requestedBy = asObj(rematch.requestedBy);
+    const prevDeadline = Number(rematch.deadlineMs || 0);
+    const prevStartedRoomId = Number(rematch.roomId || 0);
+    const expired = prevDeadline > 0 && now > prevDeadline;
+    const mustReset = !prevStartedRoomId && (prevDeadline <= 0 || expired);
+    const nextRequestedBy = mustReset ? {} : requestedBy;
+    const nextDeadline = mustReset ? (now + PVP_REMATCH_WINDOW_MS) : prevDeadline;
+    nextRequestedBy[me] = true;
+    let startedRoomId = prevStartedRoomId > 0 ? prevStartedRoomId : 0;
+    if (!!nextRequestedBy[me] && !!nextRequestedBy[opp] && !startedRoomId) {
+      const first = String(p1.tgId) < String(p2.tgId) ? p1 : p2;
+      const second = first === p1 ? p2 : p1;
+      const newRoom = await pvpCreateDirectRematch(gameKey, first, second, stakeTon);
+      startedRoomId = Number(newRoom.id || 0);
+    }
+    state.rematch = {
+      requestedBy: nextRequestedBy,
+      deadlineMs: Number(nextDeadline || 0),
+      roomId: startedRoomId || 0,
+    };
+    await sb(`pvp_rooms?id=eq.${roomId}`, {
+      method: "PATCH",
+      body: {
+        state_json: state,
+        updated_at: new Date().toISOString(),
+      },
+      prefer: "return=minimal",
+    });
+    return {
+      ok: true,
+      rematch: {
+        available: true,
+        requestedCount: Number(!!nextRequestedBy[me]) + Number(!!nextRequestedBy[opp]),
+        total: 2,
+        deadlineMs: Number(nextDeadline || 0),
+        started: startedRoomId > 0,
+        roomId: startedRoomId > 0 ? startedRoomId : null,
+        requestedByMe: !!nextRequestedBy[me],
+        requestedByOpponent: !!nextRequestedBy[opp],
+      },
+    };
   } else {
     if (!opp) throw new Error("Missing opponent");
     if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
@@ -3550,7 +3593,55 @@ async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeT
     stakeTon = Number(room.stake_ton || stakeTonRaw || 0);
     if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
     opp = me === p1id ? p2id : p1id;
-    key = `room:${roomId}`;
+    const state = asObj(room.state_json);
+    const rematch = asObj(state.rematch);
+    const requestedBy = asObj(rematch.requestedBy);
+    const deadlineMs = Number(rematch.deadlineMs || 0);
+    const startedRoomId = Number(rematch.roomId || 0);
+    const now = Date.now();
+    if (!startedRoomId && deadlineMs > 0 && now > deadlineMs) {
+      return {
+        ok: true,
+        rematch: {
+          available: true,
+          requestedCount: 0,
+          total: 2,
+          deadlineMs: 0,
+          started: false,
+          roomId: null,
+          requestedByMe: false,
+          requestedByOpponent: false,
+        },
+      };
+    }
+    if (!deadlineMs && !startedRoomId) {
+      return {
+        ok: true,
+        rematch: {
+          available: true,
+          requestedCount: 0,
+          total: 2,
+          deadlineMs: 0,
+          started: false,
+          roomId: null,
+          requestedByMe: false,
+          requestedByOpponent: false,
+        },
+      };
+    }
+    return {
+      ok: true,
+      rematch: {
+        available: true,
+        requestedCount: Number(!!requestedBy[me]) + Number(!!requestedBy[opp]),
+        total: 2,
+        deadlineMs: Number(deadlineMs || 0),
+        started: startedRoomId > 0,
+        roomId: startedRoomId > 0 ? startedRoomId : null,
+        requestedByMe: !!requestedBy[me],
+        requestedByOpponent: !!requestedBy[opp],
+      },
+    };
   } else {
     if (!opp) throw new Error("Missing opponent");
     if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
