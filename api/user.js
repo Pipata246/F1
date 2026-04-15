@@ -3475,6 +3475,7 @@ async function pvpLoadRoomForRematch(roomId) {
 }
 
 async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, roomIdRaw, myNameRaw, opponentNameRaw) {
+  return { ok: true, rematch: { available: false, reason: "disabled" } };
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const me = String(verified.user.id || "");
@@ -3650,6 +3651,7 @@ async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTon
 }
 
 async function pvpGetRematchStatus(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, roomIdRaw) {
+  return { ok: true, rematch: { available: false, reason: "disabled" } };
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const me = String(verified.user.id || "");

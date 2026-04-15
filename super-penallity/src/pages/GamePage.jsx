@@ -238,30 +238,11 @@ const GamePage = () => {
   }, [screen, rematchInfo]);
 
   useEffect(() => {
-    if (screen !== 'result' || !matchResult) {
-      setRematchInfo(null);
-      if (rematchPollTimerRef.current) {
-        clearInterval(rematchPollTimerRef.current);
-        rematchPollTimerRef.current = null;
-      }
-      return;
+    setRematchInfo(null);
+    if (rematchPollTimerRef.current) {
+      clearInterval(rematchPollTimerRef.current);
+      rematchPollTimerRef.current = null;
     }
-    const canRematch = playModeRef.current === 'pvp'
-      && !matchResult?.opponentLeft
-      && !pvpOpponentIsBotRef.current
-      && Number(currentStakeTon || 0) > 0
-      && !!pvpOpponentTgIdRef.current;
-    if (!canRematch) {
-      setRematchInfo(null);
-      return;
-    }
-    setRematchInfo({
-      requestedCount: 0,
-      total: 2,
-      deadlineMs: Date.now() + 10_000,
-      requested: false,
-      requestedByOpponent: false,
-    });
   }, [screen, matchResult, currentStakeTon]);
 
   useEffect(() => {
@@ -870,86 +851,11 @@ const GamePage = () => {
   }, [startPvpPolling]);
 
   const requestRematch = useCallback(() => {
-    if (!matchResult) return;
-    if (playModeRef.current !== 'pvp') return;
-    if (pvpOpponentIsBotRef.current) return;
-    if (!tgInitDataRef.current || !pvpOpponentTgIdRef.current) return;
-    const stake = Number(currentStakeTon || 0);
-    if (!(stake > 0)) return;
-    const rematchRoomId = Number(rematchSourceRoomIdRef.current || pvpRoomIdRef.current || 0);
-    if (!(rematchRoomId > 0)) return;
-    const payload = {
-      initData: tgInitDataRef.current,
-      gameKey: 'super_penalty',
-      opponentTgId: pvpOpponentTgIdRef.current,
-      stakeTon: stake,
-      roomId: rematchRoomId,
-    };
-    const tick = () => apiPost(payload).then((data) => {
-      if (!data?.ok || !data?.rematch) return;
-      const r = data.rematch;
-      if (!r.available) return;
-      setRematchInfo({
-        requestedCount: Math.max(Number(rematchInfo?.requestedCount || 0), Number(r.requestedCount || 0)),
-        total: Number(r.total || 2),
-        deadlineMs: Number(r.deadlineMs || 0),
-        requested: !!rematchInfo?.requested || !!r.requestedByMe,
-        requestedByOpponent: !!r.requestedByOpponent || !!rematchInfo?.requestedByOpponent,
-      });
-      if (r.started && r.roomId) {
-        startDirectRematch(r.roomId);
-      }
-    }).catch(() => {});
-    payload.action = 'pvpRequestRematch';
-    payload.playerName = displayName || 'Player';
-    payload.opponentName = opponent || 'Соперник';
-    tick();
-  }, [matchResult, currentStakeTon, displayName, opponent, apiPost, startDirectRematch]);
+    // Rematch feature removed.
+  }, []);
 
   useEffect(() => {
-    if (screen !== 'result' || !rematchInfo) return undefined;
-    const stake = Number(currentStakeTon || 0);
-    if (!(stake > 0) || !tgInitDataRef.current || !pvpOpponentTgIdRef.current) return undefined;
-    const rematchRoomId = Number(rematchSourceRoomIdRef.current || pvpRoomIdRef.current || 0);
-    if (!(rematchRoomId > 0)) return undefined;
-    if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
-    const tick = () => apiPost({
-      action: 'pvpGetRematchStatus',
-      initData: tgInitDataRef.current,
-      gameKey: 'super_penalty',
-      opponentTgId: pvpOpponentTgIdRef.current,
-      stakeTon: stake,
-      roomId: rematchRoomId,
-    }).then((data) => {
-      if (!data?.ok || !data?.rematch) return;
-      const r = data.rematch;
-      if (!r.available) return;
-      setRematchInfo((prev) => ({
-        requestedCount: Math.max(Number(prev?.requestedCount || 0), Number(r.requestedCount || 0)),
-        total: Number(r.total || 2),
-        deadlineMs: Number(r.deadlineMs || 0) || Number(prev?.deadlineMs || 0),
-        requested: !!prev?.requested || !!r.requestedByMe,
-        requestedByOpponent: !!prev?.requestedByOpponent || !!r.requestedByOpponent,
-      }));
-      if (r.started && r.roomId) startDirectRematch(r.roomId);
-    }).catch(() => {});
-    tick();
-    rematchPollTimerRef.current = setInterval(() => {
-      const leftMs = Number(rematchInfo?.deadlineMs || 0) - Date.now();
-      if (leftMs <= 0) {
-        clearInterval(rematchPollTimerRef.current);
-        rematchPollTimerRef.current = null;
-        setRematchInfo((prev) => (prev && !prev.started ? null : prev));
-        return;
-      }
-      tick();
-    }, 900);
-    return () => {
-      if (rematchPollTimerRef.current) {
-        clearInterval(rematchPollTimerRef.current);
-        rematchPollTimerRef.current = null;
-      }
-    };
+    return undefined;
   }, [screen, rematchInfo?.deadlineMs, currentStakeTon, apiPost, startDirectRematch]);
 
   const handlePlayAgain = () => {
@@ -1200,7 +1106,6 @@ const GamePage = () => {
     const tonResultText = hasTonStake
       ? (matchResult.youWon ? `TON итог: +${(tonStake * 2).toFixed(9).replace(/\.?0+$/, '')} TON` : `TON итог: -${tonStake.toFixed(9).replace(/\.?0+$/, '')} TON`)
       : null;
-    const rematchLeft = Math.max(0, Math.ceil((Number(rematchInfo?.deadlineMs || 0) - Date.now()) / 1000)) + (rematchTick * 0);
     return (
       <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
         <div className="z-10 flex flex-col items-center gap-6">
@@ -1234,27 +1139,6 @@ const GamePage = () => {
           </div>
           {tonResultText && (
             <div className={`text-sm font-black ${matchResult.youWon ? 'text-emerald-300' : 'text-rose-300'}`}>{tonResultText}</div>
-          )}
-          {!!rematchInfo && rematchLeft > 0 && (
-            <div className="w-full max-w-xs bg-white/5 border border-white/15 rounded-2xl p-3 text-center">
-              <p className="text-xs uppercase text-gray-300 tracking-wider">Реванш: {rematchLeft}с</p>
-              <p className="text-xs text-amber-300 mt-1">
-                {rematchInfo.requested && rematchInfo.requestedByOpponent
-                  ? 'Оба согласились'
-                  : rematchInfo.requestedByOpponent
-                    ? 'Соперник согласился'
-                    : rematchInfo.requested
-                      ? 'Вы согласились'
-                      : `${Math.min(rematchInfo.total, rematchInfo.requestedCount)} из ${rematchInfo.total}`}
-              </p>
-              <button
-                onClick={requestRematch}
-                disabled={!!rematchInfo.requested}
-                className={`mt-2 w-full py-2 rounded-xl font-bold ${rematchInfo.requested ? 'bg-gray-700 text-gray-300' : 'bg-amber-500 text-black'}`}
-              >
-                {rematchInfo.requested ? 'Ожидаем соперника' : 'Запросить реванш'}
-              </button>
-            </div>
           )}
 
           <div className="flex flex-col items-center gap-2 mt-4 bg-white/5 p-3 rounded-xl border border-white/10">
