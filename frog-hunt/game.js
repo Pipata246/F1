@@ -462,6 +462,7 @@ function tickRematchUi() {
     $('btn-rematch').disabled = !!rematchRequested;
     $('btn-rematch').textContent = rematchRequested ? 'Ожидаем соперника' : 'Запросить реванш';
   }
+  if (left <= 0 && rematchRequestedCount < 2) clearRematchUi();
 }
 
 function startRematchWindow() {

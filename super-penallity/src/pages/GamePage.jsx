@@ -169,6 +169,7 @@ const GamePage = () => {
   /** Как в frog-hunt: только один из режимов — онлайн (pvp) или локальный бот, никогда оба сразу. */
   const playModeRef = useRef('idle');
   const pvpRoomIdRef = useRef(null);
+  const rematchSourceRoomIdRef = useRef(null);
   const pvpOpponentTgIdRef = useRef(null);
   const pvpOpponentIsBotRef = useRef(false);
   const pvpPollTimerRef = useRef(null);
@@ -612,6 +613,7 @@ const GamePage = () => {
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
       stopPvpPolling();
+      rematchSourceRoomIdRef.current = Number(room.id || 0) || rematchSourceRoomIdRef.current;
       pvpRoomIdRef.current = null;
       const scoresObj = s.scores || { p1: 0, p2: 0 };
       const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
@@ -860,6 +862,7 @@ const GamePage = () => {
     setAcceptInfo(null);
     playModeRef.current = 'pvp';
     pvpRoomIdRef.current = rid;
+    rematchSourceRoomIdRef.current = rid;
     pvpLastRoundMarkerRef.current = 0;
     pvpLastStartKeyRef.current = '';
     setScreen('waiting');
@@ -873,12 +876,14 @@ const GamePage = () => {
     if (!tgInitDataRef.current || !pvpOpponentTgIdRef.current) return;
     const stake = Number(currentStakeTon || 0);
     if (!(stake > 0)) return;
+    const rematchRoomId = Number(rematchSourceRoomIdRef.current || pvpRoomIdRef.current || 0);
+    if (!(rematchRoomId > 0)) return;
     const payload = {
       initData: tgInitDataRef.current,
       gameKey: 'super_penalty',
       opponentTgId: pvpOpponentTgIdRef.current,
       stakeTon: stake,
-      roomId: pvpRoomIdRef.current,
+      roomId: rematchRoomId,
     };
     const tick = () => apiPost(payload).then((data) => {
       if (!data?.ok || !data?.rematch) return;
@@ -905,6 +910,8 @@ const GamePage = () => {
     if (screen !== 'result' || !rematchInfo) return undefined;
     const stake = Number(currentStakeTon || 0);
     if (!(stake > 0) || !tgInitDataRef.current || !pvpOpponentTgIdRef.current) return undefined;
+    const rematchRoomId = Number(rematchSourceRoomIdRef.current || pvpRoomIdRef.current || 0);
+    if (!(rematchRoomId > 0)) return undefined;
     if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
     const tick = () => apiPost({
       action: 'pvpGetRematchStatus',
@@ -912,7 +919,7 @@ const GamePage = () => {
       gameKey: 'super_penalty',
       opponentTgId: pvpOpponentTgIdRef.current,
       stakeTon: stake,
-      roomId: pvpRoomIdRef.current,
+      roomId: rematchRoomId,
     }).then((data) => {
       if (!data?.ok || !data?.rematch) return;
       const r = data.rematch;
@@ -965,6 +972,7 @@ const GamePage = () => {
     setHistory([]);
     stopPvpPolling();
     pvpRoomIdRef.current = null;
+    rematchSourceRoomIdRef.current = null;
     goHome();
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
   };
