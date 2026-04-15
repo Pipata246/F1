@@ -1649,6 +1649,8 @@ const PVP_BOT_MOVE_MIN_MS = 1000;
 const PVP_BOT_MOVE_MAX_MS = 3000;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
 const PVP_BOT_NAME_RECENT = new Set();
+const PVP_REMATCH_WINDOW_MS = 10_000;
+const PVP_REMATCH_SESSIONS = new Map();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
 
 function pvpBotFallbackDelayMs(roomId) {
@@ -1699,6 +1701,28 @@ function pvpPickBotName() {
 
 function pvpBotMoveDelayMs() {
   return PVP_BOT_MOVE_MIN_MS + Math.floor(Math.random() * (PVP_BOT_MOVE_MAX_MS - PVP_BOT_MOVE_MIN_MS + 1));
+}
+
+function pvpRematchKey(gameKey, tgA, tgB, stakeTon) {
+  const a = String(tgA || "");
+  const b = String(tgB || "");
+  const pair = a < b ? `${a}|${b}` : `${b}|${a}`;
+  return `${normalizeGameKey(gameKey)}|${Number(stakeTon || 0)}|${pair}`;
+}
+
+function pvpRematchCleanup() {
+  const now = Date.now();
+  for (const [k, v] of PVP_REMATCH_SESSIONS.entries()) {
+    if (!v) {
+      PVP_REMATCH_SESSIONS.delete(k);
+      continue;
+    }
+    const expire = Number(v.expiresAtMs || 0);
+    const doneExpire = Number(v.doneExpireMs || 0);
+    if ((expire > 0 && now > expire) || (doneExpire > 0 && now > doneExpire)) {
+      PVP_REMATCH_SESSIONS.delete(k);
+    }
+  }
 }
 
 function pvpWrapWithAcceptPhase(state, roomLike) {
@@ -3388,6 +3412,95 @@ async function pvpCancelQueue(initData, roomId) {
   return { cancelled: false, status: room.status };
 }
 
+async function pvpCreateDirectRematch(gameKey, p1, p2, stakeTon) {
+  const stake = Number(stakeTon || 0);
+  if (!Number.isFinite(stake) || stake <= 0) throw new Error("Invalid stake");
+  await assertUserCanQueueStake(String(p1.tgId), [stake]);
+  await assertUserCanQueueStake(String(p2.tgId), [stake]);
+  const created = await sb("pvp_rooms", {
+    method: "POST",
+    body: {
+      game_key: normalizeGameKey(gameKey),
+      status: "waiting",
+      player1_tg_user_id: String(p1.tgId),
+      player1_name: String(p1.name || "Игрок 1").slice(0, 64),
+      player2_tg_user_id: null,
+      player2_name: null,
+      winner_tg_user_id: null,
+      stake_options_ton: [stake],
+      stake_ton: null,
+      stake_locked_at: null,
+      stake_settled_at: null,
+      state_json: {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=representation",
+  });
+  const ownRoom = created?.[0];
+  if (!ownRoom) throw new Error("Failed to create rematch room");
+  const state = pvpWrapWithAcceptPhase(
+    pvpDefaultStateForGame(normalizeGameKey(gameKey), String(p1.tgId), String(p2.tgId)),
+    { player2_tg_user_id: String(p2.tgId) }
+  );
+  const joined = await pvpTryJoinWaitingWithStake(ownRoom, String(p2.tgId), String(p2.name || "Игрок 2"), state, stake);
+  if (!joined) {
+    await pvpCancelRooms([ownRoom.id]);
+    throw new Error("Failed to start rematch");
+  }
+  return joined;
+}
+
+async function pvpRequestRematch(initData, gameKeyRaw, opponentTgIdRaw, stakeTonRaw, myNameRaw, opponentNameRaw) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const gameKey = normalizeGameKey(gameKeyRaw);
+  const me = String(verified.user.id || "");
+  const opp = String(opponentTgIdRaw || "");
+  const stakeTon = Number(stakeTonRaw || 0);
+  if (!opp) throw new Error("Missing opponent");
+  if (!Number.isFinite(stakeTon) || stakeTon <= 0) throw new Error("Invalid stake");
+  if (opp.startsWith("bot_fallback_")) {
+    return { ok: true, rematch: { available: false, reason: "bot_opponent" } };
+  }
+  pvpRematchCleanup();
+  const key = pvpRematchKey(gameKey, me, opp, stakeTon);
+  const now = Date.now();
+  let s = PVP_REMATCH_SESSIONS.get(key);
+  if (!s || Number(s.expiresAtMs || 0) < now) {
+    s = {
+      gameKey,
+      stakeTon,
+      p1: { tgId: me, name: String(myNameRaw || displayNameFromTg(verified.user) || "Игрок 1").slice(0, 64) },
+      p2: { tgId: opp, name: String(opponentNameRaw || "Игрок 2").slice(0, 64) },
+      requestedBy: {},
+      expiresAtMs: now + PVP_REMATCH_WINDOW_MS,
+      nextRoomId: null,
+      doneExpireMs: 0,
+    };
+  }
+  s.requestedBy[me] = true;
+  if (s.requestedBy[me] && s.requestedBy[opp] && !s.nextRoomId) {
+    const p1 = String(s.p1.tgId) < String(s.p2.tgId) ? s.p1 : s.p2;
+    const p2 = p1 === s.p1 ? s.p2 : s.p1;
+    const room = await pvpCreateDirectRematch(gameKey, p1, p2, stakeTon);
+    s.nextRoomId = Number(room.id);
+    s.doneExpireMs = Date.now() + 60_000;
+  }
+  PVP_REMATCH_SESSIONS.set(key, s);
+  return {
+    ok: true,
+    rematch: {
+      available: true,
+      requestedCount: Number(!!s.requestedBy[me]) + Number(!!s.requestedBy[opp]),
+      total: 2,
+      deadlineMs: Number(s.expiresAtMs || 0),
+      started: !!s.nextRoomId,
+      roomId: s.nextRoomId || null,
+    },
+  };
+}
+
 async function recordMatchInternal(req) {
   assertInternalApiKey(req);
   const b = req.body || {};
@@ -3736,6 +3849,17 @@ module.exports = async (req, res) => {
     if (action === "pvpGetRoomState") {
       const room = await pvpGetRoomState(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, room });
+    }
+    if (action === "pvpRequestRematch") {
+      const data = await pvpRequestRematch(
+        req.body?.initData || "",
+        req.body?.gameKey || "frog_hunt",
+        req.body?.opponentTgId || "",
+        req.body?.stakeTon || req.body?.stake || 0,
+        req.body?.playerName || "",
+        req.body?.opponentName || ""
+      );
+      return res.status(200).json(data);
     }
     if (action === "pvpSubmitMove") {
       const room = await pvpSubmitMove(

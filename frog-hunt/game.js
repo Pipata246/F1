@@ -35,6 +35,12 @@ var currentBalanceTon = 0;
 var bottomNoticeTimer = null;
 var onlineModeSelected = false;
 var pvpAcceptDeadlineMs = 0;
+var pvpOpponentTgId = '';
+var pvpOpponentIsBot = false;
+var rematchDeadlineMs = 0;
+var rematchRequested = false;
+var rematchRequestedCount = 0;
+var rematchPollTimer = null;
 var gameState = {
   inMatch: false,
   botFrogCell: null,
@@ -163,6 +169,7 @@ function showScreen(name) {
   var screens = document.querySelectorAll('.screen');
   for (var i = 0; i < screens.length; i++) screens[i].classList.remove('active');
   $('screen-' + name).classList.add('active');
+  if (name !== 'result') clearRematchUi();
   if (name === 'start') {
     onlineModeSelected = false;
     setModeButtonsVisible(true);
@@ -405,6 +412,106 @@ function stopPvpPolling() {
   pvpPendingSubmit = false;
 }
 
+function stopRematchPolling() {
+  if (rematchPollTimer) clearInterval(rematchPollTimer);
+  rematchPollTimer = null;
+}
+
+function clearRematchUi() {
+  stopRematchPolling();
+  rematchDeadlineMs = 0;
+  rematchRequested = false;
+  rematchRequestedCount = 0;
+  var box = $('rematch-box');
+  if (box) box.remove();
+}
+
+function ensureRematchUi() {
+  var againBtn = $('btn-again');
+  var actions = againBtn ? againBtn.parentElement : null;
+  if (!actions) return null;
+  var box = $('rematch-box');
+  if (box) return box;
+  box = document.createElement('div');
+  box.id = 'rematch-box';
+  box.style.marginTop = '10px';
+  box.style.padding = '10px';
+  box.style.borderRadius = '12px';
+  box.style.background = 'rgba(15,22,42,.45)';
+  box.style.border = '1px solid rgba(255,255,255,.2)';
+  box.style.textAlign = 'center';
+  box.innerHTML = '<div id="rematch-time" style="font-weight:800">Реванш: 10с</div><div id="rematch-status" style="font-size:12px;opacity:.9;margin-top:2px">0 из 2</div><button id="btn-rematch" class="btn btn-primary" style="margin-top:8px;width:100%">Запросить реванш</button>';
+  actions.parentNode.insertBefore(box, actions);
+  $('btn-rematch').onclick = requestRematch;
+  return box;
+}
+
+function tickRematchUi() {
+  if (!rematchDeadlineMs) return;
+  var left = Math.max(0, Math.ceil((rematchDeadlineMs - Date.now()) / 1000));
+  if ($('rematch-time')) $('rematch-time').textContent = 'Реванш: ' + left + 'с';
+  if ($('rematch-status')) $('rematch-status').textContent = String(Math.min(2, rematchRequestedCount)) + ' из 2';
+  if ($('btn-rematch')) {
+    $('btn-rematch').disabled = !!rematchRequested;
+    $('btn-rematch').textContent = rematchRequested ? 'Ожидаем соперника' : 'Запросить реванш';
+  }
+  if (left <= 0) clearRematchUi();
+}
+
+function startRematchWindow() {
+  clearRematchUi();
+  if (isBotMode || !currentStakeTon || pvpOpponentIsBot || !pvpOpponentTgId || !tgInitData) return;
+  rematchDeadlineMs = Date.now() + 10000;
+  ensureRematchUi();
+  tickRematchUi();
+  rematchPollTimer = setInterval(tickRematchUi, 400);
+}
+
+function startDirectRematchRoom(roomId) {
+  var rid = Number(roomId || 0);
+  if (!(rid > 0)) return;
+  clearRematchUi();
+  isBotMode = false;
+  pvpRoomId = rid;
+  resetPvpMarkers();
+  showScreen('waiting');
+  pvpStartPolling();
+}
+
+function requestRematch() {
+  if (rematchRequested || !tgInitData || !pvpOpponentTgId || !(Number(currentStakeTon) > 0)) return;
+  var payload = {
+    action: 'pvpRequestRematch',
+    initData: tgInitData,
+    gameKey: 'frog_hunt',
+    opponentTgId: pvpOpponentTgId,
+    stakeTon: Number(currentStakeTon),
+    playerName: myName || 'Игрок',
+    opponentName: opponentName || 'Соперник'
+  };
+  var tick = function() {
+    apiPost(payload).then(function(data) {
+      if (!data || !data.ok || !data.rematch) return;
+      var r = data.rematch;
+      if (!r.available) return;
+      rematchRequested = true;
+      rematchRequestedCount = Number(r.requestedCount || 0);
+      rematchDeadlineMs = Number(r.deadlineMs || rematchDeadlineMs || 0);
+      tickRematchUi();
+      if (r.started && r.roomId) startDirectRematchRoom(r.roomId);
+    }).catch(function() {});
+  };
+  tick();
+  stopRematchPolling();
+  rematchPollTimer = setInterval(function() {
+    if (Date.now() >= rematchDeadlineMs) {
+      clearRematchUi();
+      return;
+    }
+    tick();
+  }, 900);
+}
+
 function leavePvpQueue() {
   stopPvpPolling();
   if (!isBotMode && pvpRoomId && tgInitData) {
@@ -573,6 +680,8 @@ function applyPvpRoomState(room) {
   var meIsP1 = String(room.player1_tg_user_id) === String(tgUserId);
   var mySide = meIsP1 ? 'p1' : 'p2';
   var oppSide = meIsP1 ? 'p2' : 'p1';
+  pvpOpponentTgId = meIsP1 ? String(room.player2_tg_user_id || '') : String(room.player1_tg_user_id || '');
+  pvpOpponentIsBot = pvpOpponentTgId.indexOf('bot_fallback_') === 0;
   var myScore = Number((s.matchScores || {})[mySide] || 0);
   var oppScore = Number((s.matchScores || {})[oppSide] || 0);
   matchScores = [myScore, oppScore];
@@ -714,6 +823,7 @@ function onOpponentLeftVictory(room) {
     score.textContent = baseScoreText;
   }
   playSound('win');
+  startRematchWindow();
 }
 
 function generateLilypads(count) {
@@ -1156,6 +1266,7 @@ function onMatchResult(msg) {
     score.textContent = baseScoreText;
   }
   if (isBotMode) saveMatchToBackend(msg.youWon);
+  startRematchWindow();
 }
 
 function formatTonCompact(n) {

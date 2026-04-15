@@ -157,6 +157,8 @@ const GamePage = () => {
   const [bottomNotice, setBottomNotice] = useState('');
   const [acceptInfo, setAcceptInfo] = useState(null);
   const [acceptTick, setAcceptTick] = useState(0);
+  const [rematchInfo, setRematchInfo] = useState(null);
+  const [rematchTick, setRematchTick] = useState(0);
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -167,6 +169,8 @@ const GamePage = () => {
   /** Как в frog-hunt: только один из режимов — онлайн (pvp) или локальный бот, никогда оба сразу. */
   const playModeRef = useRef('idle');
   const pvpRoomIdRef = useRef(null);
+  const pvpOpponentTgIdRef = useRef(null);
+  const pvpOpponentIsBotRef = useRef(false);
   const pvpPollTimerRef = useRef(null);
   const pvpPollInFlightRef = useRef(false);
   const pvpLastRoundMarkerRef = useRef(0);
@@ -174,6 +178,7 @@ const GamePage = () => {
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
+  const rematchPollTimerRef = useRef(null);
   const launchHandledRef = useRef(false);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
@@ -224,6 +229,37 @@ const GamePage = () => {
     const id = setInterval(() => setAcceptTick((v) => v + 1), 500);
     return () => clearInterval(id);
   }, [screen]);
+
+  useEffect(() => {
+    if (screen !== 'result' || !rematchInfo) return undefined;
+    const id = setInterval(() => setRematchTick((v) => v + 1), 500);
+    return () => clearInterval(id);
+  }, [screen, rematchInfo]);
+
+  useEffect(() => {
+    if (screen !== 'result' || !matchResult) {
+      setRematchInfo(null);
+      if (rematchPollTimerRef.current) {
+        clearInterval(rematchPollTimerRef.current);
+        rematchPollTimerRef.current = null;
+      }
+      return;
+    }
+    const canRematch = playModeRef.current === 'pvp'
+      && !pvpOpponentIsBotRef.current
+      && Number(currentStakeTon || 0) > 0
+      && !!pvpOpponentTgIdRef.current;
+    if (!canRematch) {
+      setRematchInfo(null);
+      return;
+    }
+    setRematchInfo({
+      requestedCount: 0,
+      total: 2,
+      deadlineMs: Date.now() + 10_000,
+      requested: false,
+    });
+  }, [screen, matchResult, currentStakeTon]);
 
   useEffect(() => {
     const ping = () => {
@@ -325,6 +361,7 @@ const GamePage = () => {
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       if (timerRef.current) clearInterval(timerRef.current);
       if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
+      if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
     };
@@ -520,6 +557,8 @@ const GamePage = () => {
     const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
     const mySide = meIsP1 ? 'p1' : 'p2';
     const myIdx = meIsP1 ? 0 : 1;
+    pvpOpponentTgIdRef.current = meIsP1 ? String(room.player2_tg_user_id || '') : String(room.player1_tg_user_id || '');
+    pvpOpponentIsBotRef.current = pvpOpponentTgIdRef.current.startsWith('bot_fallback_');
     setScreen('game');
     setAcceptInfo(null);
     setPlayerIndex(myIdx);
@@ -810,7 +849,70 @@ const GamePage = () => {
     sendMessage('choose_zone', { zone });
   };
 
+  const startDirectRematch = useCallback((roomId) => {
+    const rid = Number(roomId || 0);
+    if (!Number.isInteger(rid) || rid <= 0) return;
+    if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
+    setRematchInfo(null);
+    setMatchResult(null);
+    setAcceptInfo(null);
+    playModeRef.current = 'pvp';
+    pvpRoomIdRef.current = rid;
+    pvpLastRoundMarkerRef.current = 0;
+    pvpLastStartKeyRef.current = '';
+    setScreen('waiting');
+    startPvpPolling();
+  }, [startPvpPolling]);
+
+  const requestRematch = useCallback(() => {
+    if (!matchResult) return;
+    if (playModeRef.current !== 'pvp') return;
+    if (pvpOpponentIsBotRef.current) return;
+    if (!tgInitDataRef.current || !pvpOpponentTgIdRef.current) return;
+    const stake = Number(currentStakeTon || 0);
+    if (!(stake > 0)) return;
+    const payload = {
+      action: 'pvpRequestRematch',
+      initData: tgInitDataRef.current,
+      gameKey: 'super_penalty',
+      opponentTgId: pvpOpponentTgIdRef.current,
+      stakeTon: stake,
+      playerName: displayName || 'Player',
+      opponentName: opponent || 'Соперник',
+    };
+    const tick = () => apiPost(payload).then((data) => {
+      if (!data?.ok || !data?.rematch) return;
+      const r = data.rematch;
+      if (!r.available) return;
+      setRematchInfo({
+        requestedCount: Number(r.requestedCount || 0),
+        total: Number(r.total || 2),
+        deadlineMs: Number(r.deadlineMs || 0),
+        requested: true,
+      });
+      if (r.started && r.roomId) {
+        startDirectRematch(r.roomId);
+      }
+    }).catch(() => {});
+    tick();
+    if (rematchPollTimerRef.current) clearInterval(rematchPollTimerRef.current);
+    rematchPollTimerRef.current = setInterval(() => {
+      const leftMs = Number(rematchInfo?.deadlineMs || 0) - Date.now();
+      if (leftMs <= 0) {
+        clearInterval(rematchPollTimerRef.current);
+        rematchPollTimerRef.current = null;
+        return;
+      }
+      tick();
+    }, 900);
+  }, [matchResult, rematchInfo?.deadlineMs, currentStakeTon, displayName, opponent, apiPost, startDirectRematch]);
+
   const handlePlayAgain = () => {
+    if (rematchPollTimerRef.current) {
+      clearInterval(rematchPollTimerRef.current);
+      rematchPollTimerRef.current = null;
+    }
+    setRematchInfo(null);
     if (pvpFindRetryTimerRef.current) {
       clearTimeout(pvpFindRetryTimerRef.current);
       pvpFindRetryTimerRef.current = null;
@@ -1052,6 +1154,7 @@ const GamePage = () => {
     const tonResultText = hasTonStake
       ? (matchResult.youWon ? `TON итог: +${(tonStake * 2).toFixed(9).replace(/\.?0+$/, '')} TON` : `TON итог: -${tonStake.toFixed(9).replace(/\.?0+$/, '')} TON`)
       : null;
+    const rematchLeft = Math.max(0, Math.ceil((Number(rematchInfo?.deadlineMs || 0) - Date.now()) / 1000)) + (rematchTick * 0);
     return (
       <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
         <div className="z-10 flex flex-col items-center gap-6">
@@ -1085,6 +1188,19 @@ const GamePage = () => {
           </div>
           {tonResultText && (
             <div className={`text-sm font-black ${matchResult.youWon ? 'text-emerald-300' : 'text-rose-300'}`}>{tonResultText}</div>
+          )}
+          {!!rematchInfo && rematchLeft > 0 && (
+            <div className="w-full max-w-xs bg-white/5 border border-white/15 rounded-2xl p-3 text-center">
+              <p className="text-xs uppercase text-gray-300 tracking-wider">Реванш: {rematchLeft}с</p>
+              <p className="text-xs text-amber-300 mt-1">{Math.min(rematchInfo.total, rematchInfo.requestedCount)} из {rematchInfo.total}</p>
+              <button
+                onClick={requestRematch}
+                disabled={!!rematchInfo.requested}
+                className={`mt-2 w-full py-2 rounded-xl font-bold ${rematchInfo.requested ? 'bg-gray-700 text-gray-300' : 'bg-amber-500 text-black'}`}
+              >
+                {rematchInfo.requested ? 'Ожидаем соперника' : 'Запросить реванш'}
+              </button>
+            </div>
           )}
 
           <div className="flex flex-col items-center gap-2 mt-4 bg-white/5 p-3 rounded-xl border border-white/10">
