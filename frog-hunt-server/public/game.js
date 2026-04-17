@@ -552,7 +552,7 @@ function onMatchResult(msg) {
     title.className = 'final-title won';
     playSound('win');
   } else {
-    setUiIcon(icon, 'frog');
+    setUiIcon(icon, 'lose');
     title.textContent = 'Поражение';
     title.className = 'final-title lost';
     playSound('lose');
