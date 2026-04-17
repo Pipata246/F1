@@ -43,6 +43,10 @@ var gameState = {
 };
 
 var $ = function(id) { return document.getElementById(id); };
+function setUiIcon(el, name) {
+  if (!el) return;
+  el.innerHTML = '<span class="ui-icon ui-icon-' + String(name || 'frog') + '"></span>';
+}
 
 var SFX = {};
 function initSounds() {
@@ -701,7 +705,7 @@ function onOpponentLeftVictory(room) {
   var icon = $('final-icon');
   var title = $('final-title');
   var score = $('final-score');
-  icon.textContent = '🏆';
+  setUiIcon(icon, 'trophy');
   title.textContent = 'Пользователь покинул игру, вы победили';
   title.className = 'final-title won';
   var s = (room && room.state_json) || {};
@@ -742,8 +746,8 @@ function generateLilypads(count) {
         '<line x1="30" y1="32" x2="30" y2="52" stroke="#1a6a30" stroke-width="0.7" opacity="0.3"/>' +
       '</svg>' +
       '<span class="pad-icon frog-icon"><span class="frog-face"><span class="frog-eye left"><span class="frog-pupil"></span></span><span class="frog-eye right"><span class="frog-pupil"></span></span><span class="frog-mouth"></span></span></span>' +
-      '<span class="pad-icon trail-icon">💧</span>' +
-      '<span class="pad-icon shot-icon">💥</span>';
+      '<span class="pad-icon trail-icon"><span class="ui-icon ui-icon-trail"></span></span>' +
+      '<span class="pad-icon shot-icon"><span class="ui-icon ui-icon-burst"></span></span>';
 
     pad.addEventListener('click', (function(idx) {
       return function() { onPadClick(idx); };
@@ -930,11 +934,11 @@ function onRoleAssign(msg) {
   var desc = $('role-desc');
 
   if (myRole === 'frog') {
-    icon.textContent = '🐸';
+    setUiIcon(icon, 'frog');
     title.textContent = 'Ты — Жаба!';
     desc.textContent = 'Прячься на кувшинках. Переживи ' + totalRounds + ' ходов!';
   } else {
-    icon.textContent = '🏹';
+    setUiIcon(icon, 'hunter');
     title.textContent = 'Ты — Охотник!';
     if (hunterShots > 1) {
       desc.textContent = 'Найди жабу! ' + hunterShots + ' выстрела за ход!';
@@ -965,7 +969,7 @@ function onFrogTurn(msg) {
   }
 
   $('hint-text').textContent = msg.isFinal
-    ? '🔥 ФИНАЛЬНЫЙ ХОД! Куда прячешься?'
+    ? 'ФИНАЛЬНЫЙ ХОД! Куда прячешься?'
     : 'Выбери кувшинку!';
 
   startTimer(15000);
@@ -986,7 +990,7 @@ function onHunterTurn(msg) {
 
   // No hints — clean slate every round
   $('hint-text').textContent = msg.isFinal
-    ? '🔥 ФИНАЛЬНЫЙ ХОД! Куда стрелять?'
+    ? 'ФИНАЛЬНЫЙ ХОД! Куда стрелять?'
     : 'Куда стрелять?';
 
   if (hunterShots > 1) {
@@ -1011,7 +1015,7 @@ function onRoundResult(msg) {
   }
 
   if (myRole === 'frog') {
-    $('hint-text').textContent = '🏹 Выстрел...';
+    $('hint-text').textContent = 'Выстрел...';
   } else {
     $('hint-text').textContent = 'Твой выстрел...';
   }
@@ -1025,7 +1029,7 @@ function onRoundResult(msg) {
       if (hitPad) hitPad.classList.add('hit');
       showFrog(hitCell);
       playSound('hit');
-      $('hint-text').textContent = '💥 Попадание!';
+      $('hint-text').textContent = 'Попадание!';
     } else {
       // Reveal frog position on miss for both players
       showFrog(msg.frogCell);
@@ -1034,25 +1038,25 @@ function onRoundResult(msg) {
       if (myRole === 'frog') {
         $('hint-text').textContent = '😌 Промах! Ты выжила!';
       } else {
-        $('hint-text').textContent = '💨 Промах!';
+        $('hint-text').textContent = 'Промах!';
       }
     }
 
     // Show overlay
     setTimeout(function() {
       if (msg.hit) {
-        showRoundOverlay('💥', 'Попадание!', 'Жаба поймана!');
+        showRoundOverlay('burst', 'Попадание!', 'Жаба поймана!');
       } else if (msg.isFinal) {
-        showRoundOverlay('🐸', 'Жаба выжила!', 'Все ' + msg.totalRounds + ' ходов пройдены!');
+        showRoundOverlay('frog', 'Жаба выжила!', 'Все ' + msg.totalRounds + ' ходов пройдены!');
       } else {
-        showRoundOverlay('💨', 'Промах!', 'Ход ' + msg.round + '/' + msg.totalRounds + ' пройден');
+        showRoundOverlay('trail', 'Промах!', 'Ход ' + msg.round + '/' + msg.totalRounds + ' пройден');
       }
     }, 1200);
   }, 1000);
 }
 
 function showRoundOverlay(icon, title, desc) {
-  $('rr-icon').textContent = icon;
+  setUiIcon($('rr-icon'), icon);
   $('rr-title').textContent = title;
   $('rr-desc').textContent = desc;
   showOverlay('overlay-round-result');
@@ -1069,11 +1073,11 @@ function onGameOver(msg) {
   var score = $('go-score');
 
   if (msg.youWon) {
-    icon.textContent = '🏆';
+    setUiIcon(icon, 'trophy');
     title.textContent = 'Ты победил!';
     desc.textContent = msg.yourRole === 'hunter' ? 'Отличный выстрел!' : 'Жаба выжила!';
   } else {
-    icon.textContent = '😔';
+    setUiIcon(icon, 'sad');
     title.textContent = 'Поражение';
     desc.textContent = msg.yourRole === 'hunter' ? 'Жаба ускользнула...' : 'Тебя нашли!';
   }
@@ -1110,12 +1114,12 @@ function onMatchResult(msg) {
   var score = $('final-score');
 
   if (msg.youWon) {
-    icon.textContent = '👑';
+    setUiIcon(icon, 'crown');
     title.textContent = 'ПОБЕДА!';
     title.className = 'final-title won';
     playSound('win');
   } else {
-    icon.textContent = '🐸';
+    setUiIcon(icon, 'frog');
     title.textContent = 'Поражение';
     title.className = 'final-title lost';
     playSound('lose');
@@ -1219,7 +1223,7 @@ function localResolveFrogTurn(cell) {
   myFrogCell = cell;
   hideAllFrogs();
   playSound('hide');
-  $('hint-text').textContent = '🏹 Охотник целится...';
+  $('hint-text').textContent = 'Охотник целится...';
 
   setTimeout(function() {
     var shots = pickRandomCells(totalCells, hunterShots);
@@ -1361,5 +1365,5 @@ function updateHeader() {
   }
   $('match-score').textContent = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
   $('round-label').textContent = 'Ход ' + currentRound + '/' + totalRounds;
-  $('role-label').textContent = myRole === 'frog' ? '🐸 Жаба' : '🏹 Охотник';
+  $('role-label').textContent = myRole === 'frog' ? 'Жаба' : 'Охотник';
 }
