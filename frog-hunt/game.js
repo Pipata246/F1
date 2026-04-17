@@ -961,12 +961,9 @@ function onFrogTurn(msg) {
   var pond = document.querySelector('.pond');
   pond.classList.add('choosing-frog');
 
-  // Show frog on current position so player sees where they are
-  if (msg.currentCell != null) myFrogCell = msg.currentCell;
+  // Don't show frog from previous turn - player should not see it on next turn
   hideAllFrogs();
-  if (myFrogCell != null) {
-    showFrog(myFrogCell);
-  }
+  myFrogCell = null;
 
   $('hint-text').textContent = msg.isFinal
     ? 'ФИНАЛЬНЫЙ ХОД! Куда прячешься?'
