@@ -318,25 +318,24 @@ input[type="text"]::placeholder { color: var(--text2); }
 }
 .ui-icon.inline { width: 0.95em; height: 0.95em; transform: translateY(1px); }
 .ui-icon.big { width: 64px; height: 64px; }
-.ui-icon-frog { background-image: url("https://img.icons8.com/windows/64/frog.png"); filter: hue-rotate(90deg) brightness(1.15) saturate(1.3); }
-.ui-icon-hunter { background-image: url("https://img.icons8.com/windows/64/center-direction.png"); filter: hue-rotate(15deg) brightness(1.15) saturate(1.4); }
-.ui-icon-trail { background-image: url("https://img.icons8.com/windows/100/water.png"); filter: hue-rotate(190deg) brightness(1.15) saturate(1.3); }
-.ui-icon-burst { background-image: url("https://img.icons8.com/windows/64/flash-bang.png"); filter: hue-rotate(-10deg) brightness(1.15) saturate(1.3); }
-.ui-icon-sync { background-image: url("https://img.icons8.com/windows/100/left-and-right-arrows.png"); filter: hue-rotate(170deg) brightness(1.15) saturate(1.3); }
-.ui-icon-bolt { background-image: url("https://img.icons8.com/windows/100/quick-mode-on.png"); filter: hue-rotate(-5deg) brightness(1.2) saturate(1.4); }
-.ui-icon-trophy { background-image: url("https://img.icons8.com/windows/64/trophy.png"); filter: hue-rotate(15deg) brightness(1.25) saturate(1.4); }
-.ui-icon-crown { background-image: url("https://img.icons8.com/windows/64/crown.png"); filter: hue-rotate(15deg) brightness(1.25) saturate(1.4); }
-.ui-icon-sad { background-image: url("https://img.icons8.com/external-glyph-silhouettes-icons-papa-vector/78/external-Losing-sports-betting-glyph-silhouettes-icons-papa-vector.png"); filter: hue-rotate(210deg) brightness(1.2) saturate(0.9); }
-.ui-icon-battle { background-image: url("https://img.icons8.com/windows/64/battle.png"); filter: hue-rotate(15deg) brightness(1.15) saturate(1.4); }
+.ui-icon-frog { background-image: url("https://img.icons8.com/fluency/48/frog-face.png"); }
+.ui-icon-hunter { background-image: url("https://img.icons8.com/color/48/hunter.png"); }
+.ui-icon-trail { background-image: url("https://img.icons8.com/emoji/48/droplet.png"); }
+.ui-icon-burst { background-image: url("https://img.icons8.com/fluency/48/flash-bang.png"); }
+.ui-icon-sync { background-image: url("https://img.icons8.com/cute-clipart/64/connection-sync.png"); }
+.ui-icon-bolt { background-image: url("https://img.icons8.com/emoji/48/high-voltage.png"); }
+.ui-icon-trophy { background-image: url("https://img.icons8.com/arcade/50/trophy.png"); }
+.ui-icon-crown { background-image: url("https://img.icons8.com/fluency/48/crown.png"); }
+.ui-icon-sad { background-image: url("https://img.icons8.com/external-tal-revivo-green-tal-revivo/36/external-crying-pictorial-representation-with-heavy-tears-flowing-smiley-green-tal-revivo.png"); }
+.ui-icon-battle { background-image: url("https://img.icons8.com/parakeet/48/controller.png"); }
 .pad-icon.frog-icon { font-size: 0; }
 .frog-face {
   width: 34px;
   height: 34px;
-  background-image: url("https://img.icons8.com/windows/64/frog.png");
+  background-image: url("https://img.icons8.com/fluency/48/frog-face.png");
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
-  filter: hue-rotate(90deg) brightness(1.15) saturate(1.3);
 }
 
 /* Overtime: 2x2 grid */
