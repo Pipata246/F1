@@ -289,6 +289,46 @@ input[type="text"]::placeholder { color: var(--text2); }
   pointer-events: none;
   font-size: 30px;
 }
+.pad-icon.frog-icon { font-size: 0; }
+.frog-face {
+  width: 34px;
+  height: 24px;
+  border-radius: 14px 14px 12px 12px;
+  background: radial-gradient(circle at 50% 35%, #8af9b4 0%, #55d881 45%, #2ea95a 100%);
+  position: relative;
+  box-shadow: 0 0 14px rgba(96, 255, 163, 0.65), inset 0 -2px 4px rgba(0, 0, 0, 0.25);
+}
+.frog-eye {
+  position: absolute;
+  top: -7px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #f3ff7f;
+  border: 1px solid #2f8f4a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.frog-eye.left { left: 6px; }
+.frog-eye.right { right: 6px; }
+.frog-pupil {
+  width: 4px;
+  height: 5px;
+  border-radius: 50%;
+  background: #1a2f1f;
+}
+.frog-mouth {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  width: 12px;
+  height: 6px;
+  border-bottom: 2px solid #2a6540;
+  border-radius: 0 0 8px 8px;
+  transform: translateX(-50%);
+  opacity: 0.85;
+}
 
 /* Overtime: 2x2 grid */
 .lilypads-row.overtime {
@@ -399,16 +439,6 @@ input[type="text"]::placeholder { color: var(--text2); }
 @keyframes finalTextPulse {
   0%, 100% { text-shadow: 0 0 10px rgba(255, 196, 58, 0.3); }
   50% { text-shadow: 0 0 20px rgba(255, 196, 58, 0.6); }
-}
-
-/* Flying frog (jump animation) */
-.frog-flyer {
-  position: absolute;
-  font-size: 24px;
-  z-index: 20;
-  pointer-events: none;
-  transition: left 0.35s ease, top 0.35s ease;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
 }
 
 .game-bottom {

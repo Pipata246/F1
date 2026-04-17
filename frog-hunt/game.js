@@ -741,7 +741,7 @@ function generateLilypads(count) {
         '<line x1="30" y1="32" x2="46" y2="20" stroke="#1a6a30" stroke-width="0.7" opacity="0.3"/>' +
         '<line x1="30" y1="32" x2="30" y2="52" stroke="#1a6a30" stroke-width="0.7" opacity="0.3"/>' +
       '</svg>' +
-      '<span class="pad-icon frog-icon">🐸</span>' +
+      '<span class="pad-icon frog-icon"><span class="frog-face"><span class="frog-eye left"><span class="frog-pupil"></span></span><span class="frog-eye right"><span class="frog-pupil"></span></span><span class="frog-mouth"></span></span></span>' +
       '<span class="pad-icon trail-icon">💧</span>' +
       '<span class="pad-icon shot-icon">💥</span>';
 
@@ -760,7 +760,7 @@ function getPad(cell) {
 function clearPadStates() {
   var pads = document.querySelectorAll('.lilypad');
   for (var i = 0; i < pads.length; i++) {
-    pads[i].classList.remove('selected-frog', 'selected-hunter', 'has-trail', 'shot', 'hit');
+    pads[i].classList.remove('selected-frog', 'selected-hunter', 'has-trail', 'shot', 'hit', 'has-frog');
     // Hide icons
     var icons = pads[i].querySelectorAll('.pad-icon');
     for (var j = 0; j < icons.length; j++) icons[j].style.display = '';
@@ -971,37 +971,6 @@ function onFrogTurn(msg) {
   startTimer(15000);
 }
 
-function animateFrogJump(fromCell, toCell, onDone) {
-  var fromPad = getPad(fromCell);
-  var toPad = getPad(toCell);
-  if (!fromPad || !toPad) { onDone(); return; }
-
-  hideAllFrogs();
-  var pond = document.querySelector('.pond');
-  var pondRect = pond.getBoundingClientRect();
-  var fromRect = fromPad.getBoundingClientRect();
-  var toRect = toPad.getBoundingClientRect();
-
-  var flyer = document.createElement('div');
-  flyer.className = 'frog-flyer';
-  flyer.textContent = '🐸';
-  flyer.style.position = 'absolute';
-  flyer.style.left = (fromRect.left - pondRect.left + fromRect.width / 2) + 'px';
-  flyer.style.top = (fromRect.top - pondRect.top + fromRect.height / 2) + 'px';
-  flyer.style.transform = 'translate(-50%, -50%)';
-  pond.appendChild(flyer);
-
-  requestAnimationFrame(function() {
-    flyer.style.left = (toRect.left - pondRect.left + toRect.width / 2) + 'px';
-    flyer.style.top = (toRect.top - pondRect.top + toRect.height / 2) + 'px';
-  });
-
-  setTimeout(function() {
-    flyer.remove();
-    onDone();
-  }, 400);
-}
-
 function onHunterTurn(msg) {
   currentRound = msg.round;
   totalRounds = msg.totalRounds;
@@ -1009,6 +978,8 @@ function onHunterTurn(msg) {
   updateHeader();
   clearPadStates();
   setFinalRound(msg.isFinal);
+  hideAllFrogs();
+  myFrogCell = null;
 
   var pond = document.querySelector('.pond');
   pond.classList.add('choosing-hunter');
@@ -1247,7 +1218,6 @@ function localResolveFrogTurn(cell) {
   var oldCell = myFrogCell;
   myFrogCell = cell;
   hideAllFrogs();
-  showFrog(cell);
   playSound('hide');
   $('hint-text').textContent = '🏹 Охотник целится...';
 
@@ -1269,8 +1239,7 @@ function localResolveFrogTurn(cell) {
         localAfterRound(shots.indexOf(cell) >= 0);
       }, 2600);
     };
-    if (moved && oldCell != null) animateFrogJump(oldCell, cell, afterShoot);
-    else afterShoot();
+    afterShoot();
   }, 700);
 }
 
@@ -1298,8 +1267,7 @@ function localResolveHunterTurn(cells) {
       localAfterRound(cells.indexOf(botCell) >= 0);
     }, 2600);
   };
-  if (moved && oldCell != null) animateFrogJump(oldCell, botCell, resolveFn);
-  else resolveFn();
+  resolveFn();
 }
 
 function localAfterRound(hit) {
