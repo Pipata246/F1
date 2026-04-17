@@ -355,64 +355,30 @@ input[type="text"]::placeholder { color: var(--text2); }
   width: 1em;
   height: 1em;
   display: inline-block;
-  background: currentColor;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
 }
 .ui-icon.inline { width: 0.95em; height: 0.95em; transform: translateY(1px); }
-.ui-icon.big { width: 64px; height: 64px; color: #8ff0cf; }
-.ui-icon-frog { color: #79efbd; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M7 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm-5 2c5 0 9 3 9 7 0 3-3 5-9 5s-9-2-9-5c0-4 4-7 9-7Zm-4 5h2c0 1 1 2 2 2s2-1 2-2h2c0 2-2 4-4 4s-4-2-4-4Z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M7 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm-5 2c5 0 9 3 9 7 0 3-3 5-9 5s-9-2-9-5c0-4 4-7 9-7Zm-4 5h2c0 1 1 2 2 2s2-1 2-2h2c0 2-2 4-4 4s-4-2-4-4Z'/%3E%3C/svg%3E"); }
-.ui-icon-hunter { color: #ff9d85; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M2 3h2l3 7h5l8-6 2 3-7 5 5 1-1 3-5-2-3 7h-2l2-8H8L5 21H3l2-8L2 3z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M2 3h2l3 7h5l8-6 2 3-7 5 5 1-1 3-5-2-3 7h-2l2-8H8L5 21H3l2-8L2 3z'/%3E%3C/svg%3E"); }
-.ui-icon-trail { color: #8fd9ff; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 2c3 5 6 8 6 12a6 6 0 1 1-12 0c0-4 3-7 6-12z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 2c3 5 6 8 6 12a6 6 0 1 1-12 0c0-4 3-7 6-12z'/%3E%3C/svg%3E"); }
-.ui-icon-burst { color: #ff8c8c; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='m12 2 2 6 6-2-2 6 6 2-6 2 2 6-6-2-2 6-2-6-6 2 2-6-6-2 6-2-2-6 6 2 2-6z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='m12 2 2 6 6-2-2 6 6 2-6 2 2 6-6-2-2 6-2-6-6 2 2-6-6-2 6-2-2-6 6 2 2-6z'/%3E%3C/svg%3E"); }
-.ui-icon-sync { color: #9ad9ff; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 5V1l5 4-5 4V6a6 6 0 1 0 5.65 8h2.07A8 8 0 1 1 12 4v1zm0 14v4l-5-4 5-4v3a6 6 0 0 0 5.65-4h2.07A8 8 0 0 1 12 20v-1z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 5V1l5 4-5 4V6a6 6 0 1 0 5.65 8h2.07A8 8 0 1 1 12 4v1zm0 14v4l-5-4 5-4v3a6 6 0 0 0 5.65-4h2.07A8 8 0 0 1 12 20v-1z'/%3E%3C/svg%3E"); }
-.ui-icon-bolt { color: #ffe080; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M13 2 4 14h6l-1 8 9-12h-6l1-8z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M13 2 4 14h6l-1 8 9-12h-6l1-8z'/%3E%3C/svg%3E"); }
-.ui-icon-trophy { color: #ffe093; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M6 2h12v3h3v4a5 5 0 0 1-5 5h-1a6 6 0 0 1-2 2.2V19h4v3H7v-3h4v-2.8A6 6 0 0 1 9 14H8a5 5 0 0 1-5-5V5h3V2zm12 5v2a3 3 0 0 0 3-3V5h-3v2zM6 5H3v1a3 3 0 0 0 3 3V5z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M6 2h12v3h3v4a5 5 0 0 1-5 5h-1a6 6 0 0 1-2 2.2V19h4v3H7v-3h4v-2.8A6 6 0 0 1 9 14H8a5 5 0 0 1-5-5V5h3V2zm12 5v2a3 3 0 0 0 3-3V5h-3v2zM6 5H3v1a3 3 0 0 0 3 3V5z'/%3E%3C/svg%3E"); }
-.ui-icon-crown { color: #ffe093; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='m3 7 4 4 5-7 5 7 4-4-2 13H5L3 7z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='m3 7 4 4 5-7 5 7 4-4-2 13H5L3 7z'/%3E%3C/svg%3E"); }
-.ui-icon-sad { color: #b3c0dd; -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-4 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm8 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-8.5 8a5.5 5.5 0 0 1 9 0h-2a3.5 3.5 0 0 0-5 0h-2z'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-4 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm8 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-8.5 8a5.5 5.5 0 0 1 9 0h-2a3.5 3.5 0 0 0-5 0h-2z'/%3E%3C/svg%3E"); }
+.ui-icon.big { width: 64px; height: 64px; }
+.ui-icon-frog { background-image: url("https://img.icons8.com/fluency/48/frog-face.png"); }
+.ui-icon-hunter { background-image: url("https://img.icons8.com/color/48/hunter.png"); }
+.ui-icon-trail { background-image: url("https://img.icons8.com/emoji/48/droplet.png"); }
+.ui-icon-burst { background-image: url("https://img.icons8.com/fluency/48/flash-bang.png"); }
+.ui-icon-sync { background-image: url("https://img.icons8.com/cute-clipart/64/connection-sync.png"); }
+.ui-icon-bolt { background-image: url("https://img.icons8.com/emoji/48/high-voltage.png"); }
+.ui-icon-trophy { background-image: url("https://img.icons8.com/arcade/64/trophy.png"); }
+.ui-icon-crown { background-image: url("https://img.icons8.com/fluency/64/crown.png"); }
+.ui-icon-sad { background-image: url("https://img.icons8.com/external-tal-revivo-green-tal-revivo/64/external-crying-pictorial-representation-with-heavy-tears-flowing-smiley-green-tal-revivo.png"); }
+.ui-icon-battle { background-image: url("https://img.icons8.com/parakeet/48/controller.png"); }
 .pad-icon.frog-icon { font-size: 0; }
 .frog-face {
   width: 34px;
-  height: 24px;
-  border-radius: 14px 14px 12px 12px;
-  background: radial-gradient(circle at 50% 35%, #8af9b4 0%, #55d881 45%, #2ea95a 100%);
-  position: relative;
-  box-shadow: 0 0 14px rgba(96, 255, 163, 0.65), inset 0 -2px 4px rgba(0, 0, 0, 0.25);
-}
-.frog-eye {
-  position: absolute;
-  top: -7px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: #f3ff7f;
-  border: 1px solid #2f8f4a;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.frog-eye.left { left: 6px; }
-.frog-eye.right { right: 6px; }
-.frog-pupil {
-  width: 4px;
-  height: 5px;
-  border-radius: 50%;
-  background: #1a2f1f;
-}
-.frog-mouth {
-  position: absolute;
-  left: 50%;
-  bottom: 5px;
-  width: 12px;
-  height: 6px;
-  border-bottom: 2px solid #2a6540;
-  border-radius: 0 0 8px 8px;
-  transform: translateX(-50%);
-  opacity: 0.85;
+  height: 34px;
+  background-image: url("https://img.icons8.com/fluency/48/frog-face.png");
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* Overtime: 2x2 grid */
@@ -560,7 +526,7 @@ input[type="text"]::placeholder { color: var(--text2); }
   display: none;
   position: absolute;
   inset: 0;
-  background: rgba(5, 15, 8, 0.92);
+  background: transparent;
   z-index: 50;
   align-items: center;
   justify-content: center;
@@ -570,6 +536,9 @@ input[type="text"]::placeholder { color: var(--text2); }
 .overlay-card {
   text-align: center;
   padding: 28px;
+  background: var(--bg);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 .big-icon {
   font-size: 64px;
