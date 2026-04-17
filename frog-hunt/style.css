@@ -70,17 +70,19 @@ body {
 
 @keyframes floatUp {
   0% {
-    transform: translateY(-100px) rotate(0deg);
+    transform: translateY(-150px) rotate(0deg);
     opacity: 0;
   }
-  10% {
+  5% {
+    transform: translateY(-50px) rotate(18deg);
     opacity: 0.12;
   }
-  90% {
+  95% {
+    transform: translateY(calc(100vh + 50px)) rotate(342deg);
     opacity: 0.12;
   }
   100% {
-    transform: translateY(100vh) rotate(360deg);
+    transform: translateY(calc(100vh + 150px)) rotate(360deg);
     opacity: 0;
   }
 }
