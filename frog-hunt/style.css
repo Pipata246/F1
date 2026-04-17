@@ -37,56 +37,6 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Animated background elements */
-.floating-elements {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 0;
-}
-
-.floating-item {
-  position: absolute;
-  opacity: 0.15;
-  animation: floatUp 15s linear infinite;
-}
-
-.floating-item.frog {
-  width: 24px;
-  height: 24px;
-  background-image: url("https://img.icons8.com/softteal-color/24/knitted-frog.png");
-  background-size: contain;
-  background-repeat: no-repeat;
-}
-
-.floating-item.leaf {
-  width: 30px;
-  height: 30px;
-  background-image: url("https://img.icons8.com/external-basicons-color-danil-polshin/50/external-leaves-leaves-basicons-color-danil-polshin-2.png");
-  background-size: contain;
-  background-repeat: no-repeat;
-}
-
-@keyframes floatUp {
-  0% {
-    transform: translateY(-150px) rotate(0deg);
-    opacity: 0;
-  }
-  5% {
-    transform: translateY(-50px) rotate(18deg);
-    opacity: 0.12;
-  }
-  95% {
-    transform: translateY(calc(100vh + 50px)) rotate(342deg);
-    opacity: 0.12;
-  }
-  100% {
-    transform: translateY(calc(100vh + 150px)) rotate(360deg);
-    opacity: 0;
-  }
-}
-
 .screen {
   display: none;
   position: fixed;
