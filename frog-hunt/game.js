@@ -1057,7 +1057,7 @@ function showRoundOverlay(icon, title, desc) {
   $('rr-title').textContent = title;
   $('rr-desc').textContent = desc;
   showOverlay('overlay-round-result');
-  setTimeout(function() { hideOverlay('overlay-round-result'); }, 2000);
+  setTimeout(function() { hideOverlay('overlay-round-result'); }, 1200);
 }
 
 function onGameOver(msg) {
@@ -1074,7 +1074,7 @@ function onGameOver(msg) {
     title.textContent = 'Ты победил!';
     desc.textContent = msg.yourRole === 'hunter' ? 'Отличный выстрел!' : 'Жаба выжила!';
   } else {
-    setUiIcon(icon, 'sad');
+    setUiIcon(icon, 'lose');
     title.textContent = 'Поражение';
     desc.textContent = msg.yourRole === 'hunter' ? 'Жаба ускользнула...' : 'Тебя нашли!';
   }
@@ -1083,7 +1083,7 @@ function onGameOver(msg) {
 
   hideOverlay('overlay-round-result');
   showOverlay('overlay-game-over');
-  setTimeout(function() { hideOverlay('overlay-game-over'); }, 2800);
+  setTimeout(function() { hideOverlay('overlay-game-over'); }, 1500);
 }
 
 function onSwitchRoles() {
