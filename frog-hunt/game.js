@@ -658,22 +658,12 @@ function applyPvpRoomState(room) {
     pvpLastGameMarker = Number((s.markers || {}).game || 0);
     var winnerRole = (s.lastRoundResult && s.lastRoundResult.winnerRole) || (s.roundHit ? 'hunter' : 'frog');
     var youWon = (myRole === winnerRole);
-    onGameOverCallback = function() {
-      onGameOver({
-        youWon: youWon,
-        yourRole: myRole,
-        gameNum: gameNum,
-        matchScores: matchScores.slice()
-      });
-    };
-    // Check if round overlay is still visible, if so wait for it to hide
-    var roundOverlay = document.getElementById('overlay-round-result');
-    if (roundOverlay && roundOverlay.style.display !== 'none') {
-      // Callback will be triggered by showRoundOverlay
-    } else {
-      // No round overlay visible, call immediately
-      onGameOverCallback();
-    }
+    onGameOver({
+      youWon: youWon,
+      yourRole: myRole,
+      gameNum: gameNum,
+      matchScores: matchScores.slice()
+    });
     return;
   }
 
@@ -1054,12 +1044,7 @@ function onRoundResult(msg) {
       if (msg.hit) {
         showRoundOverlay('burst', 'Попадание!', 'Жаба поймана!');
       } else if (msg.isFinal) {
-        showRoundOverlay('frog', 'Жаба выжила!', 'Все ' + msg.totalRounds + ' ходов пройдены!', function() {
-          // After round overlay hides, trigger game over
-          if (typeof onGameOverCallback === 'function') {
-            onGameOverCallback();
-          }
-        });
+        showRoundOverlay('frog', 'Жаба выжила!', 'Все ' + msg.totalRounds + ' ходов пройдены!');
       } else {
         showRoundOverlay('trail', 'Промах!', 'Ход ' + msg.round + '/' + msg.totalRounds + ' пройден');
       }
@@ -1067,15 +1052,12 @@ function onRoundResult(msg) {
   }, 1000);
 }
 
-function showRoundOverlay(icon, title, desc, callback) {
+function showRoundOverlay(icon, title, desc) {
   setUiIcon($('rr-icon'), icon);
   $('rr-title').textContent = title;
   $('rr-desc').textContent = desc;
   showOverlay('overlay-round-result');
-  setTimeout(function() {
-    hideOverlay('overlay-round-result');
-    if (callback) callback();
-  }, 2000);
+  setTimeout(function() { hideOverlay('overlay-round-result'); }, 2000);
 }
 
 function onGameOver(msg) {
@@ -1099,44 +1081,23 @@ function onGameOver(msg) {
 
   score.textContent = 'Счёт матча: ' + matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
 
+  hideOverlay('overlay-round-result');
   showOverlay('overlay-game-over');
   setTimeout(function() { hideOverlay('overlay-game-over'); }, 2800);
 }
 
 function onSwitchRoles() {
-  var roundOverlay = document.getElementById('overlay-round-result');
-  if (roundOverlay && roundOverlay.style.display !== 'none') {
-    // Wait for round overlay to hide first
-    setTimeout(function() {
-      hideAllOverlays();
-      hideAllFrogs();
-      showOverlay('overlay-switch');
-      setTimeout(function() { hideOverlay('overlay-switch'); }, 2800);
-    }, 2000);
-  } else {
-    hideAllOverlays();
-    hideAllFrogs();
-    showOverlay('overlay-switch');
-    setTimeout(function() { hideOverlay('overlay-switch'); }, 2800);
-  }
+  hideAllOverlays();
+  hideAllFrogs();
+  showOverlay('overlay-switch');
+  setTimeout(function() { hideOverlay('overlay-switch'); }, 2800);
 }
 
 function onTiebreakStart() {
-  var roundOverlay = document.getElementById('overlay-round-result');
-  if (roundOverlay && roundOverlay.style.display !== 'none') {
-    // Wait for round overlay to hide first
-    setTimeout(function() {
-      hideAllOverlays();
-      hideAllFrogs();
-      showOverlay('overlay-tiebreak');
-      setTimeout(function() { hideOverlay('overlay-tiebreak'); }, 2800);
-    }, 2000);
-  } else {
-    hideAllOverlays();
-    hideAllFrogs();
-    showOverlay('overlay-tiebreak');
-    setTimeout(function() { hideOverlay('overlay-tiebreak'); }, 2800);
-  }
+  hideAllOverlays();
+  hideAllFrogs();
+  showOverlay('overlay-tiebreak');
+  setTimeout(function() { hideOverlay('overlay-tiebreak'); }, 2800);
 }
 
 function onMatchResult(msg) {
@@ -1312,27 +1273,11 @@ function localResolveHunterTurn(cells) {
 
 function localAfterRound(hit) {
   if (hit) {
-    onGameOverCallback = function() {
-      localEndGame('hunter');
-    };
-    var roundOverlay = document.getElementById('overlay-round-result');
-    if (roundOverlay && roundOverlay.style.display !== 'none') {
-      // Callback will be triggered by showRoundOverlay
-    } else {
-      onGameOverCallback();
-    }
+    localEndGame('hunter');
     return;
   }
   if (currentRound >= totalRounds) {
-    onGameOverCallback = function() {
-      localEndGame('frog');
-    };
-    var roundOverlay = document.getElementById('overlay-round-result');
-    if (roundOverlay && roundOverlay.style.display !== 'none') {
-      // Callback will be triggered by showRoundOverlay
-    } else {
-      onGameOverCallback();
-    }
+    localEndGame('frog');
     return;
   }
   currentRound += 1;
