@@ -1,5 +1,5 @@
 var playerIndex = 0;
-var opponentName = 'Бот 🤖';
+var opponentName = 'Бот';
 var myName = '';
 var myRole = '';
 var gameNum = 1;
@@ -1033,7 +1033,7 @@ function onRoundResult(msg) {
       playSound('ribbit');
       playSound('miss');
       if (myRole === 'frog') {
-        $('hint-text').textContent = '😌 Промах! Ты выжила!';
+        $('hint-text').textContent = 'Промах! Ты выжила!';
       } else {
         $('hint-text').textContent = 'Промах!';
       }
@@ -1341,7 +1341,7 @@ function saveMatchToBackend(youWon) {
           },
           {
             tgUserId: null,
-            name: 'Бот 🤖',
+            name: 'Бот',
             score: matchScores[1] || 0,
             isWinner: !youWon,
             isBot: true
