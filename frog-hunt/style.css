@@ -98,8 +98,14 @@ body {
   display: flex;
 }
 
-#screen-demo .floating-elements {
+#screen-demo .floating-elements,
+#screen-start .floating-elements,
+#screen-waiting .floating-elements {
   display: none;
+}
+
+#screen-game .floating-elements {
+  display: block;
 }
 
 .screen.active {
@@ -360,13 +366,13 @@ input[type="text"]::placeholder { color: var(--text2); }
 .ui-icon-bolt { background-image: url("https://img.icons8.com/emoji/48/high-voltage.png"); }
 .ui-icon-trophy { background-image: url("https://img.icons8.com/arcade/50/trophy.png"); }
 .ui-icon-crown { background-image: url("https://img.icons8.com/fluency/48/crown.png"); }
-.ui-icon-sad { background-image: url("https://img.icons8.com/external-tal-revivo-green-tal-revivo/36/external-crying-pictorial-representation-with-heavy-tears-flowing-smiley-green-tal-revivo.png"); }
+.ui-icon-sad { background-image: url("https://img.icons8.com/external-tal-revivo-green-tal-revivo/64/external-crying-pictorial-representation-with-heavy-tears-flowing-smiley-green-tal-revivo.png"); }
 .ui-icon-battle { background-image: url("https://img.icons8.com/parakeet/48/controller.png"); }
 .pad-icon.frog-icon { font-size: 0; }
 .frog-face {
-  width: 28px;
-  height: 28px;
-  background-image: url("https://img.icons8.com/fluency/64/frog-face.png");
+  width: 34px;
+  height: 34px;
+  background-image: url("https://img.icons8.com/fluency/48/frog-face.png");
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
