@@ -1081,7 +1081,6 @@ function onGameOver(msg) {
 
   score.textContent = 'Счёт матча: ' + matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
 
-  hideOverlay('overlay-round-result');
   showOverlay('overlay-game-over');
   setTimeout(function() { hideOverlay('overlay-game-over'); }, 1500);
 }
@@ -1273,11 +1272,11 @@ function localResolveHunterTurn(cells) {
 
 function localAfterRound(hit) {
   if (hit) {
-    localEndGame('hunter');
+    setTimeout(function() { localEndGame('hunter'); }, 1200);
     return;
   }
   if (currentRound >= totalRounds) {
-    localEndGame('frog');
+    setTimeout(function() { localEndGame('frog'); }, 1200);
     return;
   }
   currentRound += 1;
@@ -1316,7 +1315,7 @@ function localEndGame(winnerRole) {
       matchScores: matchScores.slice(),
       playerIndex: 0,
     });
-  }, 1300);
+  }, 2700);
 }
 
 function saveMatchToBackend(youWon) {

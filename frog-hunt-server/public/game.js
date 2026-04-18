@@ -517,7 +517,6 @@ function onGameOver(msg) {
 
   score.textContent = 'Счёт матча: ' + matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
 
-  hideOverlay('overlay-round-result');
   showOverlay('overlay-game-over');
   setTimeout(function() { hideOverlay('overlay-game-over'); }, 1500);
 }
