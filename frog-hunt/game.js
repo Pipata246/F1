@@ -1089,14 +1089,14 @@ function onSwitchRoles() {
   hideAllOverlays();
   hideAllFrogs();
   showOverlay('overlay-switch');
-  setTimeout(function() { hideOverlay('overlay-switch'); }, 4800);
+  setTimeout(function() { hideOverlay('overlay-switch'); }, 2000);
 }
 
 function onTiebreakStart() {
   hideAllOverlays();
   hideAllFrogs();
   showOverlay('overlay-tiebreak');
-  setTimeout(function() { hideOverlay('overlay-tiebreak'); }, 4800);
+  setTimeout(function() { hideOverlay('overlay-tiebreak'); }, 2000);
 }
 
 function onMatchResult(msg) {
@@ -1300,14 +1300,14 @@ function localEndGame(winnerRole) {
       onSwitchRoles();
       myRole = myRole === 'frog' ? 'hunter' : 'frog';
       gameNum = 2;
-      setTimeout(localBeginGame, 1100);
+      setTimeout(localBeginGame, 2000);
       return;
     }
     if (gameNum === 2 && matchScores[0] === matchScores[1]) {
       onTiebreakStart();
       myRole = Math.random() < 0.5 ? 'frog' : 'hunter';
       gameNum = 3;
-      setTimeout(localBeginGame, 1100);
+      setTimeout(localBeginGame, 2000);
       return;
     }
     onMatchResult({
