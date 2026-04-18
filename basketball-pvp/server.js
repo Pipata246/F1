@@ -21,7 +21,7 @@ const DISTANCES = {
   far:   { points: 3, baseChance: 0.35, variance: 0.10 },
 };
 const WARMUP_ROUNDS = 5;
-const MAIN_ROUNDS = 7;
+const MAIN_ROUNDS = 5;
 const TURN_TIMEOUT = 12000;
 
 // ============ STATE ============

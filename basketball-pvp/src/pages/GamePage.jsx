@@ -307,7 +307,9 @@ const GamePage = () => {
       sched(() => { sfx('swoosh'); const kf=buildKF(shot.playerIndex,shot.distance,shot.made); if(kf)setBallAnim({id:Date.now()+i,kf,duration:dur}); }, t0+moveMs);
       // Result (no confetti per shot — only on match end)
       const rimT = t0+moveMs+durMs*0.72;
-      sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); if(i===0){const s=[...pre];s[shot.playerIndex]+=shot.points;setScores(s);}else setScores([...finalScores]); }, rimT);
+      sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); }, rimT);
+      // Update scores after animation
+      sched(() => { if(i===0){const s=[...pre];s[shot.playerIndex]+=shot.points;setScores(s);}else setScores([...finalScores]); }, rimT+showMs);
       sched(() => setBallAnim(null), t0+moveMs+durMs+200);
       sched(() => setShotResult(null), rimT+showMs);
     });
