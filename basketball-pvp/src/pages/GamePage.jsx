@@ -42,9 +42,9 @@ const BALL_SIZE = 34;
 const ST = { fontFamily: "'Russo One', 'Impact', sans-serif" };
 
 const DISTS = [
-  { key: 'close', label: 'БЛИЖНЯЯ', pts: '1 очко', pct: '~85%', bg: 'from-green-600 to-green-700' },
-  { key: 'mid',   label: 'СРЕДНЯЯ', pts: '2 очка', pct: '~50%', bg: 'from-amber-500 to-amber-700' },
-  { key: 'far',   label: 'ДАЛЬНЯЯ', pts: '3 очка', pct: '~35%', bg: 'from-red-500 to-red-700' },
+  { key: 'close', label: 'БЛИЖНЯЯ', pts: '1 очко', pct: '~85%', bg: 'from-[#63e6be] to-[#8ff0cf]' },
+  { key: 'mid',   label: 'СРЕДНЯЯ', pts: '2 очка', pct: '~50%', bg: 'from-[#48d2ac] to-[#63e6be]' },
+  { key: 'far',   label: 'ДАЛЬНЯЯ', pts: '3 очка', pct: '~35%', bg: 'from-[#30b89e] to-[#48d2ac]' },
 ];
 
 // ============ CSS-ONLY AMBIENT (zero JS cost) ============
@@ -70,7 +70,7 @@ const GamePage = () => {
   const [gamePhase, setGamePhase] = useState(null);
   const [scores, setScores] = useState([0, 0]);
   const [round, setRound] = useState(0);
-  const [maxRounds, setMaxRounds] = useState(5);
+  const [maxRounds, setMaxRounds] = useState(7);
   const [choosing, setChoosing] = useState(false);
   const [locked, setLocked] = useState(false);
   const [timer, setTimer] = useState(12);
@@ -259,7 +259,7 @@ const GamePage = () => {
 
   function clearPending() { pending.current.forEach(clearTimeout); pending.current = []; }
   function sched(fn, ms) { pending.current.push(setTimeout(fn, ms)); }
-  const startTimer = () => { stopTimer(); setTimer(12); timerRef.current = setInterval(() => setTimer(p => { if (p <= 1) { stopTimer(); return 0; } return p - 1; }), 1000); };
+  const startTimer = () => { stopTimer(); setTimer(12); timerRef.current = setInterval(() => setTimer(p => { if (p <= 1) { stopTimer(); if (choosing && !locked) { choiceLockedRef.current = true; setLocked(true); setChoosing(false); if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) { apiPost({ action: 'pvpSubmitMove', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current, move: { distance: 'mid' } }).catch(() => {}); } else if (playModeRef.current === 'bot') { localOnClientMessage('choose_distance', { distance: 'mid' }); } } return 0; } return p - 1; }), 1000); };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const apiPost = useCallback(async (payload) => {
     const res = await fetch('/api/user', {
@@ -307,7 +307,9 @@ const GamePage = () => {
       sched(() => { sfx('swoosh'); const kf=buildKF(shot.playerIndex,shot.distance,shot.made); if(kf)setBallAnim({id:Date.now()+i,kf,duration:dur}); }, t0+moveMs);
       // Result (no confetti per shot — only on match end)
       const rimT = t0+moveMs+durMs*0.72;
-      sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); if(i===0){const s=[...pre];s[shot.playerIndex]+=shot.points;setScores(s);}else setScores([...finalScores]); }, rimT);
+      sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); }, rimT);
+      // Update scores after animation
+      sched(() => { if(i===0){const s=[...pre];s[shot.playerIndex]+=shot.points;setScores(s);}else setScores([...finalScores]); }, rimT+showMs);
       sched(() => setBallAnim(null), t0+moveMs+durMs+200);
       sched(() => setShotResult(null), rimT+showMs);
     });
@@ -331,7 +333,7 @@ const GamePage = () => {
         setGamePhase(msg.phase===2?'main':'overtime');
         setScores(msg.scores); setRound(0); setChoosing(false);
         setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
-        if(msg.phase===2) showAnnounce('GAME ON','5 раундов');
+        if(msg.phase===2) showAnnounce('GAME ON','7 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
       case 'round_start':
         // Never show next-turn controls while previous round animations are still playing.
@@ -533,7 +535,7 @@ const GamePage = () => {
     m.choices = [null, null];
     choiceLockedRef.current = false;
     setSelectedDistance(null);
-    const max = m.phase === 2 ? 5 : 999;
+    const max = m.phase === 2 ? 7 : 999;
     handleMsg({ type: 'round_start', round: m.round + 1, maxRounds: max, phase: m.phase, scores: [...m.scores] });
   }
   function localFinishMatch() {
@@ -553,7 +555,7 @@ const GamePage = () => {
     });
     m.round += 1;
     handleMsg({ type: 'round_result', shots, scores: [...m.scores], round: m.round, phase: m.phase });
-    if (m.phase === 2 && m.round >= 5) {
+    if (m.phase === 2 && m.round >= 7) {
       if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), 2600);
       else sched(() => { m.phase = 3; m.round = 0; handleMsg({ type: 'phase_start', phase: 3, scores: [...m.scores] }); sched(localStartRound, 800); }, 1200);
       return;
@@ -579,7 +581,7 @@ const GamePage = () => {
       };
       handleMsg({ type: 'waiting' });
       sched(() => {
-        handleMsg({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
+        handleMsg({ type: 'game_found', opponent: 'Бот', playerIndex: 0 });
         handleMsg({ type: 'phase_start', phase: 2, scores: [0, 0] });
         sched(localStartRound, 800);
       }, 550);
@@ -742,7 +744,7 @@ const GamePage = () => {
           winnerTgUserId: youWon ? tgUserId : null,
           players: [
             { tgUserId, name: displayName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
-            { tgUserId: null, name: opponent || 'Бот 🤖', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
+            { tgUserId: null, name: opponent || 'Бот', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
           ],
           score: { left: finalScores?.[0] || 0, right: finalScores?.[1] || 0 },
           details: { phase: gamePhase || null, roundsPlayed: round || 0 },
@@ -801,9 +803,9 @@ const GamePage = () => {
                   onClick={() => toggleStakeOption(stake)}
                   className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
                     blocked
-                      ? 'bg-red-500/20 border-red-400 text-red-200'
+                      ? 'bg-green-500/20 border-green-400 text-green-200'
                       : active
-                        ? 'bg-amber-400/20 border-amber-300 text-amber-200 shadow-[0_0_14px_rgba(251,191,36,0.35)]'
+                        ? 'bg-emerald-400/20 border-emerald-300 text-emerald-200 shadow-[0_0_14px_rgba(34,197,94,0.35)]'
                         : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
                   }`}
                 >
@@ -825,18 +827,18 @@ const GamePage = () => {
 
   if(screen==='waiting') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
-      <div className="w-20 h-20 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+      <div className="w-20 h-20 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
       <p className="text-white text-3xl uppercase tracking-widest mt-6">ИЩЕМ...</p>
       {!!selectedStakeOptions.length && <p className="text-gray-400 text-sm uppercase mt-2">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
       <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>
       {!!acceptInfo && (
         <div className="fixed inset-0 z-[999] bg-black/65 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-gradient-to-b from-[#6a3b1f] to-[#3f2517] border border-amber-200/35 rounded-2xl p-5 text-center shadow-2xl">
+          <div className="w-full max-w-sm bg-gradient-to-b from-[#6a3b1f] to-[#3f2517] border border-emerald-200/35 rounded-2xl p-5 text-center shadow-2xl">
             <p className="text-white text-lg uppercase tracking-wider">Матч найден</p>
             <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
-            {acceptInfo.stake != null && <p className="text-amber-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
-            <p className={`text-3xl font-black mt-2 ${Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) <= 3 ? 'text-rose-200' : 'text-amber-200'}`}>{Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0)}с</p>
-            <p className="mt-3 text-xs text-amber-100/90 uppercase tracking-wider">Игра начнется автоматически</p>
+            {acceptInfo.stake != null && <p className="text-emerald-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
+            <p className={`text-3xl font-black mt-2 ${Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) <= 3 ? 'text-rose-200' : 'text-emerald-200'}`}>{Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0)}с</p>
+            <p className="mt-3 text-xs text-emerald-100/90 uppercase tracking-wider">Игра начнется автоматически</p>
           </div>
         </div>
       )}
@@ -845,7 +847,7 @@ const GamePage = () => {
 
   if(screen==='result'&&matchResult) {
     const ms=matchResult.scores[pi]??0, os=matchResult.scores[1-pi]??0;
-    const myColor=pi===0?'text-blue-400':'text-red-400', opColor=pi===0?'text-red-400':'text-blue-400';
+    const myColor=pi===0?'text-emerald-400':'text-emerald-400', opColor=pi===0?'text-emerald-400':'text-emerald-400';
     const tonStake = Number(currentStakeTon || 0);
     const hasTonStake = playModeRef.current !== 'bot' && Number.isFinite(tonStake) && tonStake > 0;
     const tonResultText = hasTonStake
@@ -853,7 +855,7 @@ const GamePage = () => {
       : null;
     return (
       <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
-        {matchResult.opponentLeft?<h1 className="text-4xl text-amber-400 uppercase tracking-widest">Соперник вышел</h1>
+        {matchResult.opponentLeft?<h1 className="text-4xl text-emerald-400 uppercase tracking-widest">Соперник вышел</h1>
           :matchResult.youWon
             ?<div className="text-center"><div className="text-8xl mb-2">🏆</div><h1 className="text-7xl uppercase text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-green-500">WIN!</h1></div>
             :<div className="text-center"><div className="text-8xl mb-2">😔</div><h1 className="text-6xl uppercase text-transparent bg-clip-text bg-gradient-to-b from-red-300 to-red-600">LOSE</h1></div>
@@ -864,7 +866,7 @@ const GamePage = () => {
           <div className="text-center"><p className={`${opColor} text-base uppercase`}>{opName}</p><p className="text-7xl text-white mt-1">{os}</p></div>
         </div>
         {tonResultText && <div className={`mt-3 text-sm uppercase ${matchResult.youWon ? 'text-emerald-300' : 'text-rose-300'}`}>{tonResultText}</div>}
-        <button onClick={playAgain} className="mt-10 bg-amber-500 text-black py-5 px-20 rounded-xl text-2xl uppercase tracking-widest active:scale-95">ЕЩЁ</button>
+        <button onClick={playAgain} className="mt-10 bg-emerald-500 text-black py-5 px-20 rounded-xl text-2xl uppercase tracking-widest active:scale-95">ЕЩЁ</button>
       </div>
     );
   }
@@ -885,22 +887,22 @@ const GamePage = () => {
 
       {/* SCOREBOARD */}
       <div className="absolute top-0 left-0 right-0 z-30 px-2 pt-1">
-        <div className="bg-black/85 border-b-2 border-amber-500/50 rounded-b-2xl px-4 py-2">
+        <div className="bg-black/85 border-b-2 border-[#34C759]/50 rounded-b-2xl px-4 py-2">
           {currentStakeTon != null && <div className="text-center text-[10px] text-emerald-300 uppercase tracking-wider mb-1">Ставка: {currentStakeTon} TON</div>}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
-              <p className="text-xs text-blue-400 uppercase tracking-wider truncate">{p0Name}{pi===0?' · ТЫ':' · СОПЕРНИК'}</p>
-              <p className="text-5xl text-blue-400 leading-none mt-0.5">{p0Score}</p>
+              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p0Name}{pi===0?' · ТЫ':' · СОПЕРНИК'}</p>
+              <p className="text-5xl text-[#34C759] leading-none mt-0.5">{p0Score}</p>
             </div>
             <div className="flex flex-col items-center px-4 gap-0.5">
               <span className="text-2xl text-white/80 tracking-widest">VS</span>
               {phaseLabel&&<span className="text-[9px] text-gray-500 uppercase">{phaseLabel}</span>}
-              {(gamePhase==='main'||gamePhase==='overtime')&&<span className="text-base text-amber-400">{round}/{maxRounds}</span>}
+              {(gamePhase==='main'||gamePhase==='overtime')&&<span className="text-base text-emerald-400">{round}/{maxRounds}</span>}
               {choosing&&!locked&&<span className={`text-sm ${timer<=3?'text-red-400 animate-pulse':'text-white/25'}`}>{timer}s</span>}
             </div>
             <div className="flex-1 text-center">
-              <p className="text-xs text-red-400 uppercase tracking-wider truncate">{p1Name}{pi===1?' · ТЫ':' · СОПЕРНИК'}</p>
-              <p className="text-5xl text-red-400 leading-none mt-0.5">{p1Score}</p>
+              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p1Name}{pi===1?' · ТЫ':' · СОПЕРНИК'}</p>
+              <p className="text-5xl text-[#34C759] leading-none mt-0.5">{p1Score}</p>
             </div>
           </div>
         </div>
@@ -911,7 +913,7 @@ const GamePage = () => {
         <div className="fixed inset-0 flex items-center justify-center z-[100] pointer-events-none animate-[fadeIn_0.2s]">
           <div className="absolute left-0 right-0 bg-black/65" style={{top:'38%',height:'24%'}} />
           <div className="relative z-10 text-center">
-            <div className="text-5xl text-amber-400 uppercase tracking-[0.2em]" style={{textShadow:'0 4px 20px rgba(245,158,11,0.4)'}}>{announce.title}</div>
+            <div className="text-5xl text-[#63e6be] uppercase tracking-[0.2em]" style={{textShadow:'0 4px 20px rgba(99,230,190,0.4)'}}>{announce.title}</div>
             {announce.sub&&<div className="text-white/40 text-sm mt-2 uppercase tracking-wider">{announce.sub}</div>}
           </div>
         </div>
@@ -928,7 +930,7 @@ const GamePage = () => {
           }}>
             <img src={`${ASSET_BASE}Subway_Homeless_2_48x48.gif`} alt="" draggable={false}
               style={{width:CHAR_W,height:CHAR_H,imageRendering:'pixelated',transform:idx===1?'scaleX(-1)':'none'}} />
-            <div className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap ${idx===0?'text-blue-400':'text-red-400'}`}
+            <div className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap ${idx===0?'text-[#63e6be]':'text-[#8ff0cf]'}`}
               style={{textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
               {idx===0?p0Name:p1Name}{idx===pi?' · ТЫ':' · OPP'}
             </div>
@@ -950,7 +952,7 @@ const GamePage = () => {
           <div className="absolute z-40 pointer-events-none animate-[fadeIn_0.15s]"
             style={{left:'50%',top:`${HOOP.y+8}%`,transform:'translateX(-50%)'}}>
             <div className="flex flex-col items-center">
-              <span className={`text-5xl ${shotResult.made?'text-green-400':'text-red-500'}`}
+              <span className={`text-5xl ${shotResult.made?'text-[#63e6be]':'text-red-500'}`}
                 style={{textShadow:'0 3px 12px rgba(0,0,0,0.8)'}}>
                 {shotResult.made?'✓':'✗'}
               </span>
@@ -967,7 +969,7 @@ const GamePage = () => {
             {DISTS.map(d => (
               <button key={d.key} onClick={()=>chooseDist(d.key)}
                 disabled={!!selectedDistance}
-                className={`flex-1 bg-gradient-to-b ${d.bg} text-white py-5 rounded-xl border-2 uppercase ${
+                className={`flex-1 bg-gradient-to-b ${d.bg} text-black py-5 rounded-xl border-2 uppercase ${
                   selectedDistance ? 'opacity-60 border-white/20' : 'active:scale-95 border-white/10'
                 }`}>
                 <div className="text-base tracking-wider">{d.label}</div>
@@ -979,12 +981,12 @@ const GamePage = () => {
           <div className="flex justify-center">
             {locked&&!shotResult&&(
               <div className="flex items-center gap-3 bg-black/70 px-6 py-3 rounded-xl">
-                <div className="w-4 h-4 border-2 border-amber-400/40 border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-[#63e6be]/40 border-t-transparent rounded-full animate-spin" />
                 <p className="text-white/30 text-sm uppercase tracking-wider">Ожидание...</p>
               </div>
             )}
             {selectedDistance && !locked && (
-              <p className="text-amber-300/80 text-sm uppercase tracking-wider bg-black/60 px-5 py-3 rounded-xl">
+              <p className="text-[#63e6be]/80 text-sm uppercase tracking-wider bg-black/60 px-5 py-3 rounded-xl">
                 Выбор: {selectedDistance === 'close' ? 'Ближняя' : selectedDistance === 'mid' ? 'Средняя' : 'Дальняя'}
               </p>
             )}
