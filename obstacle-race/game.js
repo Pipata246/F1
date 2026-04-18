@@ -613,7 +613,6 @@ function handleMessage(msg) {
         case 'round_result': return onRoundResult(msg);
         case 'xray_result': onXrayResult(msg); break;
         case 'opp_xray': onOppXray(msg); break;
-        case 'overtime_start': onOvertimeStart(); break;
         case 'opponent_left': onOpponentLeft(); break;
     }
 }
@@ -819,6 +818,8 @@ async function onRoundStart(msg) {
     moveChosen = false;
     abilityActive = false;
 
+    if (msg.overtime) isOvertime = true;
+
     if (msg.ability) {
         var abilityChanged = myAbility !== msg.ability;
         myAbility = msg.ability;
@@ -847,26 +848,36 @@ async function onRoundStart(msg) {
     }
 
     if (currentStep === 0 && isOvertime) {
+        selectedTraps = [];
+        revealedPoints = {};
+        knownTrapsOnMyTrack = {};
+        myAbility = null;
+        abilityUsed = true;
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
         $('sb-score-0').textContent = String(scores[0] || 0);
         $('sb-score-1').textContent = String(scores[1] || 0);
         $('tname-0').textContent = myName;
         $('tname-1').textContent = opponentName;
+        $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
+        $('round-val').textContent = '1/' + OT_ROUNDS;
+        $('tpoints-0').innerHTML = '';
+        $('tpoints-1').innerHTML = '';
+        generateGameTracks(OT_ROUNDS);
         highlightCurrentDot(0);
         $('round-reveal').classList.add('hidden');
         $('round-reveal').style.opacity = '';
         var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
         var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
-        myAbility = null;
-        abilityUsed = true;
     }
 
-    $('round-num').textContent = isOvertime ? '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C' : '\u0420\u0430\u0443\u043D\u0434';
-    $('round-val').textContent = isOvertime
-        ? (Math.min(currentStep + 1, OT_ROUNDS) + '/' + OT_ROUNDS)
-        : (Math.min(currentStep + 1, totalRounds) + '/' + totalRounds);
-    highlightCurrentDot(currentStep);
+    if (currentStep > 0) {
+        $('round-num').textContent = isOvertime ? '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C' : '\u0420\u0430\u0443\u043D\u0434';
+        $('round-val').textContent = isOvertime
+            ? (Math.min(currentStep + 1, OT_ROUNDS) + '/' + OT_ROUNDS)
+            : (Math.min(currentStep + 1, totalRounds) + '/' + totalRounds);
+        highlightCurrentDot(currentStep);
+    }
 
     showActionButtons();
     startTimer();
@@ -1112,7 +1123,7 @@ function localServerOnClientMessage(msg) {
             localMatch.overtime = true;
             localMatch.overtimeRound = 0;
             localMatch.phase = 'running';
-            handleMessage({ type: 'overtime_start' });
+            isOvertime = true;
             setTimeout(localStartRound, 500);
             return;
         }
@@ -1145,7 +1156,7 @@ function localStartRound() {
     if (!localMatch || localMatch.ended) return;
     localMatch.moves = [null, null];
     const step = localMatch.overtime ? localMatch.overtimeRound : localMatch.currentStep;
-    handleMessage({ type: 'round_start', step, ability: localMatch.abilities[0] });
+    handleMessage({ type: 'round_start', step, ability: localMatch.abilities[0], overtime: localMatch.overtime });
 }
 
 function localChooseBotMove() {
