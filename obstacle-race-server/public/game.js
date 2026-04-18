@@ -263,8 +263,6 @@ async function onRoundStart(msg) {
     currentStep = msg.step;
     moveChosen = false; abilityActive = false;
 
-    if (!msg.overtime) isOvertime = false;
-
     if (msg.ability) {
         myAbility = msg.ability;
         oppAbility = null;
@@ -752,14 +750,32 @@ async function onRoundResult(msg) {
 const OT_ROUNDS = 3;
 
 function onOvertimeStart() {
+    isOvertime = true;
+    currentStep = 0;
+    myAbility = null;
+    abilityUsed = true;
+    selectedTraps = [];
+    revealedPoints = {};
+    knownTrapsOnMyTrack = {};
     showScreen('game');
+    $('tpoints-0').innerHTML = '';
+    $('tpoints-1').innerHTML = '';
     generateGameTracks(OT_ROUNDS);
     highlightCurrentDot(0);
-    currentStep = 0;
     $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
     $('round-val').textContent = '1/' + OT_ROUNDS;
+    $('sb-name-0').textContent = myName;
+    $('sb-name-1').textContent = opponentName;
+    $('sb-score-0').textContent = String(scores[0] || 0);
+    $('sb-score-1').textContent = String(scores[1] || 0);
+    $('tname-0').textContent = myName;
+    $('tname-1').textContent = opponentName;
     moveChosen = false;
     overtimePlacing = false;
+    $('round-reveal').classList.add('hidden');
+    $('round-reveal').style.opacity = '';
+    var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
+    var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
     showActionButtons();
     startTimer();
 }
