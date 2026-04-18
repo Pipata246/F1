@@ -308,14 +308,13 @@ const GamePage = () => {
       // Result (no confetti per shot — only on match end)
       const rimT = t0+moveMs+durMs*0.72;
       sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); }, rimT);
-      // Update scores after animation
-      sched(() => { if(i===0){const s=[...pre];s[shot.playerIndex]+=shot.points;setScores(s);}else setScores([...finalScores]); }, rimT+showMs);
       sched(() => setBallAnim(null), t0+moveMs+durMs+200);
       sched(() => setShotResult(null), rimT+showMs);
     });
     const endAt = shots.length * cycle + 200;
     sched(() => {
       setShotResult(null);
+      setScores([...finalScores]);
       onDone?.();
     }, endAt);
   }
@@ -347,6 +346,7 @@ const GamePage = () => {
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'opponent_locked': break;
+      case 'scores_update': setScores(msg.scores); break;
       case 'round_result':
         stopTimer();
         setChoosing(false);
@@ -358,6 +358,20 @@ const GamePage = () => {
         animateRound(msg.shots, msg.phase, msg.scores, () => {
           roundResolvingRef.current = false;
           setRoundResolving(false);
+          if (playModeRef.current === 'bot') {
+            const m = localMatchRef.current;
+            if (m && !m.finished) {
+              if (m.phase === 2 && m.round >= 7) {
+                if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), 500);
+                else sched(() => { m.phase = 3; m.round = 0; handleMsg({ type: 'phase_start', phase: 3, scores: [...m.scores] }); sched(localStartRound, 800); }, 500);
+              } else if (m.phase === 3) {
+                if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), 500);
+                else sched(localStartRound, 500);
+              } else {
+                sched(localStartRound, 500);
+              }
+            }
+          }
         });
         break;
       case 'match_result':

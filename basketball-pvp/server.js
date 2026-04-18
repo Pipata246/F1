@@ -21,7 +21,7 @@ const DISTANCES = {
   far:   { points: 3, baseChance: 0.35, variance: 0.10 },
 };
 const WARMUP_ROUNDS = 5;
-const MAIN_ROUNDS = 5;
+const MAIN_ROUNDS = 7;
 const TURN_TIMEOUT = 12000;
 
 // ============ STATE ============
@@ -177,25 +177,30 @@ function resolveRound(room) {
     return { playerIndex: i, distance, made, points };
   });
 
-  broadcast(room, { type: 'round_result', shots, scores: [...room.scores], round: room.round, phase: room.phase });
+  // Send round_result without scores first
+  broadcast(room, { type: 'round_result', shots, scores: [room.scores[0] - (shots[0].points || 0), room.scores[1] - (shots[1].points || 0)], round: room.round, phase: room.phase });
 
+  // Update scores after animation
   const maxRounds = room.phase === 2 ? MAIN_ROUNDS : 999;
 
-  if (room.phase === 2 && room.round >= maxRounds) {
-    if (room.scores[0] !== room.scores[1]) {
-      addTimer(room, () => endMatch(room), 9000);
+  addTimer(room, () => {
+    broadcast(room, { type: 'scores_update', scores: [...room.scores] });
+    if (room.phase === 2 && room.round >= maxRounds) {
+      if (room.scores[0] !== room.scores[1]) {
+        addTimer(room, () => endMatch(room), 2000);
+      } else {
+        addTimer(room, () => startPhase(room, 3), 1500);
+      }
+    } else if (room.phase === 3) {
+      if (room.scores[0] !== room.scores[1]) {
+        addTimer(room, () => endMatch(room), 2000);
+      } else {
+        addTimer(room, () => startRound(room), 2000);
+      }
     } else {
-      addTimer(room, () => startPhase(room, 3), 3500);
+      addTimer(room, () => startRound(room), 2000);
     }
-  } else if (room.phase === 3) {
-    if (room.scores[0] !== room.scores[1]) {
-      addTimer(room, () => endMatch(room), 9000);
-    } else {
-      addTimer(room, () => startRound(room), 9000);
-    }
-  } else {
-    addTimer(room, () => startRound(room), 9000);
-  }
+  }, 4000);
 }
 
 function endMatch(room) {
