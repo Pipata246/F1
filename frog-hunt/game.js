@@ -1090,14 +1090,14 @@ function onSwitchRoles() {
   hideAllOverlays();
   hideAllFrogs();
   showOverlay('overlay-switch');
-  setTimeout(function() { hideOverlay('overlay-switch'); }, 2800);
+  setTimeout(function() { hideOverlay('overlay-switch'); }, 4800);
 }
 
 function onTiebreakStart() {
   hideAllOverlays();
   hideAllFrogs();
   showOverlay('overlay-tiebreak');
-  setTimeout(function() { hideOverlay('overlay-tiebreak'); }, 2800);
+  setTimeout(function() { hideOverlay('overlay-tiebreak'); }, 4800);
 }
 
 function onMatchResult(msg) {
