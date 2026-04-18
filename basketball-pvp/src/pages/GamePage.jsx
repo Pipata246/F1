@@ -110,6 +110,9 @@ const GamePage = () => {
   const pvpLastStartKeyRef = useRef('');
   const choiceLockedRef = useRef(false);
   const roundResolvingRef = useRef(false);
+  // Defer "round_start" UI until after post-round announcement.
+  const roundStartDeferredRef = useRef(null);
+  const allowRoundStartAtRef = useRef(0);
   const noticeTimerRef = useRef(null);
   const launchHandledRef = useRef(false);
 
@@ -283,12 +286,31 @@ const GamePage = () => {
   }
 
   // ============ SHOT ANIMATION (sequential, minimal state updates) ============
-  function animateRound(shots, phase, finalScores, onDone) {
+  function normalizeShotsForViewer(shotsRaw) {
+    const arr = Array.isArray(shotsRaw) ? shotsRaw.slice() : [];
+    const me = Number(piRef.current || 0);
+    // Each client sees their throw first, then opponent.
+    arr.sort((a, b) => {
+      const am = Number(a?.playerIndex) === me ? 0 : 1;
+      const bm = Number(b?.playerIndex) === me ? 0 : 1;
+      return am - bm;
+    });
+    return arr.slice(0, 2);
+  }
+
+  function roundAnimTotalMs(phase, shotsCount) {
+    const dur = phase === 1 ? 1.6 : 2.4, durMs = dur * 1000;
+    const moveMs = phase === 1 ? 100 : 400, showMs = 1000, gap = 300;
+    const cycle = moveMs + durMs + showMs + gap;
+    return Math.max(0, Number(shotsCount || 0)) * cycle + 200;
+  }
+
+  function animateRound(shotsRaw, phase, finalScores, onDone) {
     clearPending();
+    const shots = normalizeShotsForViewer(shotsRaw);
     const dur = phase === 1 ? 1.6 : 2.4, durMs = dur*1000;
     const moveMs = phase===1?100:400, showMs=1000, gap=300;
     const cycle = moveMs+durMs+showMs+gap;
-    const pre = [...scoresRef.current];
 
     shots.forEach((shot, i) => {
       const t0 = i*cycle;
@@ -305,17 +327,16 @@ const GamePage = () => {
       }, t0);
       // Ball
       sched(() => { sfx('swoosh'); const kf=buildKF(shot.playerIndex,shot.distance,shot.made); if(kf)setBallAnim({id:Date.now()+i,kf,duration:dur}); }, t0+moveMs);
-      // Result (no confetti per shot — only on match end)
+      // Result: show per-shot only, no score updates mid-sequence.
       const rimT = t0+moveMs+durMs*0.72;
       sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); }, rimT);
-      // Update scores after animation
-      sched(() => { if(i===0){const s=[...pre];s[shot.playerIndex]+=shot.points;setScores(s);}else setScores([...finalScores]); }, rimT+showMs);
       sched(() => setBallAnim(null), t0+moveMs+durMs+200);
       sched(() => setShotResult(null), rimT+showMs);
     });
     const endAt = shots.length * cycle + 200;
     sched(() => {
       setShotResult(null);
+      setScores([...finalScores]);
       onDone?.();
     }, endAt);
   }
@@ -336,6 +357,11 @@ const GamePage = () => {
         if(msg.phase===2) showAnnounce('GAME ON','7 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
       case 'round_start':
+        // Stage (4): do not start the next selection UI until "GAME ON" disappears.
+        if (Date.now() < Number(allowRoundStartAtRef.current || 0)) {
+          roundStartDeferredRef.current = msg;
+          break;
+        }
         // Never show next-turn controls while previous round animations are still playing.
         if (roundResolvingRef.current) break;
         setAnnounce(null);
@@ -358,6 +384,14 @@ const GamePage = () => {
         animateRound(msg.shots, msg.phase, msg.scores, () => {
           roundResolvingRef.current = false;
           setRoundResolving(false);
+          // Stage (3): after both throws — show "GAME ON" and only then allow next round start UI.
+          allowRoundStartAtRef.current = Date.now() + 1600;
+          showAnnounce('GAME ON', 'Следующий раунд');
+          sched(() => {
+            const pendingStart = roundStartDeferredRef.current;
+            roundStartDeferredRef.current = null;
+            if (pendingStart) handleMsg(pendingStart);
+          }, 1610);
         });
         break;
       case 'match_result':
@@ -555,17 +589,19 @@ const GamePage = () => {
     });
     m.round += 1;
     handleMsg({ type: 'round_result', shots, scores: [...m.scores], round: m.round, phase: m.phase });
+    // Prevent demo freeze: schedule next step after actual round animation + "GAME ON".
+    const afterMs = roundAnimTotalMs(m.phase, 2) + 1650;
     if (m.phase === 2 && m.round >= 7) {
-      if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), 2600);
-      else sched(() => { m.phase = 3; m.round = 0; handleMsg({ type: 'phase_start', phase: 3, scores: [...m.scores] }); sched(localStartRound, 800); }, 1200);
+      if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), afterMs);
+      else sched(() => { m.phase = 3; m.round = 0; handleMsg({ type: 'phase_start', phase: 3, scores: [...m.scores] }); sched(localStartRound, 800); }, afterMs);
       return;
     }
     if (m.phase === 3) {
-      if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), 2600);
-      else sched(localStartRound, 2600);
+      if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), afterMs);
+      else sched(localStartRound, afterMs);
       return;
     }
-    sched(localStartRound, 2600);
+    sched(localStartRound, afterMs);
   }
   function localOnClientMessage(type, data = {}) {
     const m = localMatchRef.current;
@@ -581,7 +617,7 @@ const GamePage = () => {
       };
       handleMsg({ type: 'waiting' });
       sched(() => {
-        handleMsg({ type: 'game_found', opponent: 'Бот', playerIndex: 0 });
+        handleMsg({ type: 'game_found', opponent: 'БОТ', playerIndex: 0 });
         handleMsg({ type: 'phase_start', phase: 2, scores: [0, 0] });
         sched(localStartRound, 800);
       }, 550);
@@ -744,7 +780,7 @@ const GamePage = () => {
           winnerTgUserId: youWon ? tgUserId : null,
           players: [
             { tgUserId, name: displayName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
-            { tgUserId: null, name: opponent || 'Бот', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
+            { tgUserId: null, name: opponent || 'БОТ', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
           ],
           score: { left: finalScores?.[0] || 0, right: finalScores?.[1] || 0 },
           details: { phase: gamePhase || null, roundsPlayed: round || 0 },
