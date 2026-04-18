@@ -845,7 +845,6 @@ async function onRoundStart(msg) {
         $('round-reveal').style.opacity = '';
         var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
         var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
-        if (myAbility) await showAbilityReveal();
     }
 
     if (currentStep === 0 && isOvertime) {
@@ -860,6 +859,8 @@ async function onRoundStart(msg) {
         $('round-reveal').style.opacity = '';
         var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
         var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
+        myAbility = null;
+        abilityUsed = true;
     }
 
     $('round-num').textContent = isOvertime ? '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C' : '\u0420\u0430\u0443\u043D\u0434';
