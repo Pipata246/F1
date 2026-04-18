@@ -585,6 +585,11 @@ body.xray-mode .track-avatar {
     background: linear-gradient(135deg, #63e6be, #8ff0cf);
     color: #08131b;
     box-shadow: 0 4px 20px rgba(99, 230, 190, 0.45);
+    animation: glow-green 2s ease-in-out infinite alternate;
+}
+@keyframes glow-green {
+    from { box-shadow: 0 4px 20px rgba(99, 230, 190, 0.45); }
+    to { box-shadow: 0 4px 30px rgba(99, 230, 190, 0.7); }
 }
 .run-btn:hover {
     background: linear-gradient(135deg, #7cf0cf, #a0ffdf);
@@ -594,6 +599,11 @@ body.xray-mode .track-avatar {
     background: linear-gradient(135deg, #ff6b4a, #ffc43a);
     color: #fff;
     box-shadow: 0 4px 20px rgba(255, 107, 74, 0.4);
+    animation: glow-orange 2s ease-in-out infinite alternate;
+}
+@keyframes glow-orange {
+    from { box-shadow: 0 4px 20px rgba(255, 107, 74, 0.4); }
+    to { box-shadow: 0 4px 30px rgba(255, 107, 74, 0.7); }
 }
 .jump-btn:hover {
     background: linear-gradient(135deg, #ff856a, #ffd45a);

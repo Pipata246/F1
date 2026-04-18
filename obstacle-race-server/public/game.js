@@ -324,7 +324,6 @@ async function showAbilityReveal() {
     $('arev-icon').textContent = info.icon;
     $('arev-name').textContent = info.name;
     $('arev-desc').textContent = info.desc;
-    $('arev-opp').textContent = '\u2753 \u0421\u043F\u043E\u0441\u043E\u0431\u043D\u043E\u0441\u0442\u044C \u0441\u043E\u043F\u0435\u0440\u043D\u0438\u043A\u0430 \u0441\u043A\u0440\u044B\u0442\u0430';
     const el = $('ability-reveal');
     el.classList.remove('hidden');
     return new Promise((resolve) => {
