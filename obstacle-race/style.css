@@ -579,15 +579,27 @@ body.xray-mode .track-avatar {
     gap: 4px;
 }
 .btn.action:active { transform: scale(0.95); }
+.btn.action:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
 .run-btn {
     background: linear-gradient(135deg, #63e6be, #8ff0cf);
     color: #08131b;
     box-shadow: 0 4px 20px rgba(99, 230, 190, 0.45);
 }
+.run-btn:hover {
+    background: linear-gradient(135deg, #7cf0cf, #a0ffdf);
+    box-shadow: 0 6px 24px rgba(99, 230, 190, 0.6);
+}
 .jump-btn {
     background: linear-gradient(135deg, #ff6b4a, #ffc43a);
     color: #fff;
     box-shadow: 0 4px 20px rgba(255, 107, 74, 0.4);
+}
+.jump-btn:hover {
+    background: linear-gradient(135deg, #ff856a, #ffd45a);
+    box-shadow: 0 6px 24px rgba(255, 107, 74, 0.6);
 }
 .action-icon { font-size: 22px; }
 

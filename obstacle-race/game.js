@@ -848,6 +848,20 @@ async function onRoundStart(msg) {
         if (myAbility) await showAbilityReveal();
     }
 
+    if (currentStep === 0 && isOvertime) {
+        $('sb-name-0').textContent = myName;
+        $('sb-name-1').textContent = opponentName;
+        $('sb-score-0').textContent = String(scores[0] || 0);
+        $('sb-score-1').textContent = String(scores[1] || 0);
+        $('tname-0').textContent = myName;
+        $('tname-1').textContent = opponentName;
+        highlightCurrentDot(0);
+        $('round-reveal').classList.add('hidden');
+        $('round-reveal').style.opacity = '';
+        var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
+        var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
+    }
+
     $('round-num').textContent = isOvertime ? '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C' : '\u0420\u0430\u0443\u043D\u0434';
     $('round-val').textContent = isOvertime
         ? (Math.min(currentStep + 1, OT_ROUNDS) + '/' + OT_ROUNDS)
@@ -1072,7 +1086,7 @@ function localServerOnClientMessage(msg) {
     if (msg.type === 'find_bot' || msg.type === 'find_game') {
         localMatch = {
             tgUserId: msg.tgUserId ? String(msg.tgUserId) : null,
-            names: [myName, 'Бот 🤖'],
+            names: [myName, 'Бот'],
             traps: [null, randomBotTraps(7, 3)],
             scores: [0, 0],
             currentStep: 0,
@@ -1085,7 +1099,7 @@ function localServerOnClientMessage(msg) {
             phase: 'placing',
             ended: false
         };
-        setTimeout(() => handleMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 }), 450);
+        setTimeout(() => handleMessage({ type: 'game_found', opponent: 'Бот', playerIndex: 0 }), 450);
         return;
     }
     if (!localMatch) return;
@@ -1530,7 +1544,7 @@ function showGameOver(winner, serverScores) {
 
     if (winner === 'win') {
         playSound('win');
-        $('result-emoji').textContent = '\uD83C\uDFC6';
+        $('result-emoji').textContent = '\uD83D\uDC51';
         $('result-title').textContent = '\u041F\u041E\u0411\u0415\u0414\u0410!';
         $('result-title').style.color = 'var(--success)';
         $('result-sub').textContent = '\u0422\u044B \u043E\u043A\u0430\u0437\u0430\u043B\u0441\u044F \u0445\u0438\u0442\u0440\u0435\u0435!';
