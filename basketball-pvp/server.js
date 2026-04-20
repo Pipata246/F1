@@ -11,7 +11,7 @@ const wss = new WebSocketServer({ server });
 const CENTRAL_API_URL = process.env.CENTRAL_API_URL || '';
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
-app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'assets')));
 app.use(express.json());
 
 // ============ CONFIG ============
@@ -23,6 +23,8 @@ const DISTANCES = {
 const WARMUP_ROUNDS = 5;
 const MAIN_ROUNDS = 5;
 const TURN_TIMEOUT = 12000;
+const MAX_GAME_TIME = 300000; // 5 minutes max per match
+const STUCK_CHECK_INTERVAL = 30000; // Check every 30s
 
 // ============ STATE ============
 const stats = {};
@@ -85,9 +87,18 @@ function createRoom(p0, p1) {
     id: ++roomIdCounter, players: [p0, p1], scores: [0, 0],
     phase: 0, round: 0, choices: [null, null],
     timers: [], turnTimer: null, finished: false,
+    startTime: Date.now(), stuckTimer: null,
   };
   rooms.set(room.id, room);
   p0.roomId = room.id; p1.roomId = room.id;
+
+  room.stuckTimer = setTimeout(() => {
+    if (room.finished) return;
+    console.log(`[Room ${room.id}] Force ending stuck game`);
+    room.forfeitWinner = room.scores[0] > room.scores[1] ? 0 : 1;
+    endMatch(room, true);
+  }, MAX_GAME_TIME);
+
   return room;
 }
 
@@ -198,10 +209,11 @@ function resolveRound(room) {
   }
 }
 
-function endMatch(room) {
+function endMatch(room, forceForfeit = false) {
   if (room.finished) return;
   room.finished = true;
-  const winner = room.scores[0] > room.scores[1] ? 0 : 1;
+  if (room.stuckTimer) { clearTimeout(room.stuckTimer); room.stuckTimer = null; }
+  const winner = room.forfeitWinner !== undefined ? room.forfeitWinner : (room.scores[0] > room.scores[1] ? 0 : 1);
   const playersPayload = room.players.map((p, i) => ({
     tgUserId: p.tgUserId || null,
     name: p.name || 'Player',
@@ -211,23 +223,29 @@ function endMatch(room) {
   }));
   room.players.forEach((p, i) => {
     const youWon = i === winner;
-    sendTo(p.ws, { type: 'match_result', youWon, scores: [...room.scores] });
+    if (forceForfeit) {
+      sendTo(p.ws, { type: 'match_result', youWon, scores: [...room.scores], timeout: true });
+    } else {
+      sendTo(p.ws, { type: 'match_result', youWon, scores: [...room.scores] });
+    }
     if (p.tgUserId && !p.isBot) {
       if (!stats[p.tgUserId]) stats[p.tgUserId] = { wins: 0, losses: 0, totalPoints: 0, gamesPlayed: 0 };
       const s = stats[p.tgUserId]; s.gamesPlayed++; s.totalPoints += room.scores[i];
       if (youWon) s.wins++; else s.losses++;
     }
   });
+  const mode = room.players.some((p) => p.isBot) ? 'bot' : 'pvp';
   reportMatchToCentral({
     gameKey: 'basketball',
     serverMatchId: String(room.id),
-    mode: room.players.some((p) => p.isBot) ? 'bot' : 'pvp',
+    mode: mode,
     winnerTgUserId: playersPayload[winner]?.tgUserId || null,
     players: playersPayload,
     score: { left: room.scores[0], right: room.scores[1] },
     details: {
       phase: room.phase,
       roundsPlayed: room.round,
+      forceForfeit: forceForfeit,
     },
   });
   cleanupRoom(room);
@@ -237,7 +255,7 @@ function endMatch(room) {
 app.get('/api/stats/:userId', (req, res) => {
   res.json(stats[req.params.userId] || { wins: 0, losses: 0, totalPoints: 0, gamesPlayed: 0 });
 });
-app.get('*', (req, res) => { if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'dist', 'index.html')); });
+app.get('*', (req, res) => { if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'assets', 'index.html')); });
 
 // ============ WS ============
 wss.on('connection', (ws) => {
@@ -273,9 +291,17 @@ wss.on('connection', (ws) => {
     const room = findRoomByWs(ws);
     if (room && !room.finished) {
       room.finished = true;
+      if (room.stuckTimer) { clearTimeout(room.stuckTimer); room.stuckTimer = null; }
+      const otherIdx = room.players.findIndex(p => p.ws === ws);
       const other = room.players.findIndex(p => p.ws !== ws);
-      if (other !== -1) sendToIdx(room, other, { type: 'opponent_left' });
-      cleanupRoom(room);
+      if (other !== -1) {
+        sendToIdx(room, other, { type: 'opponent_left' });
+        const winnerIdx = other;
+        room.forfeitWinner = winnerIdx;
+        endMatch(room, true);
+      } else {
+        cleanupRoom(room);
+      }
     }
   });
 });

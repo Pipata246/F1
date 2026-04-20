@@ -83,6 +83,7 @@ const MAIN_ROUNDS = 7;
 const WIN_SCORE = 5;
 const OT_TRAPS = 1;
 const OT_ROUNDS = 3;
+const MAX_GAME_TIME = 300000; // 5 minutes max per match
 
 function genId() { return Math.random().toString(36).substring(2, 10); }
 
@@ -118,10 +119,19 @@ wss.on('connection', (ws) => {
     if (waitingPlayer === ws) waitingPlayer = null;
     if (ws.roomId) {
       const room = rooms.get(ws.roomId);
-      if (room) {
+      if (room && room.phase !== 'finished' && room.phase !== 'match_over') {
         if (room.moveTimer) clearTimeout(room.moveTimer);
-        const opp = room.players[1 - ws.playerIndex];
-        if (opp && !opp.isBot && opp.readyState === 1) send(opp, { type: 'opponent_left' });
+        if (room.stuckTimer) clearTimeout(room.stuckTimer);
+        const oppIdx = room.players.findIndex((p, i) => i !== ws.playerIndex);
+        if (oppIdx !== -1) {
+          const opp = room.players[oppIdx];
+          if (!opp.isBot && opp.readyState === 1) {
+            send(opp, { type: 'opponent_left' });
+            room.forfeitWinner = oppIdx;
+          }
+        }
+        room.phase = 'match_over';
+        finishMatchWithResult(room, true);
         rooms.delete(ws.roomId);
       }
     }
@@ -201,7 +211,9 @@ function makeRoom(p1, p2) {
     overtimeTraps: null,
     firstScorer: null,
     botAbilityRound: Math.floor(Math.random() * 7),
-    reportSent: false
+    reportSent: false,
+    startTime: Date.now(),
+    stuckTimer: null
   };
 }
 
@@ -212,6 +224,13 @@ function createRoom(p1, p2) {
   p2.roomId = room.id; p2.playerIndex = 1;
   send(p1, { type: 'game_found', opponent: p2.playerName, playerIndex: 0 });
   send(p2, { type: 'game_found', opponent: p1.playerName, playerIndex: 1 });
+
+  room.stuckTimer = setTimeout(() => {
+    if (room.phase === 'match_over') return;
+    console.log(`[Room ${room.id}] Force ending stuck game`);
+    room.forfeitWinner = room.scores[0] > room.scores[1] ? 0 : 1;
+    finishMatchWithResult(room, true);
+  }, MAX_GAME_TIME);
 }
 
 function createBotGame(ws) {
@@ -221,6 +240,13 @@ function createBotGame(ws) {
   ws.roomId = room.id; ws.playerIndex = 0;
   bot.roomId = room.id;
   send(ws, { type: 'game_found', opponent: 'Bot', playerIndex: 0 });
+
+  room.stuckTimer = setTimeout(() => {
+    if (room.phase === 'match_over') return;
+    console.log(`[Room ${room.id}] Force ending stuck game`);
+    room.forfeitWinner = room.scores[0] > room.scores[1] ? 0 : 1;
+    finishMatchWithResult(room, true);
+  }, MAX_GAME_TIME);
 
   setTimeout(() => {
     room.traps[1] = randomTraps();
@@ -478,39 +504,46 @@ function resolveRound(room) {
 
   room.moves = [null, null];
 
-  if (gameOver) {
-    room.phase = 'finished';
-    if (!room.reportSent) {
-      room.reportSent = true;
-      const playersPayload = room.players.map((p, i) => ({
-        tgUserId: p.tgUserId || null,
-        name: room.names[i] || 'Player',
-        score: room.scores[i],
-        isWinner: i === winner,
-        isBot: !!p.isBot
-      }));
-      reportMatchToCentral({
-        gameKey: 'obstacle_race',
-        serverMatchId: room.id,
-        mode: room.players.some((p) => p.isBot) ? 'bot' : 'pvp',
-        winnerTgUserId: playersPayload[winner]?.tgUserId || null,
-        players: playersPayload,
-        score: { left: room.scores[0], right: room.scores[1] },
-        details: {
-          roundsPlayed: stepPlayed + 1,
-          overtime: room.overtime,
-          firstScorer: room.firstScorer
-        }
-      });
-    }
-    postToSheets({
-      ability_1: room.abilities[0],
-      ability_2: room.abilities[1],
-      used_1: room.abilityUsed[0],
-      used_2: room.abilityUsed[1],
-      winner_ability: room.abilities[winner],
-      rounds: stepPlayed + 1
+  function finishMatchWithResult(room, forceForfeit = false) {
+  if (room.stuckTimer) { clearTimeout(room.stuckTimer); room.stuckTimer = null; }
+  const winner = room.forfeitWinner !== undefined ? room.forfeitWinner : (room.scores[0] > room.scores[1] ? 0 : 1);
+  if (!room.reportSent) {
+    room.reportSent = true;
+    const playersPayload = room.players.map((p, i) => ({
+      tgUserId: p.tgUserId || null,
+      name: room.names[i] || 'Player',
+      score: room.scores[i],
+      isWinner: i === winner,
+      isBot: !!p.isBot
+    }));
+    reportMatchToCentral({
+      gameKey: 'obstacle_race',
+      serverMatchId: room.id,
+      mode: room.players.some((p) => p.isBot) ? 'bot' : 'pvp',
+      winnerTgUserId: playersPayload[winner]?.tgUserId || null,
+      players: playersPayload,
+      score: { left: room.scores[0], right: room.scores[1] },
+      details: {
+        roundsPlayed: room.currentStep + 1,
+        overtime: room.overtime,
+        firstScorer: room.firstScorer,
+        forceForfeit: forceForfeit
+      }
     });
+  }
+  postToSheets({
+    ability_1: room.abilities[0],
+    ability_2: room.abilities[1],
+    used_1: room.abilityUsed[0],
+    used_2: room.abilityUsed[1],
+    winner_ability: room.abilities[winner],
+    rounds: room.currentStep + 1
+  });
+}
+
+if (gameOver) {
+    room.phase = 'finished';
+    finishMatchWithResult(room);
   } else {
     scheduleBotMove(room);
     scheduleMoveTimeout(room);

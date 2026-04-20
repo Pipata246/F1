@@ -56,6 +56,8 @@ app.get('/api/stats/:userId', (req, res) => {
 const rooms = new Map();
 let waitingPlayer = null;
 
+const MAX_GAME_TIME = 300000; // 5 minutes max per match
+
 function genId() { return Math.random().toString(36).substring(2, 10); }
 
 function send(ws, msg) {
@@ -79,11 +81,18 @@ wss.on('connection', (ws) => {
     if (waitingPlayer === ws) waitingPlayer = null;
     if (ws.roomId) {
       const room = rooms.get(ws.roomId);
-      if (room) {
-        const opp = room.players[1 - ws.playerIndex];
-        if (opp && !opp.isBot) send(opp, { type: 'opponent_left' });
-        clearTimeout(room.turnTimer);
-        rooms.delete(ws.roomId);
+      if (room && room.phase !== 'match_over') {
+        const oppIdx = room.players.findIndex((p, i) => i !== ws.playerIndex);
+        if (oppIdx !== -1) {
+          const opp = room.players[oppIdx];
+          if (!opp.isBot) send(opp, { type: 'opponent_left' });
+          room.forfeitWinner = oppIdx;
+          endMatch(room, true);
+        } else {
+          clearTimeout(room.turnTimer);
+          if (room.stuckTimer) clearTimeout(room.stuckTimer);
+          rooms.delete(ws.roomId);
+        }
       }
     }
   });
@@ -136,7 +145,9 @@ function makeRoom(p1, p2) {
     frogMoved: null,
     phase: 'idle',
     matchScores: [0, 0],
-    turnTimer: null
+    turnTimer: null,
+    startTime: Date.now(),
+    stuckTimer: null
   };
 }
 
@@ -161,6 +172,14 @@ function createBotGame(ws) {
 }
 
 function startGame(room) {
+  if (room.stuckTimer) clearTimeout(room.stuckTimer);
+  room.stuckTimer = setTimeout(() => {
+    if (room.phase === 'match_over') return;
+    console.log(`[Room ${room.id}] Force ending stuck game`);
+    room.forfeitWinner = room.matchScores[0] > room.matchScores[1] ? 0 : 1;
+    endMatch(room, true);
+  }, MAX_GAME_TIME);
+
   // Assign roles
   if (room.gameNum === 2) {
     // Swap roles from game 1
@@ -434,9 +453,10 @@ function endCurrentGame(room, winnerRole) {
   }, 3000);
 }
 
-function endMatch(room) {
+function endMatch(room, forceForfeit = false) {
   room.phase = 'match_over';
-  const winnerIdx = room.matchScores[0] > room.matchScores[1] ? 0 : 1;
+  if (room.stuckTimer) { clearTimeout(room.stuckTimer); room.stuckTimer = null; }
+  const winnerIdx = room.forfeitWinner !== undefined ? room.forfeitWinner : (room.matchScores[0] > room.matchScores[1] ? 0 : 1);
   const playersPayload = room.players.map((p, i) => ({
     tgUserId: p.tgUserId || null,
     name: room.names[i] || 'Player',
@@ -445,15 +465,15 @@ function endMatch(room) {
     isBot: !!p.isBot,
   }));
   room.players.forEach((p, i) => {
-    const won = room.matchScores[i] > room.matchScores[1 - i];
+    const won = i === winnerIdx;
     send(p, {
       type: 'match_result',
       youWon: won,
       matchScores: [...room.matchScores],
-      playerIndex: i
+      playerIndex: i,
+      timeout: forceForfeit || undefined
     });
-    // Record stats
-    if (p.tgUserId) recordResult(p.tgUserId, won);
+    if (p.tgUserId && !p.isBot) recordResult(p.tgUserId, won);
   });
   reportMatchToCentral({
     gameKey: "frog_hunt",
@@ -467,6 +487,7 @@ function endMatch(room) {
       totalRounds: room.totalRounds,
       totalCells: room.totalCells,
       hunterShots: room.hunterShots,
+      forceForfeit: forceForfeit,
     },
   });
   setTimeout(() => rooms.delete(room.id), 10000);

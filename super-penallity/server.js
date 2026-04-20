@@ -51,9 +51,9 @@ app.get('/api/stats/:userId', (req, res) => {
 });
 
 // --- Serve static in production ---
-app.use(express.static(join(__dirname, 'dist')));
+app.use(express.static(join(__dirname, 'assets')));
 app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'dist', 'index.html'));
+  res.sendFile(join(__dirname, 'assets', 'index.html'));
 });
 
 // --- Game logic ---
@@ -65,6 +65,7 @@ const ZONES = [0, 1, 2, 3];
 const ROUND_TIMEOUT = 10000; // 10 seconds
 const BOT_DELAY_MIN = 800;
 const BOT_DELAY_MAX = 2000;
+const MAX_GAME_TIME = 300000; // 5 minutes max per match
 
 function send(ws, type, data = {}) {
   if (ws.readyState === 1) {
@@ -87,12 +88,21 @@ function createRoom(p1, p2) {
     history: [], // [{kickerIndex, kickerZone, keeperZone, isGoal}]
     kickerOverride: null,
     sdStart: 0, // round when sudden death started
+    startTime: Date.now(),
+    stuckTimer: null
   };
   rooms.set(roomId, room);
   p1.roomId = roomId;
   p2.roomId = roomId;
   p1.playerIndex = 0;
   p2.playerIndex = 1;
+
+  room.stuckTimer = setTimeout(() => {
+    if (room.finished) return;
+    console.log(`[Room ${room.id}] Force ending stuck game`);
+    room.forfeitWinner = room.scores[0] > room.scores[1] ? 0 : 1;
+    endMatch(room, true);
+  }, MAX_GAME_TIME);
 
   send(p1.ws, 'game_found', { opponent: p2.name, playerIndex: 0 });
   send(p2.ws, 'game_found', { opponent: p1.name, playerIndex: 1 });
@@ -272,13 +282,14 @@ function shouldEndMatch(room) {
   return false;
 }
 
-function endMatch(room) {
+function endMatch(room, forceForfeit = false) {
   if (room.finished) return;
   room.finished = true;
-  clearTimeout(room.timer);
+  if (room.timer) clearTimeout(room.timer);
+  if (room.stuckTimer) { clearTimeout(room.stuckTimer); room.stuckTimer = null; }
 
   const [s0, s1] = room.scores;
-  const winnerIdx = s0 > s1 ? 0 : 1;
+  const winnerIdx = room.forfeitWinner !== undefined ? room.forfeitWinner : (s0 > s1 ? 0 : 1);
   const playersPayload = room.players.map((p, i) => ({
     tgUserId: p.tgUserId || null,
     name: p.name || 'Player',
@@ -288,25 +299,19 @@ function endMatch(room) {
   }));
 
   for (const p of room.players) {
-    const won = (p.playerIndex === 0 && s0 > s1) || (p.playerIndex === 1 && s1 > s0);
+    const won = p.playerIndex === winnerIdx;
 
     if (!p.isBot) {
-      send(p.ws, 'match_result', { youWon: won, scores: room.scores });
+      send(p.ws, 'match_result', { youWon: won, scores: room.scores, timeout: forceForfeit || undefined });
     }
 
-    // Update stats
-    if (p.tgUserId) {
+    if (p.tgUserId && !p.isBot) {
       const st = getStats(p.tgUserId);
       if (won) st.wins++;
       else st.losses++;
 
-      // Count goals and saves from this match
-      // Player's goals = their score (as kicker)
       st.goals += room.scores[p.playerIndex];
-      // Player's saves = opponent's missed goals = rounds opponent kicked - opponent's score
       const oppIdx = 1 - p.playerIndex;
-      const oppKickRounds = Math.ceil(room.round / 2) - (p.playerIndex === 0 ? 0 : Math.floor((room.round + 1) / 2) - Math.floor(room.round / 2));
-      // Simpler: count how many rounds each player kicked
       let myKicks = 0;
       let oppKicks = 0;
       for (let r = 0; r < room.round; r++) {
@@ -333,6 +338,7 @@ function endMatch(room) {
       roundsPlayed: room.round,
       suddenDeath: room.suddenDeath,
       historySize: room.history.length,
+      forceForfeit: forceForfeit,
     },
   });
 
@@ -344,12 +350,16 @@ function cleanupPlayer(player) {
     const room = rooms.get(player.roomId);
     if (room && !room.finished) {
       room.finished = true;
-      clearTimeout(room.timer);
+      if (room.timer) clearTimeout(room.timer);
+      if (room.stuckTimer) { clearTimeout(room.stuckTimer); room.stuckTimer = null; }
       const opponent = room.players.find(p => p !== player);
-      if (opponent && !opponent.isBot) {
-        send(opponent.ws, 'opponent_left');
+      if (opponent) {
+        if (!opponent.isBot) {
+          send(opponent.ws, 'opponent_left');
+        }
+        room.forfeitWinner = opponent.playerIndex;
       }
-      rooms.delete(room.id);
+      endMatch(room, true);
     }
   }
   if (waitingPlayer === player) {
