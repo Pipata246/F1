@@ -179,6 +179,7 @@ const GamePage = () => {
   const launchHandledRef = useRef(false);
   const showingResultRef = useRef(false);
   const roundStuckTimerRef = useRef(null);
+  const waitingBotMoveTimerRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
@@ -333,6 +334,7 @@ const GamePage = () => {
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
       if (roundStuckTimerRef.current) clearTimeout(roundStuckTimerRef.current);
+      if (waitingBotMoveTimerRef.current) clearTimeout(waitingBotMoveTimerRef.current);
     };
   }, []);
 
@@ -364,6 +366,7 @@ const GamePage = () => {
 
       case 'round_start':
         clearRoundStuckTimer();
+        clearWaitingBotMoveTimer();
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
         setRole(msg.role);
@@ -391,11 +394,13 @@ const GamePage = () => {
         break;
 
       case 'round_result':
+        clearWaitingBotMoveTimer();
         handleRoundResult(msg);
         break;
 
       case 'match_result':
         clearRoundStuckTimer();
+        clearWaitingBotMoveTimer();
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
@@ -413,6 +418,7 @@ const GamePage = () => {
 
       case 'opponent_left':
         clearRoundStuckTimer();
+        clearWaitingBotMoveTimer();
         setMatchResult({ youWon: true, scores: [0, 0], opponentLeft: true });
         setScreen('result');
         break;
@@ -444,6 +450,12 @@ const GamePage = () => {
     if (roundStuckTimerRef.current) {
       clearTimeout(roundStuckTimerRef.current);
       roundStuckTimerRef.current = null;
+    }
+  };
+  const clearWaitingBotMoveTimer = () => {
+    if (waitingBotMoveTimerRef.current) {
+      clearTimeout(waitingBotMoveTimerRef.current);
+      waitingBotMoveTimerRef.current = null;
     }
   };
 
@@ -715,6 +727,17 @@ const GamePage = () => {
           setZoneLocked(false);
           setWaitingOpponent(false);
         });
+        if (pvpOpponentIsBotRef.current) {
+          clearWaitingBotMoveTimer();
+          waitingBotMoveTimerRef.current = setTimeout(() => {
+            const rid = pvpRoomIdRef.current;
+            const init = tgInitDataRef.current;
+            if (!rid || !init) return;
+            apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
+              .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
+              .catch(() => {});
+          }, 4500);
+        }
       }
       return;
     }

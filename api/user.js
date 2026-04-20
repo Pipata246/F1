@@ -2374,7 +2374,11 @@ function pvpAdvanceByTime(room) {
     if (isPvpBotFallbackRoom(room) && s.phase === "turn_input") {
       const botPending = asObj(s.botPending);
       const c = asObj(s.choices);
-      if (c.p2 === null || c.p2 === undefined) {
+      const players = asObj(s.players);
+      const botSide = String(players.p1 || "").startsWith("bot_fallback_")
+        ? "p1"
+        : (String(players.p2 || "").startsWith("bot_fallback_") ? "p2" : "p2");
+      if (c[botSide] === null || c[botSide] === undefined) {
         if (botPending.kind !== "super_penalty_move") {
           next.botPending = {
             kind: "super_penalty_move",
@@ -2386,7 +2390,10 @@ function pvpAdvanceByTime(room) {
         }
         const dueAt = Number(botPending.dueAtMs || 0);
         if (dueAt > 0 && now >= dueAt) {
-          next.choices = { ...c, p2: Number.isInteger(Number(botPending.value)) ? Number(botPending.value) : 0 };
+          next.choices = {
+            ...c,
+            [botSide]: Number.isInteger(Number(botPending.value)) ? Number(botPending.value) : 0,
+          };
           next.botPending = null;
           if (next.choices.p1 !== null && next.choices.p1 !== undefined && next.choices.p2 !== null && next.choices.p2 !== undefined) {
             const resolved = pvpResolveSuperPenaltyRound(next);
