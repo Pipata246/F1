@@ -345,7 +345,10 @@ const GamePage = () => {
     const endAt = shots.length * cycle + 200;
     sched(() => {
       setShotResult(null);
-      setScores([...finalScores]);
+      // In online mode, scores are already updated by server
+      if (playModeRef.current !== 'pvp') {
+        setScores([...finalScores]);
+      }
       onDone?.();
     }, endAt);
   }
@@ -393,14 +396,18 @@ const GamePage = () => {
         animateRound(msg.shots, msg.phase, msg.scores, () => {
           roundResolvingRef.current = false;
           setRoundResolving(false);
-          // Show GAME ON after both shots complete
-          allowRoundStartAtRef.current = Date.now() + 1600;
-          showAnnounce('GAME ON', 'Следующий раунд');
-          sched(() => {
-            const pendingStart = roundStartDeferredRef.current;
-            roundStartDeferredRef.current = null;
-            if (pendingStart) handleMsg(pendingStart);
-          }, 1610);
+          // Update scores after animation completes
+          setScores(msg.scores);
+          // In online mode, no GAME ON announcement - server handles next round
+          if (playModeRef.current === 'bot') {
+            allowRoundStartAtRef.current = Date.now() + 1600;
+            showAnnounce('GAME ON', 'Следующий раунд');
+            sched(() => {
+              const pendingStart = roundStartDeferredRef.current;
+              roundStartDeferredRef.current = null;
+              if (pendingStart) handleMsg(pendingStart);
+            }, 1610);
+          }
         });
         break;
       case 'match_result':
