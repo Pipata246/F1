@@ -177,8 +177,11 @@ const GamePage = () => {
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
   const launchHandledRef = useRef(false);
+  const showingResultRef = useRef(false);
+  const roundStuckTimerRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
+  useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -329,6 +332,7 @@ const GamePage = () => {
       if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
+      if (roundStuckTimerRef.current) clearTimeout(roundStuckTimerRef.current);
     };
   }, []);
 
@@ -359,6 +363,7 @@ const GamePage = () => {
         break;
 
       case 'round_start':
+        clearRoundStuckTimer();
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
         setRole(msg.role);
@@ -390,6 +395,7 @@ const GamePage = () => {
         break;
 
       case 'match_result':
+        clearRoundStuckTimer();
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
@@ -406,6 +412,7 @@ const GamePage = () => {
         break;
 
       case 'opponent_left':
+        clearRoundStuckTimer();
         setMatchResult({ youWon: true, scores: [0, 0], opponentLeft: true });
         setScreen('result');
         break;
@@ -433,8 +440,15 @@ const GamePage = () => {
   const stopTimer = () => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   };
+  const clearRoundStuckTimer = () => {
+    if (roundStuckTimerRef.current) {
+      clearTimeout(roundStuckTimerRef.current);
+      roundStuckTimerRef.current = null;
+    }
+  };
 
   const handleRoundResult = (msg) => {
+    clearRoundStuckTimer();
     stopTimer();
     setWaitingOpponent(false);
     setShowingResult(true);
@@ -489,6 +503,43 @@ const GamePage = () => {
         }
       }
     }, 400);
+
+    // Safety net: if server/client transition gets stuck after GOAL/SAVED,
+    // force a state refresh and unlock controls so the match never freezes.
+    roundStuckTimerRef.current = setTimeout(() => {
+      if (!showingResultRef.current) return;
+
+      if (playModeRef.current === 'pvp') {
+        const rid = pvpRoomIdRef.current;
+        const init = tgInitDataRef.current;
+        if (rid && init) {
+          apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
+            .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
+            .catch(() => {});
+        }
+        setTimeout(() => {
+          if (!showingResultRef.current) return;
+          setShowingResult(false);
+          setResultMessage(null);
+          setZoneLocked(false);
+          setWaitingOpponent(false);
+          startTimer();
+        }, 1200);
+        return;
+      }
+
+      // Bot fallback: continue locally so demo never hangs.
+      const m = matchRef.current;
+      if (!m || m.finished) return;
+      setShowingResult(false);
+      setResultMessage(null);
+      if (localShouldEndMatch(m)) {
+        m.finished = true;
+        handleServerMessage({ type: 'match_result', youWon: m.scores[0] > m.scores[1], scores: [...m.scores] });
+      } else {
+        localStartRound();
+      }
+    }, 5200);
   };
 
   const stopPvpPolling = useCallback(() => {
