@@ -417,7 +417,14 @@ const GamePage = () => {
     setTimer(10);
     timerRef.current = setInterval(() => {
       setTimer(prev => {
-        if (prev <= 1) { stopTimer(); return 0; }
+        if (prev <= 1) {
+          stopTimer();
+          if (!zoneLocked && !showingResult) {
+            const autoZone = Math.floor(Math.random() * 4);
+            sendMessage('choose_zone', { zone: autoZone });
+          }
+          return 0;
+        }
         return prev - 1;
       });
     }, 1000);
@@ -815,6 +822,36 @@ const GamePage = () => {
   };
 
   const handlePlayAgain = () => {
+    if (playModeRef.current === 'bot') {
+      setMatchResult(null);
+      setHistory([]);
+      startSearchBot();
+      return;
+    }
+    if (playModeRef.current === 'pvp') {
+      setMatchResult(null);
+      setHistory([]);
+      startSearchOnline();
+      return;
+    }
+    if (pvpFindRetryTimerRef.current) {
+      clearTimeout(pvpFindRetryTimerRef.current);
+      pvpFindRetryTimerRef.current = null;
+    }
+    if (localFindTimerRef.current) {
+      clearTimeout(localFindTimerRef.current);
+      localFindTimerRef.current = null;
+    }
+    playModeRef.current = 'idle';
+    matchRef.current = null;
+    setMatchResult(null);
+    setHistory([]);
+    stopPvpPolling();
+    pvpRoomIdRef.current = null;
+    goHome();
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+  };
+  const handleExitToMenu = () => {
     if (pvpFindRetryTimerRef.current) {
       clearTimeout(pvpFindRetryTimerRef.current);
       pvpFindRetryTimerRef.current = null;
@@ -909,15 +946,6 @@ const GamePage = () => {
       }
       return true;
     }
-    if (roundsPlayed % 2 !== 0) return false;
-    let p0Left = 0;
-    let p1Left = 0;
-    for (let r = roundsPlayed; r < m.maxRounds; r++) {
-      if (r % 2 === 0) p0Left++;
-      else p1Left++;
-    }
-    if (s0 > s1 + p1Left) return true;
-    if (s1 > s0 + p0Left) return true;
     return false;
   };
 
@@ -1096,9 +1124,14 @@ const GamePage = () => {
             <KickDots history={history} playerIdx={1 - playerIndex} totalKicks={5} label={opponent} color="text-red-400" />
           </div>
 
-          <button onClick={handlePlayAgain} className="mt-6 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 px-12 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
-            Ещё раз
-          </button>
+          <div className="mt-6 flex gap-3">
+            <button onClick={handleExitToMenu} className="bg-white/5 border border-white/20 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all active:scale-95">
+              Выйти
+            </button>
+            <button onClick={handlePlayAgain} className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
+              Ещё раз
+            </button>
+          </div>
         </div>
       </div>
     );

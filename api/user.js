@@ -1983,7 +1983,6 @@ function pvpResolveObstacleRound(state) {
   if (s.overtime) s.overtimeRound = Number(s.overtimeRound || 0) + 1;
   else s.currentStep = Number(s.currentStep || 0) + 1;
 
-  const winScore = Number(s.winScore || 5);
   const mainRounds = Number(s.mainRounds || 7);
   const overtimeRounds = Number(s.overtimeRounds || 3);
   let winnerSide = null;
@@ -1995,13 +1994,7 @@ function pvpResolveObstacleRound(state) {
   } else {
     const p1 = Number(s.scores.p1 || 0);
     const p2 = Number(s.scores.p2 || 0);
-    if (p1 >= winScore && p2 >= winScore) {
-      if (p1 > p2) winnerSide = "p1";
-      else if (p2 > p1) winnerSide = "p2";
-      else startOvertime = true;
-    } else if (p1 >= winScore) winnerSide = "p1";
-    else if (p2 >= winScore) winnerSide = "p2";
-    else if (Number(s.currentStep || 0) >= mainRounds) {
+    if (Number(s.currentStep || 0) >= mainRounds) {
       if (p1 > p2) winnerSide = "p1";
       else if (p2 > p1) winnerSide = "p2";
       else startOvertime = true;
@@ -2143,20 +2136,6 @@ function pvpResolveSuperPenaltyRound(state) {
       } else {
         gameOver = true;
         winnerSide = p1 > p2 ? "p1" : "p2";
-      }
-    } else if (roundsPlayed % 2 === 0) {
-      let p0Left = 0;
-      let p1Left = 0;
-      for (let r = roundsPlayed; r < Number(s.maxRounds || 10); r++) {
-        if (r % 2 === 0) p0Left += 1;
-        else p1Left += 1;
-      }
-      if (p1 > p2 + p1Left) {
-        gameOver = true;
-        winnerSide = "p1";
-      } else if (p2 > p1 + p0Left) {
-        gameOver = true;
-        winnerSide = "p2";
       }
     }
   }
@@ -2367,6 +2346,19 @@ function pvpAdvanceByTime(room) {
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
+    }
+    if (s.phase === "turn_input" && elapsed >= 12000) {
+      const choices = { ...asObj(s.choices) };
+      const randDist = () => {
+        const all = ["close", "mid", "far"];
+        return all[Math.floor(Math.random() * all.length)] || "mid";
+      };
+      if (!choices.p1) choices.p1 = randDist();
+      if (!choices.p2) choices.p2 = randDist();
+      next.choices = choices;
+      const resolved = pvpResolveBasketballRound(next);
+      resolved.updatedAt = new Date().toISOString();
+      return { changed: true, state: resolved };
     }
     return { changed: false, state: s };
   }
@@ -2588,8 +2580,9 @@ function pvpAdvanceByTime(room) {
 
     if (s.phase === "running" && elapsed >= 12000) {
       const pending = { ...asObj(s.pendingMoves) };
-      if (!pending.p1) pending.p1 = { action: "run", useAbility: false };
-      if (!pending.p2) pending.p2 = { action: "run", useAbility: false };
+      const randAction = () => (Math.random() < 0.5 ? "run" : "jump");
+      if (!pending.p1) pending.p1 = { action: randAction(), useAbility: false };
+      if (!pending.p2) pending.p2 = { action: randAction(), useAbility: false };
       next.pendingMoves = pending;
       const resolved = pvpResolveObstacleRound(next);
       resolved.updatedAt = new Date().toISOString();
@@ -2727,7 +2720,7 @@ function pvpAdvanceByTime(room) {
     }
   }
 
-  // Turn timeout: side that did not submit in time loses the round.
+  // Turn timeout: missing moves are auto-filled randomly, then round resolves normally.
   if (s.phase === "turn_input" && elapsed >= 16000) {
     const pending = asObj(s.pending);
     const frogChosen =
@@ -2736,25 +2729,33 @@ function pvpAdvanceByTime(room) {
       Number.isInteger(Number(pending.frogCell));
     const hunterChosen = Array.isArray(pending.hunterCells) && pending.hunterCells.length === Number(s.hunterShots || 1);
     if (!frogChosen || !hunterChosen) {
-      const timedOutSide = !frogChosen ? frogSide : hunterSide;
-      const winnerSide = timedOutSide === frogSide ? hunterSide : frogSide;
-      next.matchScores = { ...(s.matchScores || { p1: 0, p2: 0 }) };
-      next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;
-      next.phase = "game_over";
+      const hunterShots = Math.max(1, Number(s.hunterShots || 1));
+      const randomFrogCell = frogChosen ? Number(pending.frogCell) : Math.floor(Math.random() * Math.max(1, totalCells));
+      let randomHunterCells = hunterChosen ? pending.hunterCells.map(Number) : [];
+      if (!hunterChosen) {
+        randomHunterCells = [];
+        while (randomHunterCells.length < hunterShots) {
+          const n = Math.floor(Math.random() * Math.max(1, totalCells));
+          if (!randomHunterCells.includes(n)) randomHunterCells.push(n);
+        }
+      }
+      const hit = randomHunterCells.includes(randomFrogCell);
+      const winnerRole = hit ? "hunter" : (Number(s.currentRound || 1) >= Number(s.totalRounds || 5) ? "frog" : null);
+      next.roundHit = hit;
+      next.nextFrogCell = randomFrogCell;
+      next.phase = "round_result";
       next.phaseAtMs = now;
-      next.roundHit = timedOutSide === frogSide;
-      next.nextFrogCell = frogChosen ? Number(pending.frogCell) : safeCell;
-      next.markers = { ...(s.markers || {}), round: Number(s?.markers?.round || 0) + 1, game: Number(s?.markers?.game || 0) + 1 };
+      next.markers = { ...(s.markers || {}), round: Number(s?.markers?.round || 0) + 1 };
       next.lastRoundResult = {
         marker: next.markers.round,
-        hit: timedOutSide === frogSide,
-        frogCell: frogChosen ? Number(pending.frogCell) : safeCell,
-        hunterCells: hunterChosen ? pending.hunterCells.map(Number) : [],
+        hit,
+        frogCell: randomFrogCell,
+        hunterCells: randomHunterCells,
         round: s.currentRound,
         totalRounds: s.totalRounds,
-        isFinal: true,
-        timedOutSide,
-        winnerRole: timedOutSide === frogSide ? "hunter" : "frog",
+        isFinal: !!winnerRole,
+        timedOutSide: (!frogChosen || !hunterChosen) ? (!frogChosen ? frogSide : hunterSide) : null,
+        winnerRole,
       };
       next.pending = { frogCell: null, hunterCells: [] };
       next.updatedAt = new Date().toISOString();

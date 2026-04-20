@@ -262,7 +262,8 @@ const GamePage = () => {
 
   function clearPending() { pending.current.forEach(clearTimeout); pending.current = []; }
   function sched(fn, ms) { pending.current.push(setTimeout(fn, ms)); }
-  const startTimer = () => { stopTimer(); setTimer(12); timerRef.current = setInterval(() => setTimer(p => { if (p <= 1) { stopTimer(); if (choosing && !locked) { choiceLockedRef.current = true; setLocked(true); setChoosing(false); if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) { apiPost({ action: 'pvpSubmitMove', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current, move: { distance: 'mid' } }).catch(() => {}); } else if (playModeRef.current === 'bot') { localOnClientMessage('choose_distance', { distance: 'mid' }); } } return 0; } return p - 1; }), 1000); };
+  const randomDistance = () => DISTS[Math.floor(Math.random() * DISTS.length)]?.key || 'mid';
+  const startTimer = () => { stopTimer(); setTimer(12); timerRef.current = setInterval(() => setTimer(p => { if (p <= 1) { stopTimer(); if (choosing && !locked) { const autoDistance = randomDistance(); choiceLockedRef.current = true; setLocked(true); setChoosing(false); setSelectedDistance(autoDistance); if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) { apiPost({ action: 'pvpSubmitMove', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current, move: { distance: autoDistance } }).catch(() => {}); } else if (playModeRef.current === 'bot') { localOnClientMessage('choose_distance', { distance: autoDistance }); } } return 0; } return p - 1; }), 1000); };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const apiPost = useCallback(async (payload) => {
     const res = await fetch('/api/user', {
@@ -776,6 +777,27 @@ const GamePage = () => {
   };
 
   const playAgain = () => {
+    if (playModeRef.current === 'bot') {
+      setMatchResult(null);
+      setGamePhase(null);
+      findGameBot();
+      return;
+    }
+    if (playModeRef.current === 'pvp') {
+      setMatchResult(null);
+      setGamePhase(null);
+      findGameOnline();
+      return;
+    }
+    clearPending();
+    stopPvpPolling();
+    pvpRoomIdRef.current = null;
+    playModeRef.current = 'idle';
+    setMatchResult(null);
+    setGamePhase(null);
+    goHome();
+  };
+  const exitToMenu = () => {
     clearPending();
     stopPvpPolling();
     pvpRoomIdRef.current = null;
@@ -859,7 +881,7 @@ const GamePage = () => {
                   onClick={() => toggleStakeOption(stake)}
                   className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
                     blocked
-                      ? 'bg-green-500/20 border-green-400 text-green-200'
+                      ? 'bg-red-500/20 border-red-400 text-red-200'
                       : active
                         ? 'bg-emerald-400/20 border-emerald-300 text-emerald-200 shadow-[0_0_14px_rgba(34,197,94,0.35)]'
                         : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
@@ -922,7 +944,10 @@ const GamePage = () => {
           <div className="text-center"><p className={`${opColor} text-base uppercase`}>{opName}</p><p className="text-7xl text-white mt-1">{os}</p></div>
         </div>
         {tonResultText && <div className={`mt-3 text-sm uppercase ${matchResult.youWon ? 'text-emerald-300' : 'text-rose-300'}`}>{tonResultText}</div>}
-        <button onClick={playAgain} className="mt-10 bg-emerald-500 text-black py-5 px-20 rounded-xl text-2xl uppercase tracking-widest active:scale-95">ЕЩЁ</button>
+        <div className="mt-10 flex gap-3">
+          <button onClick={exitToMenu} className="bg-white/5 border border-white/20 text-white py-4 px-8 rounded-xl text-lg uppercase tracking-widest active:scale-95">ВЫЙТИ</button>
+          <button onClick={playAgain} className="bg-emerald-500 text-black py-4 px-8 rounded-xl text-lg uppercase tracking-widest active:scale-95">ЕЩЁ РАЗ</button>
+        </div>
       </div>
     );
   }

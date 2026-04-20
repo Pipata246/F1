@@ -540,7 +540,7 @@ function startTimer() {
             if (!moveChosen) {
                 if (xrayScanMode) exitXrayScanMode();
                 abilityActive = false;
-                makeMove('run');
+                makeMove(Math.random() < 0.5 ? 'run' : 'jump');
             }
         }
     }, 50);

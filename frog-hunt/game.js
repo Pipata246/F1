@@ -887,7 +887,24 @@ function startTimer(ms) {
     var pct = Math.max(0, 1 - (Date.now() - start) / ms) * 100;
     bar.style.width = pct + '%';
     if (pct < 25) bar.classList.add('urgent');
-    if (pct <= 0) { clearInterval(timerInterval); }
+    if (pct <= 0) {
+      clearInterval(timerInterval);
+      if (!moveChosen) {
+        if (myRole === 'frog') {
+          selectedCells = [Math.floor(Math.random() * Math.max(1, totalCells))];
+        } else {
+          var need = Math.max(1, Number(hunterShots || 1));
+          var pick = [];
+          var maxCell = Math.max(1, totalCells);
+          while (pick.length < need) {
+            var n = Math.floor(Math.random() * maxCell);
+            if (pick.indexOf(n) === -1) pick.push(n);
+          }
+          selectedCells = pick;
+        }
+        confirmChoice();
+      }
+    }
   }, 50);
 }
 

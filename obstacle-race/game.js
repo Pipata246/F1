@@ -1211,7 +1211,6 @@ function localResolveRound() {
     if (m.overtime) m.overtimeRound++;
     else m.currentStep++;
 
-    const WIN_SCORE = 5;
     const MAIN_ROUNDS = 7;
     const OT_ROUNDS = 3;
     let gameOver = false;
@@ -1224,10 +1223,7 @@ function localResolveRound() {
             winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
         } else if (m.overtimeRound >= OT_ROUNDS) startOvertime = true;
     } else {
-        if ((m.scores[0] >= WIN_SCORE || m.scores[1] >= WIN_SCORE) && m.scores[0] !== m.scores[1]) {
-            gameOver = true;
-            winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
-        } else if (m.currentStep >= MAIN_ROUNDS) {
+        if (m.currentStep >= MAIN_ROUNDS) {
             if (m.scores[0] === m.scores[1]) startOvertime = true;
             else {
                 gameOver = true;
@@ -1275,7 +1271,7 @@ function startTimer() {
             if (!moveChosen) {
                 if (xrayScanMode) exitXrayScanMode();
                 abilityActive = false;
-                makeMove('run');
+                makeMove(Math.random() < 0.5 ? 'run' : 'jump');
             }
         }
     }, 50);
