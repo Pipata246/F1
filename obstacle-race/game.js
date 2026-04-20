@@ -1069,13 +1069,11 @@ function makeMove(action) {
     $('btn-jump').disabled = true;
     $('ability-zone').classList.add('hidden');
 
-    if (action === 'run') {
-        $('btn-run').style.outline = '3px solid #fff';
-        $('btn-jump').style.opacity = '0.3';
-    } else {
-        $('btn-jump').style.outline = '3px solid #fff';
-        $('btn-run').style.opacity = '0.3';
-    }
+    // Keep both action buttons visually highlighted while waiting for the round result.
+    $('btn-run').style.outline = '';
+    $('btn-run').style.opacity = '';
+    $('btn-jump').style.outline = '';
+    $('btn-jump').style.opacity = '';
     $('move-wait').classList.remove('hidden');
 }
 
