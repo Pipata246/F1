@@ -112,6 +112,7 @@ const GamePage = () => {
   const roundResolvingRef = useRef(false);
   // Defer "round_start" UI until after post-round announcement.
   const roundStartDeferredRef = useRef(null);
+  const matchResultDeferredRef = useRef(null);
   const allowRoundStartAtRef = useRef(0);
   const noticeTimerRef = useRef(null);
   const launchHandledRef = useRef(false);
@@ -356,6 +357,16 @@ const GamePage = () => {
     }, endAt);
   }
 
+  function finalizeMatchResult(msg) {
+    sched(() => {
+      setMatchResult({ youWon: msg.youWon, scores: msg.scores });
+      setScreen('result');
+      sfx(msg.youWon ? 'win' : 'lose');
+      if (playModeRef.current === 'bot') saveMatchToBackend(msg.youWon, msg.scores);
+      if (msg.youWon) confetti({ particleCount: 80, spread: 80, origin: { y: 0.5 }, colors: ['#FFD700', '#4AFF93', '#FFF'] });
+    }, 600);
+  }
+
   // ============ SERVER ============
   const handleMsg = useCallback((msg) => {
     switch(msg.type) {
@@ -403,6 +414,12 @@ const GamePage = () => {
           setRoundResolving(false);
           // Stage (2,3): only after BOTH throws.
           setScores(msg.scores);
+          const pendingMatch = matchResultDeferredRef.current;
+          if (pendingMatch) {
+            matchResultDeferredRef.current = null;
+            finalizeMatchResult(pendingMatch);
+            return;
+          }
           // Stage (4): now show GAME ON and delay next round UI until it disappears.
           allowRoundStartAtRef.current = Date.now() + 1600;
           showAnnounce('GAME ON', 'Следующий раунд');
@@ -414,10 +431,13 @@ const GamePage = () => {
         });
         break;
       case 'match_result':
-        sched(() => { setMatchResult({youWon:msg.youWon,scores:msg.scores}); setScreen('result'); sfx(msg.youWon?'win':'lose');
-          if (playModeRef.current === 'bot') saveMatchToBackend(msg.youWon, msg.scores);
-          if(msg.youWon) confetti({particleCount:80,spread:80,origin:{y:0.5},colors:['#FFD700','#4AFF93','#FFF']});
-        }, 600); break;
+        // Do not overlay result while last throw animation is still playing.
+        if (roundResolvingRef.current) {
+          matchResultDeferredRef.current = { youWon: msg.youWon, scores: msg.scores };
+          break;
+        }
+        finalizeMatchResult(msg);
+        break;
       case 'opponent_left': setMatchResult({youWon:true,scores:[0,0],opponentLeft:true}); setScreen('result'); break;
     }
   }, []);
