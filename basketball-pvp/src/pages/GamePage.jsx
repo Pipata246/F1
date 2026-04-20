@@ -304,7 +304,7 @@ const GamePage = () => {
         return am - bm;
       });
     }
-    return arr.slice(0, 2);
+    return arr;
   }
 
   function roundAnimTotalMs(phase, shotsCount) {
@@ -386,6 +386,8 @@ const GamePage = () => {
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'opponent_locked': break;
       case 'round_result':
+        // Ignore if already resolving (server sends multiple round_result messages)
+        if (roundResolvingRef.current) return;
         stopTimer();
         setChoosing(false);
         setLocked(false);
@@ -398,16 +400,6 @@ const GamePage = () => {
           setRoundResolving(false);
           // Update scores after animation completes
           setScores(msg.scores);
-          // In online mode, no GAME ON announcement - server handles next round
-          if (playModeRef.current === 'bot') {
-            allowRoundStartAtRef.current = Date.now() + 1600;
-            showAnnounce('GAME ON', 'Следующий раунд');
-            sched(() => {
-              const pendingStart = roundStartDeferredRef.current;
-              roundStartDeferredRef.current = null;
-              if (pendingStart) handleMsg(pendingStart);
-            }, 1610);
-          }
         });
         break;
       case 'match_result':
