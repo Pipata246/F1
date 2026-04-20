@@ -51,10 +51,10 @@ app.get('/api/stats/:userId', (req, res) => {
 });
 
 // --- Serve static in production ---
-app.use(express.static(join(__dirname, 'public')));
-app.use(express.static(join(__dirname, 'assets')));
+app.use('/super-penallity', express.static(join(__dirname, 'public')));
+app.use('/super-penallity', express.static(join(__dirname, 'assets')));
 app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'assets', 'index.html'));
+  if (!req.path.startsWith('/api')) res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 
 // --- Game logic ---

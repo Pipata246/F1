@@ -11,8 +11,8 @@ const wss = new WebSocketServer({ server });
 const CENTRAL_API_URL = process.env.CENTRAL_API_URL || '';
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname, 'assets')));
+app.use('/basketball-pvp', express.static(path.join(__dirname, 'public')));
+app.use('/basketball-pvp', express.static(path.join(__dirname, 'assets')));
 app.use(express.json());
 
 // ============ CONFIG ============
@@ -256,7 +256,7 @@ function endMatch(room, forceForfeit = false) {
 app.get('/api/stats/:userId', (req, res) => {
   res.json(stats[req.params.userId] || { wins: 0, losses: 0, totalPoints: 0, gamesPlayed: 0 });
 });
-app.get('*', (req, res) => { if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'assets', 'index.html')); });
+app.get('*', (req, res) => { if (!req.path.startsWith('/api')) res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 
 // ============ WS ============
 wss.on('connection', (ws) => {
