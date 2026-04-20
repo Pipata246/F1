@@ -326,8 +326,10 @@ const GamePage = () => {
       // Move player
       sched(() => {
         if (phase !== 1) {
-          setPositions(() => {
-            const n = [{ x: PLAYER_X[0], y: START_Y }, { x: PLAYER_X[1], y: START_Y }];
+          setPositions((prev) => {
+            const n = Array.isArray(prev)
+              ? prev.map((p, idx) => ({ x: Number(p?.x ?? PLAYER_X[idx]), y: Number(p?.y ?? START_Y) }))
+              : [{ x: PLAYER_X[0], y: START_Y }, { x: PLAYER_X[1], y: START_Y }];
             n[shot.playerIndex] = { x: PLAYER_X[shot.playerIndex], y: DIST_Y[shot.distance] || START_Y };
             return n;
           });
