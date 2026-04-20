@@ -51,6 +51,7 @@ app.get('/api/stats/:userId', (req, res) => {
 });
 
 // --- Serve static in production ---
+app.use(express.static(join(__dirname, 'public')));
 app.use(express.static(join(__dirname, 'assets')));
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, 'assets', 'index.html'));

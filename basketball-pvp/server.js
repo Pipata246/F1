@@ -11,6 +11,7 @@ const wss = new WebSocketServer({ server });
 const CENTRAL_API_URL = process.env.CENTRAL_API_URL || '';
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(path.join(__dirname, 'assets')));
 app.use(express.json());
 
