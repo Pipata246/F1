@@ -947,7 +947,7 @@ const GamePage = () => {
           {currentStakeTon != null && <div className="text-center text-[10px] text-emerald-300 uppercase tracking-wider mb-1">Ставка: {currentStakeTon} TON</div>}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
-              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p0Name}{pi===0?' · ТЫ':' · СОПЕРНИК'}</p>
+              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p0Name}</p>
               <p className="text-5xl text-[#34C759] leading-none mt-0.5">{p0Score}</p>
             </div>
             <div className="flex flex-col items-center px-4 gap-0.5">
@@ -957,7 +957,7 @@ const GamePage = () => {
               {choosing&&!locked&&<span className={`text-sm ${timer<=3?'text-red-400 animate-pulse':'text-white/25'}`}>{timer}s</span>}
             </div>
             <div className="flex-1 text-center">
-              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p1Name}{pi===1?' · ТЫ':' · СОПЕРНИК'}</p>
+              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p1Name}</p>
               <p className="text-5xl text-[#34C759] leading-none mt-0.5">{p1Score}</p>
             </div>
           </div>
@@ -988,7 +988,7 @@ const GamePage = () => {
               style={{width:CHAR_W,height:CHAR_H,imageRendering:'pixelated',transform:idx===1?'scaleX(-1)':'none'}} />
             <div className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap ${idx===0?'text-[#63e6be]':'text-[#8ff0cf]'}`}
               style={{textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
-              {idx===0?p0Name:p1Name}{idx===pi?' · ТЫ':' · OPP'}
+              {idx===0?p0Name:p1Name}
             </div>
           </div>
         ))}
