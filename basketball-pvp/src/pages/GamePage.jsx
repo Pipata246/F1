@@ -289,12 +289,21 @@ const GamePage = () => {
   function normalizeShotsForViewer(shotsRaw) {
     const arr = Array.isArray(shotsRaw) ? shotsRaw.slice() : [];
     const me = Number(piRef.current || 0);
-    // Each client sees their throw first, then opponent.
-    arr.sort((a, b) => {
-      const am = Number(a?.playerIndex) === me ? 0 : 1;
-      const bm = Number(b?.playerIndex) === me ? 0 : 1;
-      return am - bm;
-    });
+    // In online mode, always show shots in fixed order (player 0 then player 1) for synchronization.
+    // In bot mode, show player's throw first.
+    if (playModeRef.current === 'pvp') {
+      arr.sort((a, b) => {
+        const ai = Number(a?.playerIndex || 0);
+        const bi = Number(b?.playerIndex || 0);
+        return ai - bi;
+      });
+    } else {
+      arr.sort((a, b) => {
+        const am = Number(a?.playerIndex) === me ? 0 : 1;
+        const bm = Number(b?.playerIndex) === me ? 0 : 1;
+        return am - bm;
+      });
+    }
     return arr.slice(0, 2);
   }
 
@@ -357,8 +366,8 @@ const GamePage = () => {
         if(msg.phase===2) showAnnounce('GAME ON','7 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
       case 'round_start':
-        // Stage (4): do not start the next selection UI until "GAME ON" disappears.
-        if (Date.now() < Number(allowRoundStartAtRef.current || 0)) {
+        // Stage (4): do not start the next selection UI until "GAME ON" disappears (bot mode only).
+        if (playModeRef.current !== 'pvp' && Date.now() < Number(allowRoundStartAtRef.current || 0)) {
           roundStartDeferredRef.current = msg;
           break;
         }
@@ -384,7 +393,7 @@ const GamePage = () => {
         animateRound(msg.shots, msg.phase, msg.scores, () => {
           roundResolvingRef.current = false;
           setRoundResolving(false);
-          // Stage (3): after both throws — show "GAME ON" and only then allow next round start UI.
+          // Show GAME ON after both shots complete
           allowRoundStartAtRef.current = Date.now() + 1600;
           showAnnounce('GAME ON', 'Следующий раунд');
           sched(() => {
@@ -478,7 +487,7 @@ const GamePage = () => {
       handleMsg({
         type: 'round_start',
         round: Number(s.round || 0) + 1,
-        maxRounds: Number(s.maxRounds || 5),
+        maxRounds: Number(s.maxRounds || 7),
         phase: phaseNum,
         scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)],
       });
