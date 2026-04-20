@@ -369,8 +369,8 @@ const GamePage = () => {
         if(msg.phase===2) showAnnounce('GAME ON','7 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
       case 'round_start':
-        // Stage (4): do not start the next selection UI until "GAME ON" disappears (bot mode only).
-        if (playModeRef.current !== 'pvp' && Date.now() < Number(allowRoundStartAtRef.current || 0)) {
+        // Stage (4): do not start the next selection UI until "GAME ON" disappears.
+        if (Date.now() < Number(allowRoundStartAtRef.current || 0)) {
           roundStartDeferredRef.current = msg;
           break;
         }
@@ -398,8 +398,16 @@ const GamePage = () => {
         animateRound(msg.shots, msg.phase, msg.scores, () => {
           roundResolvingRef.current = false;
           setRoundResolving(false);
-          // Update scores after animation completes
+          // Stage (2,3): only after BOTH throws.
           setScores(msg.scores);
+          // Stage (4): now show GAME ON and delay next round UI until it disappears.
+          allowRoundStartAtRef.current = Date.now() + 1600;
+          showAnnounce('GAME ON', 'Следующий раунд');
+          sched(() => {
+            const pendingStart = roundStartDeferredRef.current;
+            roundStartDeferredRef.current = null;
+            if (pendingStart) handleMsg(pendingStart);
+          }, 1610);
         });
         break;
       case 'match_result':
@@ -456,7 +464,9 @@ const GamePage = () => {
     setCurrentStakeTon(room.stake_ton != null ? Number(room.stake_ton) : null);
 
     const phaseNum = Number(s.phaseNum || 1);
-    const phaseKey = `${phaseNum}:${String(s.phase || '')}`;
+    // Do not treat every phase transition (turn_input/round_result) as a "new phase" for UI.
+    // We only want phase notifications when phaseNum changes (main -> overtime).
+    const phaseKey = String(phaseNum);
     if (phaseKey !== pvpLastPhaseKeyRef.current) {
       pvpLastPhaseKeyRef.current = phaseKey;
       handleMsg({ type: 'phase_start', phase: phaseNum, scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)] });

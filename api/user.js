@@ -1626,7 +1626,7 @@ function pvpDefaultBasketballState(player1Id, player2Id) {
     phaseAtMs: Date.now(),
     phaseNum: 2, // 2 main, 3 overtime
     round: 0,
-    maxRounds: 5,
+    maxRounds: 7,
     choices: { p1: null, p2: null },
     scores: { p1: 0, p2: 0 },
     markers: { round: 0, phase: 0, match: 0 },
@@ -2331,7 +2331,7 @@ function pvpAdvanceByTime(room) {
       const p1 = Number(asObj(s.scores).p1 || 0);
       const p2 = Number(asObj(s.scores).p2 || 0);
       if (phaseNum === 2) {
-        if (round >= 5) {
+        if (round >= Number(s.maxRounds || 7)) {
           if (p1 !== p2) {
             next.phase = "match_over";
             next.phaseAtMs = now;
