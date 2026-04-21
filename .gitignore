@@ -3,6 +3,7 @@ dist/
 .railway/
 *.log
 .env
+# deploy trigger
 .env.*
 !.env.example
 .env.example
