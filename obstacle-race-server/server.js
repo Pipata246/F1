@@ -132,7 +132,6 @@ wss.on('connection', (ws) => {
         }
         room.phase = 'match_over';
         finishMatchWithResult(room, true);
-        rooms.delete(ws.roomId);
       }
     }
   });
@@ -162,7 +161,8 @@ function handleXrayScan(ws, point) {
   const room = rooms.get(ws.roomId);
   if (!room || room.phase !== 'running') return;
   if (room.abilityUsed[ws.playerIndex]) return;
-  if (room.abilities[ws.playerIndex] !== 'xray') return;
+  const currentAbility = room.overtime ? room.overtimeAbilities[ws.playerIndex] : room.abilities[ws.playerIndex];
+  if (currentAbility !== 'xray') return;
 
   const playerIdx = ws.playerIndex;
   const oppIdx = 1 - playerIdx;
@@ -176,7 +176,6 @@ function handleXrayScan(ws, point) {
   room.abilityUsed[playerIdx] = true;
   send(ws, { type: 'xray_result', point, hasTrap });
 
-  // Notify opponent that xray was used (show animation + scanned point)
   const oppWs = room.players[oppIdx];
   if (oppWs) send(oppWs, { type: 'opp_xray', point });
 }
@@ -194,6 +193,11 @@ function findGame(ws, name, vsBot) {
   }
 }
 
+function randomOtAbility() {
+  // В овертайме только xray и sabotage (без double)
+  return Math.random() < 0.5 ? 'xray' : 'sabotage';
+}
+
 function makeRoom(p1, p2) {
   return {
     id: genId(),
@@ -209,11 +213,13 @@ function makeRoom(p1, p2) {
     overtime: false,
     overtimeRound: 0,
     overtimeTraps: null,
+    overtimeAbilities: [null, null],
     firstScorer: null,
     botAbilityRound: Math.floor(Math.random() * 7),
     reportSent: false,
     startTime: Date.now(),
-    stuckTimer: null
+    stuckTimer: null,
+    trapTimer: null
   };
 }
 
@@ -231,6 +237,18 @@ function createRoom(p1, p2) {
     room.forfeitWinner = room.scores[0] > room.scores[1] ? 0 : 1;
     finishMatchWithResult(room, true);
   }, MAX_GAME_TIME);
+
+  // Таймаут на расстановку ловушек — 30 секунд
+  room.trapTimer = setTimeout(() => {
+    if (room.phase !== 'placing') return;
+    for (let i = 0; i < 2; i++) {
+      if (!room.traps[i]) {
+        room.traps[i] = randomTraps();
+        send(room.players[i], { type: 'traps_auto' });
+      }
+    }
+    checkTrapsReady(room);
+  }, 30000);
 }
 
 function createBotGame(ws) {
@@ -275,6 +293,7 @@ function placeTraps(ws, traps) {
 
 function checkTrapsReady(room) {
   if (!room.traps[0] || !room.traps[1]) return;
+  if (room.trapTimer) { clearTimeout(room.trapTimer); room.trapTimer = null; }
   room.phase = 'running';
   room.currentStep = 0;
   room.players.forEach((p, i) => {
@@ -289,10 +308,11 @@ function checkTrapsReady(room) {
 
 function checkOvertimeReady(room) {
   if (!room.overtimeTraps[0] || !room.overtimeTraps[1]) return;
+  if (room.trapTimer) { clearTimeout(room.trapTimer); room.trapTimer = null; }
   room.phase = 'running';
   room.overtimeRound = 0;
-  room.players.forEach((p) => {
-    send(p, { type: 'overtime_start' });
+  room.players.forEach((p, i) => {
+    send(p, { type: 'overtime_start', ability: room.overtimeAbilities[i] });
   });
   scheduleBotMove(room);
   scheduleMoveTimeout(room);
@@ -374,14 +394,23 @@ function resolveRound(room) {
     }
 
     // Apply ability (double/sabotage only — xray consumed during scan phase)
-    // Double can only be used until round 5 (step 0-4)
-    if (move.useAbility && !room.abilityUsed[i] && !room.overtime) {
-      const ab = room.abilities[i];
-      if (ab === 'double' && room.currentStep > 4) {
-        // double blocked after round 5
+    // Double can only be used until round 5 (step 0-4), и никогда в овертайме
+    const currentAbility = room.overtime ? room.overtimeAbilities[i] : room.abilities[i];
+    if (move.useAbility && !room.abilityUsed[i] && currentAbility) {
+      if (room.overtime) {
+        // В овертайме: только sabotage (xray — через scan)
+        if (currentAbility === 'sabotage') {
+          usedAbility = currentAbility;
+          room.abilityUsed[i] = true;
+        }
       } else {
-        usedAbility = ab;
-        room.abilityUsed[i] = true;
+        const ab = room.abilities[i];
+        if (ab === 'double' && room.currentStep > 4) {
+          // double blocked after round 5
+        } else {
+          usedAbility = ab;
+          room.abilityUsed[i] = true;
+        }
       }
     }
 
@@ -464,9 +493,24 @@ function resolveRound(room) {
     room.overtime = true;
     room.overtimeRound = 0;
     room.overtimeTraps = [null, null];
-    if (!room.abilities[0]) room.abilities = [null, null]; // keep null on repeated OT
-    room.abilityUsed = [true, true];
+    // Новые способности для овертайма (только xray/sabotage)
+    room.overtimeAbilities = [randomOtAbility(), randomOtAbility()];
+    room.abilityUsed = [false, false];
     room.phase = 'overtime_placing';
+
+    // Таймаут на расстановку ловушек в овертайме — 30 секунд
+    room.trapTimer = setTimeout(() => {
+      if (room.phase !== 'overtime_placing') return;
+      for (let i = 0; i < 2; i++) {
+        if (!room.overtimeTraps[i]) {
+          const t = new Set();
+          while (t.size < OT_TRAPS) t.add(Math.floor(Math.random() * OT_ROUNDS));
+          room.overtimeTraps[i] = [...t];
+          send(room.players[i], { type: 'traps_auto' });
+        }
+      }
+      checkOvertimeReady(room);
+    }, 30000);
 
     // Bot places OT_TRAPS random traps for overtime
     const bot = room.players.find((p) => p.isBot);
@@ -504,8 +548,18 @@ function resolveRound(room) {
 
   room.moves = [null, null];
 
-  function finishMatchWithResult(room, forceForfeit = false) {
+  if (gameOver) {
+    room.phase = 'finished';
+    finishMatchWithResult(room);
+  } else {
+    scheduleBotMove(room);
+    scheduleMoveTimeout(room);
+  }
+}
+
+function finishMatchWithResult(room, forceForfeit = false) {
   if (room.stuckTimer) { clearTimeout(room.stuckTimer); room.stuckTimer = null; }
+  if (room.trapTimer) { clearTimeout(room.trapTimer); room.trapTimer = null; }
   const winner = room.forfeitWinner !== undefined ? room.forfeitWinner : (room.scores[0] > room.scores[1] ? 0 : 1);
   if (!room.reportSent) {
     room.reportSent = true;
@@ -539,15 +593,7 @@ function resolveRound(room) {
     winner_ability: room.abilities[winner],
     rounds: room.currentStep + 1
   });
-}
-
-if (gameOver) {
-    room.phase = 'finished';
-    finishMatchWithResult(room);
-  } else {
-    scheduleBotMove(room);
-    scheduleMoveTimeout(room);
-  }
+  rooms.delete(room.id);
 }
 
 const PORT = process.env.PORT || 3000;

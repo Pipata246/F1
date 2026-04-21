@@ -1943,6 +1943,14 @@ function pvpResolveObstacleRound(state) {
         s.abilityUsed = { ...asObj(s.abilityUsed), [side]: true };
       }
     }
+    // В овертайме: sabotage через useAbility (xray — через scan)
+    if (useAbility && !asObj(s.abilityUsed)[side] && s.overtime) {
+      const ab = asObj(s.overtimeAbilities || {})[side];
+      if (ab === 'sabotage') {
+        usedAbility = ab;
+        s.abilityUsed = { ...asObj(s.abilityUsed), [side]: true };
+      }
+    }
     const success = (action === "run" && !hasTrap) || (action === "jump" && hasTrap);
     let points = success ? 1 : 0;
     if (usedAbility === "double") points = success ? 2 : -1;
@@ -2051,7 +2059,10 @@ function pvpApplyObstacleMove(room, tgId, move) {
     const point = Number(m.point);
     if (!Number.isInteger(point)) throw new Error("Invalid xray point");
     if (asObj(next.abilityUsed)[side]) return next;
-    if (asObj(next.abilities)[side] !== "xray") return next;
+    const currentAbility = next.overtime
+      ? asObj(next.overtimeAbilities || {})[side]
+      : asObj(next.abilities)[side];
+    if (currentAbility !== "xray") return next;
     const current = next.overtime ? Number(next.overtimeRound || 0) : Number(next.currentStep || 0);
     const upper = next.overtime ? Number(next.overtimeRounds || 3) : Number(next.mainRounds || 7);
     if (point < current || point >= upper) throw new Error("Invalid xray point");
@@ -2575,7 +2586,7 @@ function pvpAdvanceByTime(room) {
       }
     }
 
-    if (s.phase === "placing_traps" && elapsed >= 20000) {
+    if (s.phase === "placing_traps" && elapsed >= 25000) {
       const p1 = Array.isArray(asObj(s.traps).p1) ? asObj(s.traps).p1 : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3));
       const p2 = Array.isArray(asObj(s.traps).p2) ? asObj(s.traps).p2 : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3));
       next.traps = { p1, p2 };
@@ -2619,7 +2630,13 @@ function pvpAdvanceByTime(room) {
         next.overtime = true;
         next.overtimeRound = 0;
         next.overtimeTraps = { p1: null, p2: null };
-        next.abilityUsed = { p1: true, p2: true };
+        // Новые способности для овертайма (только xray/sabotage, без double)
+        const otAbilities = ['xray', 'sabotage'];
+        next.overtimeAbilities = {
+          p1: otAbilities[Math.floor(Math.random() * otAbilities.length)],
+          p2: otAbilities[Math.floor(Math.random() * otAbilities.length)],
+        };
+        next.abilityUsed = { p1: false, p2: false };
         next.phase = "overtime_placing";
         next.phaseAtMs = now;
         next.markers = { ...asObj(s.markers), overtime: Number(asObj(s.markers).overtime || 0) + 1 };

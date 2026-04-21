@@ -20,6 +20,9 @@ let revealedPoints = {};
 let xrayScanMode = false;
 let knownTrapsOnMyTrack = {};
 let overtimePlacing = false;
+let trapsConfirmed = false;
+let trapTimerInterval = null;
+let myOvertimeTraps = [];
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
@@ -41,6 +44,8 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 const PVP_POLL_MS = 900;
+
+const OT_ROUNDS = 3;
 
 const ABILITIES = {
     xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
@@ -417,8 +422,37 @@ function applyPvpRoomState(room) {
             ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
             : ('Дорожка: ' + opponentName);
     }
-    if (!$('screen-traps').classList.contains('active') && !$('screen-game').classList.contains('active')) {
-        onGameFound({ opponent: opponentName, playerIndex: playerIndex });
+
+    // Если фаза placing/overtime_placing — показываем экран ловушек (только один раз)
+    if ((s.phase === 'placing_traps' || s.phase === 'placing' || s.phase === 'overtime_placing') &&
+        !$('screen-traps').classList.contains('active') &&
+        !trapsConfirmed) {
+        var isOt = s.phase === 'overtime_placing';
+        overtimePlacing = isOt;
+        selectedTraps = [];
+        trapsConfirmed = false;
+        if (isOt) {
+            myOvertimeTraps = [];
+            var otAbilities = s.overtimeAbilities || {};
+            var myOtAbility = otAbilities[sides.mySide] || null;
+            if (myOtAbility) { myAbility = myOtAbility; abilityUsed = false; }
+        }
+        generateTrapTrack();
+        updateTrapUI();
+        $('btn-traps-ok').classList.remove('hidden');
+        $('btn-traps-ok').disabled = true;
+        $('traps-wait').classList.add('hidden');
+        $('opp-name-traps').textContent = currentStakeTon != null && isFinite(currentStakeTon)
+            ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
+            : ('Дорожка: ' + opponentName);
+        showScreen('traps');
+        startTrapTimer();
+        return;
+    }
+
+    // Если уже подтвердили ловушки — просто ждём, не трогаем экран
+    if ((s.phase === 'placing_traps' || s.phase === 'placing' || s.phase === 'overtime_placing') && trapsConfirmed) {
+        return;
     }
 
     var xray = s.lastXray || {};
@@ -458,7 +492,10 @@ function applyPvpRoomState(room) {
         var startKey = String(!!s.overtime) + ':' + String(step);
         if (startKey !== pvpLastStartKey) {
             pvpLastStartKey = startKey;
-            onRoundStart({ step: step, ability: (s.abilities || {})[sides.mySide] || null, overtime: !!s.overtime });
+            var abilityForRound = s.overtime
+                ? ((s.overtimeAbilities || {})[sides.mySide] || null)
+                : ((s.abilities || {})[sides.mySide] || null);
+            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime });
             return;
         }
     }
@@ -536,9 +573,9 @@ function pvpFindMatch() {
     }).then(function(data) {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
-        var phase = String(((data.room.state_json || {}).phase || ''));
-        showScreen(String(data.room.status) === 'active' && phase !== 'accept_match' ? 'traps' : 'waiting');
         startPvpPolling();
+        // Применяем состояние сразу — applyPvpRoomState покажет нужный экран
+        applyPvpRoomState(data.room);
     }).catch(function() {
         showScreen('start');
     });
@@ -609,8 +646,12 @@ function handleMessage(msg) {
         case 'waiting': showScreen('waiting'); break;
         case 'game_found': onGameFound(msg); break;
         case 'traps_placed': break;
+        case 'traps_auto':
+            showBottomNotice('Ловушки расставлены автоматически');
+            break;
         case 'round_start': return onRoundStart(msg);
         case 'round_result': return onRoundResult(msg);
+        case 'overtime_start': onOvertimeStart(msg); break;
         case 'xray_result': onXrayResult(msg); break;
         case 'opp_xray': onOppXray(msg); break;
         case 'opponent_left': onOpponentLeft(); break;
@@ -637,6 +678,7 @@ function startGame(vsBot) {
     moveChosen = false; isOvertime = false; trackDots = 7;
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
+    trapsConfirmed = false; myOvertimeTraps = []; stopTrapTimer();
     clearInterval(timerInterval);
     matchSaved = false;
     isBotMode = !!vsBot;
@@ -706,6 +748,7 @@ function onGameFound(msg) {
     opponentName = msg.opponent;
     $('opp-name-traps').textContent = '\u0414\u043E\u0440\u043E\u0436\u043A\u0430: ' + opponentName;
     selectedTraps = [];
+    trapsConfirmed = false;
     overtimePlacing = false;
     updateTrapUI();
     $('btn-traps-ok').classList.remove('hidden');
@@ -715,6 +758,7 @@ function onGameFound(msg) {
     currentStep = 0;
     isOvertime = false;
     showScreen('traps');
+    startTrapTimer();
 }
 
 function generateTrapTrack() {
@@ -731,6 +775,7 @@ function generateTrapTrack() {
 }
 
 function toggleTrap(i) {
+    if (trapsConfirmed) return; // заблокировано после подтверждения
     const maxTraps = overtimePlacing ? 1 : 3;
     const idx = selectedTraps.indexOf(i);
     if (idx >= 0) selectedTraps.splice(idx, 1);
@@ -751,11 +796,65 @@ function updateTrapUI() {
     $('btn-traps-ok').disabled = selectedTraps.length !== maxTraps;
 }
 
+function stopTrapTimer() {
+    if (trapTimerInterval) { clearInterval(trapTimerInterval); trapTimerInterval = null; }
+    var timerEl = $('trap-timer');
+    if (timerEl) timerEl.style.display = 'none';
+}
+
+function startTrapTimer() {
+    stopTrapTimer();
+    var maxTraps = overtimePlacing ? 1 : 3;
+    var totalSec = 30;
+    var remaining = totalSec;
+
+    // Создаём элемент таймера если нет
+    var timerEl = $('trap-timer');
+    if (!timerEl) {
+        timerEl = document.createElement('div');
+        timerEl.id = 'trap-timer';
+        timerEl.style.cssText = 'text-align:center;font-size:13px;color:#aab1bf;margin-top:8px;';
+        var trapsOkBtn = $('btn-traps-ok');
+        if (trapsOkBtn && trapsOkBtn.parentElement) {
+            trapsOkBtn.parentElement.insertBefore(timerEl, trapsOkBtn.nextSibling);
+        }
+    }
+    timerEl.style.display = 'block';
+    timerEl.textContent = 'Авто-расстановка через ' + remaining + 'с';
+
+    trapTimerInterval = setInterval(function() {
+        remaining--;
+        if (timerEl) timerEl.textContent = 'Авто-расстановка через ' + remaining + 'с';
+        if (remaining <= 0) {
+            stopTrapTimer();
+            if (trapsConfirmed) return;
+            // Автоматически добираем ловушки до нужного количества
+            var needed = overtimePlacing ? 1 : 3;
+            var dots = overtimePlacing ? 3 : 7;
+            while (selectedTraps.length < needed) {
+                var r = Math.floor(Math.random() * dots);
+                if (!selectedTraps.includes(r)) selectedTraps.push(r);
+            }
+            updateTrapUI();
+            confirmTraps();
+        }
+    }, 1000);
+}
+
 function confirmTraps() {
     playSound('click');
+    trapsConfirmed = true;
+    stopTrapTimer();
+    if (overtimePlacing) myOvertimeTraps = selectedTraps.slice();
     sendMsg({ type: 'place_traps', traps: selectedTraps });
     $('btn-traps-ok').classList.add('hidden');
     $('traps-wait').classList.remove('hidden');
+    // Блокируем точки после подтверждения
+    document.querySelectorAll('.trap-point').forEach((p) => {
+        p.onclick = null;
+        p.style.pointerEvents = 'none';
+        p.style.opacity = '0.6';
+    });
 }
 
 function generateGameTracks(n) {
@@ -764,14 +863,15 @@ function generateGameTracks(n) {
         const c = $('tpoints-' + t); c.innerHTML = '';
         for (let i = 0; i < n; i++) {
             const d = document.createElement('div');
-            d.className = 'track-dot' + (n === 5 ? ' ot-dot' : '');
-            d.textContent = n === 5 ? '?' : (i + 1);
+            d.className = 'track-dot' + (n <= OT_ROUNDS ? ' ot-dot' : '');
+            d.textContent = (i + 1);
             d.id = 'dot-' + t + '-' + i;
             c.appendChild(d);
         }
         // Show player's mines on opponent's track
         if (t === 1 && selectedTraps.length > 0) {
-            selectedTraps.forEach(function(trapIdx) {
+            var trapsToShow = isOvertime ? myOvertimeTraps : selectedTraps;
+            trapsToShow.forEach(function(trapIdx) {
                 var mineDot = $('dot-1-' + trapIdx);
                 if (mineDot) {
                     mineDot.classList.add('mine-placed');
@@ -827,6 +927,8 @@ async function onRoundStart(msg) {
             oppAbility = null;
             abilityUsed = false;
         }
+    } else if (isOvertime && currentStep === 0) {
+        // Способность придёт из overtime_start, не сбрасываем здесь
     }
 
     showScreen('game');
@@ -851,8 +953,8 @@ async function onRoundStart(msg) {
         selectedTraps = [];
         revealedPoints = {};
         knownTrapsOnMyTrack = {};
-        myAbility = null;
-        abilityUsed = true;
+        // Способность приходит из overtime_start или round_start
+        if (!myAbility) abilityUsed = true; else abilityUsed = false;
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
         $('sb-score-0').textContent = String(scores[0] || 0);
@@ -1031,14 +1133,23 @@ function showActionButtons() {
     abilityActive = false;
     updatePromptText();
 
-    // Double is locked after round 5 (step >= 5)
-    const abilityLocked = myAbility === 'double' && currentStep >= 5;
+    // Double заблокирован после раунда 5 и в овертайме
+    const abilityLocked = myAbility === 'double' && (currentStep >= 5 || isOvertime);
     if (!abilityUsed && myAbility && !abilityLocked) {
         $('ability-zone').classList.remove('hidden');
         const info = ABILITIES[myAbility];
         $('btn-ability').textContent = info.icon + ' ' + info.name;
         $('btn-ability').classList.remove('ability-active');
         $('btn-ability').disabled = false;
+        const oppStatus = $('opp-ability-status');
+        if (oppStatus) {
+            if (oppAbility) {
+                const oInfo = ABILITIES[oppAbility];
+                oppStatus.textContent = oInfo.icon + ' ' + oInfo.name;
+            } else {
+                oppStatus.textContent = '❓ Скрыто';
+            }
+        }
     } else if (!abilityUsed && myAbility && abilityLocked) {
         $('ability-zone').classList.remove('hidden');
         const info = ABILITIES[myAbility];
@@ -1046,11 +1157,13 @@ function showActionButtons() {
         $('btn-ability').classList.add('ability-active');
         $('btn-ability').disabled = true;
         const oppStatus = $('opp-ability-status');
-        if (oppAbility) {
-            const oInfo = ABILITIES[oppAbility];
-            oppStatus.textContent = oInfo.icon + ' ' + oInfo.name;
-        } else {
-            oppStatus.textContent = '\u2753 \u0421\u043A\u0440\u044B\u0442\u043E';
+        if (oppStatus) {
+            if (oppAbility) {
+                const oInfo = ABILITIES[oppAbility];
+                oppStatus.textContent = oInfo.icon + ' ' + oInfo.name;
+            } else {
+                oppStatus.textContent = '❓ Скрыто';
+            }
         }
     } else {
         $('ability-zone').classList.add('hidden');
@@ -1212,7 +1325,6 @@ function localResolveRound() {
     else m.currentStep++;
 
     const MAIN_ROUNDS = 7;
-    const OT_ROUNDS = 3;
     let gameOver = false;
     let winner = null;
     let startOvertime = false;
@@ -1245,12 +1357,20 @@ function localResolveRound() {
         playerIndex: 0,
         overtime: m.overtime,
         startOvertime,
+        overtimeAbility: startOvertime ? (m.overtimeAbilities ? m.overtimeAbilities[0] : null) : null,
         abilityUsed: [m.abilityUsed[0], m.abilityUsed[1]]
     });
 
     if (startOvertime) {
         m.phase = 'overtime_placing';
         m.overtimeTraps = [null, null];
+        // Назначаем способности для овертайма (xray/sabotage)
+        const otAbs = ['xray', 'sabotage'];
+        m.overtimeAbilities = [
+            otAbs[Math.floor(Math.random() * otAbs.length)],
+            otAbs[Math.floor(Math.random() * otAbs.length)]
+        ];
+        m.abilityUsed = [false, false];
     }
     if (gameOver) m.ended = true;
 }
@@ -1465,10 +1585,19 @@ async function onRoundResult(msg) {
         isOvertime = true;
         revealedPoints = {};
         knownTrapsOnMyTrack = {};
-        myAbility = null;
         oppAbility = null;
+        // Способность для овертайма — из msg.overtimeAbility (бот) или придёт через applyPvpRoomState (pvp)
+        if (msg.overtimeAbility) {
+            myAbility = msg.overtimeAbility;
+            abilityUsed = false;
+        } else {
+            myAbility = null;
+            abilityUsed = true;
+        }
         // Show trap placement for overtime (1 trap on 3-dot track)
         selectedTraps = [];
+        myOvertimeTraps = [];
+        trapsConfirmed = false;
         overtimePlacing = true;
         generateTrapTrack();
         showScreen('traps');
@@ -1477,6 +1606,7 @@ async function onRoundResult(msg) {
         $('btn-traps-ok').classList.remove('hidden');
         $('btn-traps-ok').disabled = true;
         $('traps-wait').classList.add('hidden');
+        startTrapTimer();
     } else {
         currentStep = msg.round;
         highlightCurrentDot(msg.round);
@@ -1486,13 +1616,18 @@ async function onRoundResult(msg) {
     }
 }
 
-const OT_ROUNDS = 3;
-
-function onOvertimeStart() {
+function onOvertimeStart(msg) {
     isOvertime = true;
     currentStep = 0;
-    myAbility = null;
-    abilityUsed = true;
+    // Получаем способность из overtime_start
+    if (msg && msg.ability) {
+        myAbility = msg.ability;
+        abilityUsed = false;
+    } else {
+        myAbility = null;
+        abilityUsed = true;
+    }
+    oppAbility = null;
     selectedTraps = [];
     revealedPoints = {};
     knownTrapsOnMyTrack = {};
