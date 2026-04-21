@@ -6,7 +6,7 @@ export default defineConfig({
   base: '/basketball-pvp/',
   publicDir: false,
   build: {
-    outDir: 'public',
+    outDir: '.',
     assetsDir: '',
     emptyOutDir: false,
   },
