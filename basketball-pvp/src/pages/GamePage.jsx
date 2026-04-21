@@ -270,12 +270,6 @@ const GamePage = () => {
   function clearPending() { pending.current.forEach(clearTimeout); pending.current = []; }
   function sched(fn, ms) { pending.current.push(setTimeout(fn, ms)); }
   const toViewIndex = (serverIdx) => (Number(serverIdx) === Number(piRef.current || 0) ? 0 : 1);
-  const toViewScores = (scoresServer) => {
-    const s = Array.isArray(scoresServer) ? scoresServer : [0, 0];
-    const a = Number(s[0] || 0);
-    const b = Number(s[1] || 0);
-    return Number(piRef.current || 0) === 0 ? [a, b] : [b, a];
-  };
   const randDist = () => (['close', 'mid', 'far'][Math.floor(Math.random() * 3)] || 'mid');
   const randomDistance = () => DISTS[Math.floor(Math.random() * DISTS.length)]?.key || 'mid';
   const startTimer = (startSec = 12) => {
@@ -331,12 +325,20 @@ const GamePage = () => {
   // ============ SHOT ANIMATION (sequential, minimal state updates) ============
   function normalizeShotsForViewer(shotsRaw) {
     const arr = Array.isArray(shotsRaw) ? shotsRaw.slice() : [];
-    const mapped = arr.map((s) => ({
-      ...s,
-      playerIndex: toViewIndex(Number(s?.playerIndex || 0)),
-      distance: String(s?.distance || 'mid'),
-    }));
-    mapped.sort((a, b) => Number(a.playerIndex) - Number(b.playerIndex));
+    const mapped = arr.map((s) => {
+      const serverIndex = Number(s?.playerIndex || 0);
+      return {
+        ...s,
+        serverIndex,
+        viewIndex: toViewIndex(serverIndex),
+        // keep original playerIndex for compatibility, but never use it for positioning in pvp
+        playerIndex: serverIndex,
+        distance: String(s?.distance || 'mid'),
+      };
+    });
+    // In online mode, keep strict server order (0 then 1) so both clients are perfectly synchronized.
+    if (playModeRef.current === 'pvp') mapped.sort((a, b) => Number(a.serverIndex) - Number(b.serverIndex));
+    else mapped.sort((a, b) => Number(a.viewIndex) - Number(b.viewIndex));
     return mapped;
   }
 
@@ -356,6 +358,9 @@ const GamePage = () => {
 
     shots.forEach((shot, i) => {
       const t0 = i*cycle;
+      const shooterViewIdx = playModeRef.current === 'pvp'
+        ? Number(shot.viewIndex || 0)
+        : Number(shot.playerIndex || 0);
       // Move player
       sched(() => {
         if (phase !== 1) {
@@ -363,14 +368,14 @@ const GamePage = () => {
             const n = Array.isArray(prev)
               ? prev.map((p, idx) => ({ x: Number(p?.x ?? PLAYER_X[idx]), y: Number(p?.y ?? START_Y) }))
               : [{ x: PLAYER_X[0], y: START_Y }, { x: PLAYER_X[1], y: START_Y }];
-            n[shot.playerIndex] = { x: PLAYER_X[shot.playerIndex], y: DIST_Y[shot.distance] || START_Y };
+            n[shooterViewIdx] = { x: PLAYER_X[shooterViewIdx], y: DIST_Y[shot.distance] || START_Y };
             return n;
           });
         }
         setShotResult(null);
       }, t0);
       // Ball
-      sched(() => { sfx('swoosh'); const kf=buildKF(shot.playerIndex,shot.distance,shot.made); if(kf)setBallAnim({id:Date.now()+i,kf,duration:dur}); }, t0+moveMs);
+      sched(() => { sfx('swoosh'); const kf=buildKF(shooterViewIdx,shot.distance,shot.made); if(kf)setBallAnim({id:Date.now()+i,kf,duration:dur}); }, t0+moveMs);
       // Result: show per-shot only, no score updates mid-sequence.
       const rimT = t0+moveMs+durMs*0.72;
       sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); }, rimT);
@@ -409,7 +414,7 @@ const GamePage = () => {
         setScreen('game'); break;
       case 'phase_start':
         setGamePhase(msg.phase===2?'main':'overtime');
-        setScores(toViewScores(msg.scores)); setRound(0); setChoosing(false);
+        setScores(msg.scores); setRound(0); setChoosing(false);
         setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
         if(msg.phase===2) showAnnounce('GAME ON','7 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
@@ -444,7 +449,7 @@ const GamePage = () => {
           roundResolvingRef.current = false;
           setRoundResolving(false);
           // Stage (2,3): only after BOTH throws.
-          setScores(toViewScores(msg.scores));
+          setScores(msg.scores);
           const pendingMatch = matchResultDeferredRef.current;
           if (pendingMatch) {
             matchResultDeferredRef.current = null;
@@ -464,10 +469,10 @@ const GamePage = () => {
       case 'match_result':
         // Do not overlay result while last throw animation is still playing.
         if (roundResolvingRef.current) {
-          matchResultDeferredRef.current = { youWon: msg.youWon, scores: toViewScores(msg.scores) };
+          matchResultDeferredRef.current = { youWon: msg.youWon, scores: msg.scores };
           break;
         }
-        finalizeMatchResult({ ...msg, scores: toViewScores(msg.scores) });
+        finalizeMatchResult(msg);
         break;
       case 'opponent_left': setMatchResult({youWon:true,scores:[0,0],opponentLeft:true}); setScreen('result'); break;
     }
@@ -1011,11 +1016,14 @@ const GamePage = () => {
   }
 
   // --- GAME ---
-  // Viewer space: I am always left (index 0, green). Opponent always right (index 1, red).
-  const p0Name = myName;
-  const p1Name = opName;
-  const p0Score = scores[0] ?? 0;
-  const p1Score = scores[1] ?? 0;
+  // DATA stays server-ordered (p0,p1). Only VISUAL swaps for the viewer.
+  const s0 = Number(scores?.[0] ?? 0);
+  const s1 = Number(scores?.[1] ?? 0);
+  const meIsServer0 = Number(pi) === 0;
+  const p0Name = meIsServer0 ? myName : opName; // left label
+  const p1Name = meIsServer0 ? opName : myName; // right label
+  const p0Score = meIsServer0 ? s0 : s1;        // left score
+  const p1Score = meIsServer0 ? s1 : s0;        // right score
   const phaseLabel=gamePhase==='overtime'?'OT':null;
   const P_GREEN = '#63e6be';
   const P_RED = '#FF3B30';
