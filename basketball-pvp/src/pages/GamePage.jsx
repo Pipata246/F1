@@ -120,6 +120,7 @@ const GamePage = () => {
   const lockedRef = useRef(false);
   const turnDeadlineMsRef = useRef(0);
   const autoFiredRef = useRef(false);
+  const serverSkewMsRef = useRef(0);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { choosingRef.current = choosing; }, [choosing]);
@@ -275,25 +276,32 @@ const GamePage = () => {
   const startTimer = (startSec = 12) => {
     stopTimer();
     const sec = Math.max(0, Math.min(12, Math.floor(Number(startSec || 0))));
-    turnDeadlineMsRef.current = Date.now() + sec * 1000;
+    // Use server-time deadline to keep both clients in sync.
+    turnDeadlineMsRef.current = (Date.now() - Number(serverSkewMsRef.current || 0)) + sec * 1000;
     autoFiredRef.current = false;
     const tick = () => {
-      const leftMs = Math.max(0, Number(turnDeadlineMsRef.current || 0) - Date.now());
+      const nowServer = Date.now() - Number(serverSkewMsRef.current || 0);
+      const leftMs = Math.max(0, Number(turnDeadlineMsRef.current || 0) - nowServer);
       const leftSec = Math.max(0, Math.min(12, Math.ceil(leftMs / 1000)));
       setTimer(leftSec);
       if (leftMs <= 0 && !autoFiredRef.current) {
         autoFiredRef.current = true;
+        // In online mode, auto-move must be server-authoritative to avoid clock skew issues.
+        if (playModeRef.current === 'pvp') {
+          if (choosingRef.current && !lockedRef.current) {
+            choiceLockedRef.current = true;
+            setLocked(true);
+            setChoosing(false);
+          }
+          return;
+        }
         if (choosingRef.current && !lockedRef.current) {
           const autoDistance = randDist();
           choiceLockedRef.current = true;
           setLocked(true);
           setChoosing(false);
           setSelectedDistance(autoDistance);
-          if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
-            apiPost({ action: 'pvpSubmitMove', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current, move: { distance: autoDistance } }).catch(() => {});
-          } else if (playModeRef.current === 'bot') {
-            localOnClientMessage('choose_distance', { distance: autoDistance });
-          }
+          localOnClientMessage('choose_distance', { distance: autoDistance });
         }
       }
     };
@@ -556,7 +564,8 @@ const GamePage = () => {
       const elapsedMs = phaseAtMs > 0 ? Math.max(0, Date.now() - phaseAtMs) : 0;
       const remainMs = Math.max(0, 12_000 - elapsedMs);
       const timerSec = Math.max(0, Math.min(12, Math.ceil(remainMs / 1000)));
-      turnDeadlineMsRef.current = Date.now() + remainMs;
+      const nowServer = Date.now() - Number(serverSkewMsRef.current || 0);
+      turnDeadlineMsRef.current = nowServer + remainMs;
       autoFiredRef.current = false;
       handleMsg({
         type: 'round_start',
@@ -609,6 +618,10 @@ const GamePage = () => {
           findGameOnline();
         }
         return;
+      }
+      if (typeof data?.serverNowMs === 'number' && Number.isFinite(data.serverNowMs)) {
+        // skew = localNow - serverNow
+        serverSkewMsRef.current = Date.now() - Number(data.serverNowMs);
       }
       if (data.room) applyPvpRoomState(data.room);
     }).catch(() => {}).finally(() => {

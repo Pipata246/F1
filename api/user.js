@@ -3755,7 +3755,7 @@ module.exports = async (req, res) => {
     }
     if (action === "pvpGetRoomState") {
       const room = await pvpGetRoomState(req.body?.initData || "", req.body?.roomId || 0);
-      return res.status(200).json({ ok: true, room });
+      return res.status(200).json({ ok: true, room, serverNowMs: Date.now() });
     }
     if (action === "pvpSubmitMove") {
       const room = await pvpSubmitMove(
