@@ -273,15 +273,21 @@ const GamePage = () => {
   const toViewIndex = (serverIdx) => (Number(serverIdx) === Number(piRef.current || 0) ? 0 : 1);
   const randDist = () => (['close', 'mid', 'far'][Math.floor(Math.random() * 3)] || 'mid');
   const randomDistance = () => DISTS[Math.floor(Math.random() * DISTS.length)]?.key || 'mid';
-  const startTimer = (startSec = 12) => {
+  // startTimer принимает либо секунды (для бота), либо абсолютный deadlineMs (для pvp).
+  // В pvp всегда передаём deadlineMs напрямую чтобы оба клиента считали от одной точки.
+  const startTimer = (startSec = 12, deadlineMs = 0) => {
     stopTimer();
-    const sec = Math.max(0, Math.min(12, Math.floor(Number(startSec || 0))));
-    // Use server-time deadline to keep both clients in sync.
-    turnDeadlineMsRef.current = (Date.now() - Number(serverSkewMsRef.current || 0)) + sec * 1000;
+    if (deadlineMs > 0) {
+      // PvP: используем абсолютный дедлайн от сервера — одинаковый у обоих игроков
+      turnDeadlineMsRef.current = deadlineMs;
+    } else {
+      // Bot/local: просто sec от текущего момента
+      const sec = Math.max(0, Math.min(12, Math.floor(Number(startSec || 0))));
+      turnDeadlineMsRef.current = Date.now() + sec * 1000;
+    }
     autoFiredRef.current = false;
     const tick = () => {
-      const nowServer = Date.now() - Number(serverSkewMsRef.current || 0);
-      const leftMs = Math.max(0, Number(turnDeadlineMsRef.current || 0) - nowServer);
+      const leftMs = Math.max(0, Number(turnDeadlineMsRef.current || 0) - Date.now());
       const leftSec = Math.max(0, Math.min(12, Math.ceil(leftMs / 1000)));
       setTimer(leftSec);
       if (leftMs <= 0 && !autoFiredRef.current) {
@@ -331,22 +337,22 @@ const GamePage = () => {
   }
 
   // ============ SHOT ANIMATION (sequential, minimal state updates) ============
+  // В pvp: serverIndex 0/1 → viewIndex: мой серверный индекс → 0 (я слева), соперник → 1 (справа)
   function normalizeShotsForViewer(shotsRaw) {
     const arr = Array.isArray(shotsRaw) ? shotsRaw.slice() : [];
     const mapped = arr.map((s) => {
-      const serverIndex = Number(s?.playerIndex || 0);
+      const serverIndex = Number(s?.playerIndex ?? 0);
+      // viewIndex: если это мой серверный индекс → 0 (левый/я), иначе → 1 (правый/соперник)
+      const viewIndex = (serverIndex === Number(piRef.current || 0)) ? 0 : 1;
       return {
         ...s,
         serverIndex,
-        viewIndex: toViewIndex(serverIndex),
-        // keep original playerIndex for compatibility, but never use it for positioning in pvp
-        playerIndex: serverIndex,
+        viewIndex,
         distance: String(s?.distance || 'mid'),
       };
     });
-    // In online mode, keep strict server order (0 then 1) so both clients are perfectly synchronized.
-    if (playModeRef.current === 'pvp') mapped.sort((a, b) => Number(a.serverIndex) - Number(b.serverIndex));
-    else mapped.sort((a, b) => Number(a.viewIndex) - Number(b.viewIndex));
+    // Сортируем по serverIndex чтобы оба клиента показывали броски в одном порядке
+    mapped.sort((a, b) => Number(a.serverIndex) - Number(b.serverIndex));
     return mapped;
   }
 
@@ -366,9 +372,9 @@ const GamePage = () => {
 
     shots.forEach((shot, i) => {
       const t0 = i*cycle;
-      const shooterViewIdx = playModeRef.current === 'pvp'
-        ? Number(shot.viewIndex || 0)
-        : Number(shot.playerIndex || 0);
+      // viewIndex уже правильно посчитан в normalizeShotsForViewer:
+      // 0 = левый (я), 1 = правый (соперник) — одинаково у обоих клиентов
+      const shooterViewIdx = Number(shot.viewIndex ?? 0);
       // Move player
       sched(() => {
         if (phase !== 1) {
@@ -439,7 +445,8 @@ const GamePage = () => {
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        startTimer(msg.timerSec != null ? msg.timerSec : 12);
+        // В pvp передаём абсолютный deadlineMs — одинаковый у обоих игроков
+        startTimer(msg.timerSec != null ? msg.timerSec : 12, msg.deadlineMs || 0);
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'opponent_locked': break;
@@ -560,13 +567,16 @@ const GamePage = () => {
       pvpLastStartKeyRef.current = startKey;
       choiceLockedRef.current = false;
       setSelectedDistance(null);
+      // Считаем абсолютный дедлайн: phaseAtMs — серверное время старта раунда (UTC ms).
+      // Оба клиента получают одинаковый phaseAtMs → одинаковый deadlineMs → синхронный таймер.
       const phaseAtMs = Number(s.phaseAtMs || 0);
-      const elapsedMs = phaseAtMs > 0 ? Math.max(0, Date.now() - phaseAtMs) : 0;
-      const remainMs = Math.max(0, 12_000 - elapsedMs);
+      const serverSkew = Number(serverSkewMsRef.current || 0); // localNow - serverNow
+      // Переводим серверный phaseAtMs в локальное время и добавляем 12 секунд
+      const deadlineMs = phaseAtMs > 0
+        ? (phaseAtMs + serverSkew) + 12_000
+        : Date.now() + 12_000;
+      const remainMs = Math.max(0, deadlineMs - Date.now());
       const timerSec = Math.max(0, Math.min(12, Math.ceil(remainMs / 1000)));
-      const nowServer = Date.now() - Number(serverSkewMsRef.current || 0);
-      turnDeadlineMsRef.current = nowServer + remainMs;
-      autoFiredRef.current = false;
       handleMsg({
         type: 'round_start',
         round: Number(s.round || 0) + 1,
@@ -574,6 +584,7 @@ const GamePage = () => {
         phase: phaseNum,
         scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)],
         timerSec,
+        deadlineMs,
       });
       return;
     }
@@ -1029,18 +1040,22 @@ const GamePage = () => {
   }
 
   // --- GAME ---
-  // DATA stays server-ordered (p0,p1). Only VISUAL swaps for the viewer.
+  // Зеркальное отображение: каждый игрок видит СЕБЯ слева (зелёный), соперника справа (красный).
+  // pi = мой серверный индекс (0 или 1).
+  // Визуальный индекс 0 = левый (всегда Я), 1 = правый (всегда соперник).
   const s0 = Number(scores?.[0] ?? 0);
   const s1 = Number(scores?.[1] ?? 0);
   const meIsServer0 = Number(pi) === 0;
-  const p0Name = meIsServer0 ? myName : opName; // left label
-  const p1Name = meIsServer0 ? opName : myName; // right label
-  const p0Score = meIsServer0 ? s0 : s1;        // left score
-  const p1Score = meIsServer0 ? s1 : s0;        // right score
+  // Мой счёт всегда слева, соперника — справа
+  const myScore = meIsServer0 ? s0 : s1;
+  const opScore = meIsServer0 ? s1 : s0;
+  const p0Name = myName;   // левый = я
+  const p1Name = opName;   // правый = соперник
+  const p0Score = myScore;
+  const p1Score = opScore;
   const phaseLabel=gamePhase==='overtime'?'OT':null;
   const P_GREEN = '#63e6be';
   const P_RED = '#FF3B30';
-  const p0IsMe = true;
 
   return (
     <div className="h-screen relative overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
@@ -1056,8 +1071,8 @@ const GamePage = () => {
           {currentStakeTon != null && <div className="text-center text-[10px] text-emerald-300 uppercase tracking-wider mb-1">Ставка: {currentStakeTon} TON</div>}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
-              <p className="text-xs uppercase tracking-wider truncate" style={{ color: p0IsMe ? P_GREEN : P_RED }}>{p0Name}</p>
-              <p className="text-5xl leading-none mt-0.5" style={{ color: p0IsMe ? P_GREEN : P_RED }}>{p0Score}</p>
+              <p className="text-xs uppercase tracking-wider truncate" style={{ color: P_GREEN }}>{p0Name}</p>
+              <p className="text-5xl leading-none mt-0.5" style={{ color: P_GREEN }}>{p0Score}</p>
             </div>
             <div className="flex flex-col items-center px-4 gap-0.5">
               <span className="text-2xl text-white/80 tracking-widest">VS</span>
@@ -1066,8 +1081,8 @@ const GamePage = () => {
               {choosing&&!locked&&<span className={`text-sm ${timer<=3?'text-red-400 animate-pulse':'text-white/25'}`}>{timer}s</span>}
             </div>
             <div className="flex-1 text-center">
-              <p className="text-xs uppercase tracking-wider truncate" style={{ color: p0IsMe ? P_RED : P_GREEN }}>{p1Name}</p>
-              <p className="text-5xl leading-none mt-0.5" style={{ color: p0IsMe ? P_RED : P_GREEN }}>{p1Score}</p>
+              <p className="text-xs uppercase tracking-wider truncate" style={{ color: P_RED }}>{p1Name}</p>
+              <p className="text-5xl leading-none mt-0.5" style={{ color: P_RED }}>{p1Score}</p>
             </div>
           </div>
         </div>
@@ -1095,9 +1110,10 @@ const GamePage = () => {
           }}>
             <img src={`${ASSET_BASE}Subway_Homeless_2_48x48.gif`} alt="" draggable={false}
               style={{width:CHAR_W,height:CHAR_H,imageRendering:'pixelated',transform:idx===1?'scaleX(-1)':'none'}} />
-            <div className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap ${idx===0?'text-[#63e6be]':'text-[#8ff0cf]'}`}
-              style={{textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
-              {idx===0?p0Name:p1Name}
+            {/* idx=0 = визуально левый = Я (зелёный), idx=1 = соперник (красный) */}
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap"
+              style={{color: idx===0 ? P_GREEN : P_RED, textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
+              {idx===0 ? p0Name : p1Name}
             </div>
           </div>
         ))}
