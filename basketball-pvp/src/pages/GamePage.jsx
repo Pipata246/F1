@@ -118,6 +118,8 @@ const GamePage = () => {
   const launchHandledRef = useRef(false);
   const choosingRef = useRef(false);
   const lockedRef = useRef(false);
+  const turnDeadlineMsRef = useRef(0);
+  const autoFiredRef = useRef(false);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { choosingRef.current = choosing; }, [choosing]);
@@ -267,17 +269,28 @@ const GamePage = () => {
 
   function clearPending() { pending.current.forEach(clearTimeout); pending.current = []; }
   function sched(fn, ms) { pending.current.push(setTimeout(fn, ms)); }
+  const toViewIndex = (serverIdx) => (Number(serverIdx) === Number(piRef.current || 0) ? 0 : 1);
+  const toViewScores = (scoresServer) => {
+    const s = Array.isArray(scoresServer) ? scoresServer : [0, 0];
+    const a = Number(s[0] || 0);
+    const b = Number(s[1] || 0);
+    return Number(piRef.current || 0) === 0 ? [a, b] : [b, a];
+  };
+  const randDist = () => (['close', 'mid', 'far'][Math.floor(Math.random() * 3)] || 'mid');
   const randomDistance = () => DISTS[Math.floor(Math.random() * DISTS.length)]?.key || 'mid';
   const startTimer = (startSec = 12) => {
     stopTimer();
     const sec = Math.max(0, Math.min(12, Math.floor(Number(startSec || 0))));
-    setTimer(sec);
-    timerRef.current = setInterval(() => setTimer((p) => {
-      const next = Math.max(0, Number(p || 0) - 1);
-      if (next <= 0) {
-        stopTimer();
+    turnDeadlineMsRef.current = Date.now() + sec * 1000;
+    autoFiredRef.current = false;
+    const tick = () => {
+      const leftMs = Math.max(0, Number(turnDeadlineMsRef.current || 0) - Date.now());
+      const leftSec = Math.max(0, Math.min(12, Math.ceil(leftMs / 1000)));
+      setTimer(leftSec);
+      if (leftMs <= 0 && !autoFiredRef.current) {
+        autoFiredRef.current = true;
         if (choosingRef.current && !lockedRef.current) {
-          const autoDistance = randomDistance();
+          const autoDistance = randDist();
           choiceLockedRef.current = true;
           setLocked(true);
           setChoosing(false);
@@ -289,8 +302,9 @@ const GamePage = () => {
           }
         }
       }
-      return next;
-    }), 1000);
+    };
+    tick();
+    timerRef.current = setInterval(tick, 200);
   };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const apiPost = useCallback(async (payload) => {
@@ -317,23 +331,13 @@ const GamePage = () => {
   // ============ SHOT ANIMATION (sequential, minimal state updates) ============
   function normalizeShotsForViewer(shotsRaw) {
     const arr = Array.isArray(shotsRaw) ? shotsRaw.slice() : [];
-    const me = Number(piRef.current || 0);
-    // In online mode, always show shots in fixed order (player 0 then player 1) for synchronization.
-    // In bot mode, show player's throw first.
-    if (playModeRef.current === 'pvp') {
-      arr.sort((a, b) => {
-        const ai = Number(a?.playerIndex || 0);
-        const bi = Number(b?.playerIndex || 0);
-        return ai - bi;
-      });
-    } else {
-      arr.sort((a, b) => {
-        const am = Number(a?.playerIndex) === me ? 0 : 1;
-        const bm = Number(b?.playerIndex) === me ? 0 : 1;
-        return am - bm;
-      });
-    }
-    return arr;
+    const mapped = arr.map((s) => ({
+      ...s,
+      playerIndex: toViewIndex(Number(s?.playerIndex || 0)),
+      distance: String(s?.distance || 'mid'),
+    }));
+    mapped.sort((a, b) => Number(a.playerIndex) - Number(b.playerIndex));
+    return mapped;
   }
 
   function roundAnimTotalMs(phase, shotsCount) {
@@ -405,7 +409,7 @@ const GamePage = () => {
         setScreen('game'); break;
       case 'phase_start':
         setGamePhase(msg.phase===2?'main':'overtime');
-        setScores(msg.scores); setRound(0); setChoosing(false);
+        setScores(toViewScores(msg.scores)); setRound(0); setChoosing(false);
         setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
         if(msg.phase===2) showAnnounce('GAME ON','7 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
@@ -440,7 +444,7 @@ const GamePage = () => {
           roundResolvingRef.current = false;
           setRoundResolving(false);
           // Stage (2,3): only after BOTH throws.
-          setScores(msg.scores);
+          setScores(toViewScores(msg.scores));
           const pendingMatch = matchResultDeferredRef.current;
           if (pendingMatch) {
             matchResultDeferredRef.current = null;
@@ -460,10 +464,10 @@ const GamePage = () => {
       case 'match_result':
         // Do not overlay result while last throw animation is still playing.
         if (roundResolvingRef.current) {
-          matchResultDeferredRef.current = { youWon: msg.youWon, scores: msg.scores };
+          matchResultDeferredRef.current = { youWon: msg.youWon, scores: toViewScores(msg.scores) };
           break;
         }
-        finalizeMatchResult(msg);
+        finalizeMatchResult({ ...msg, scores: toViewScores(msg.scores) });
         break;
       case 'opponent_left': setMatchResult({youWon:true,scores:[0,0],opponentLeft:true}); setScreen('result'); break;
     }
@@ -547,6 +551,8 @@ const GamePage = () => {
       const elapsedMs = phaseAtMs > 0 ? Math.max(0, Date.now() - phaseAtMs) : 0;
       const remainMs = Math.max(0, 12_000 - elapsedMs);
       const timerSec = Math.max(0, Math.min(12, Math.ceil(remainMs / 1000)));
+      turnDeadlineMsRef.current = Date.now() + remainMs;
+      autoFiredRef.current = false;
       handleMsg({
         type: 'round_start',
         round: Number(s.round || 0) + 1,
@@ -1005,13 +1011,15 @@ const GamePage = () => {
   }
 
   // --- GAME ---
-  // Scoreboard matches court: P0=left(blue), P1=right(red)
-  const p0Name=pi===0?myName:opName, p1Name=pi===1?myName:opName;
-  const p0Score=scores[0]??0, p1Score=scores[1]??0;
+  // Viewer space: I am always left (index 0, green). Opponent always right (index 1, red).
+  const p0Name = myName;
+  const p1Name = opName;
+  const p0Score = scores[0] ?? 0;
+  const p1Score = scores[1] ?? 0;
   const phaseLabel=gamePhase==='overtime'?'OT':null;
-  const P_GREEN = '#34C759';
+  const P_GREEN = '#63e6be';
   const P_RED = '#FF3B30';
-  const p0IsMe = pi === 0;
+  const p0IsMe = true;
 
   return (
     <div className="h-screen relative overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
@@ -1023,7 +1031,7 @@ const GamePage = () => {
 
       {/* SCOREBOARD */}
       <div className="absolute top-0 left-0 right-0 z-30 px-2 pt-1">
-        <div className="bg-black/85 border-b-2 border-[#34C759]/50 rounded-b-2xl px-4 py-2">
+        <div className="bg-black/85 border-b-2 rounded-b-2xl px-4 py-2" style={{ borderColor: 'rgba(99,230,190,0.5)' }}>
           {currentStakeTon != null && <div className="text-center text-[10px] text-emerald-300 uppercase tracking-wider mb-1">Ставка: {currentStakeTon} TON</div>}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
