@@ -116,8 +116,12 @@ const GamePage = () => {
   const allowRoundStartAtRef = useRef(0);
   const noticeTimerRef = useRef(null);
   const launchHandledRef = useRef(false);
+  const choosingRef = useRef(false);
+  const lockedRef = useRef(false);
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
+  useEffect(() => { choosingRef.current = choosing; }, [choosing]);
+  useEffect(() => { lockedRef.current = locked; }, [locked]);
   useEffect(() => { scoresRef.current = scores; }, [scores]);
   useEffect(() => { nameRef.current = displayName; }, [displayName]);
   useEffect(() => { oppRef.current = opponent; }, [opponent]);
@@ -264,7 +268,30 @@ const GamePage = () => {
   function clearPending() { pending.current.forEach(clearTimeout); pending.current = []; }
   function sched(fn, ms) { pending.current.push(setTimeout(fn, ms)); }
   const randomDistance = () => DISTS[Math.floor(Math.random() * DISTS.length)]?.key || 'mid';
-  const startTimer = () => { stopTimer(); setTimer(12); timerRef.current = setInterval(() => setTimer(p => { if (p <= 1) { stopTimer(); if (choosing && !locked) { const autoDistance = randomDistance(); choiceLockedRef.current = true; setLocked(true); setChoosing(false); setSelectedDistance(autoDistance); if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) { apiPost({ action: 'pvpSubmitMove', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current, move: { distance: autoDistance } }).catch(() => {}); } else if (playModeRef.current === 'bot') { localOnClientMessage('choose_distance', { distance: autoDistance }); } } return 0; } return p - 1; }), 1000); };
+  const startTimer = (startSec = 12) => {
+    stopTimer();
+    const sec = Math.max(0, Math.min(12, Math.floor(Number(startSec || 0))));
+    setTimer(sec);
+    timerRef.current = setInterval(() => setTimer((p) => {
+      const next = Math.max(0, Number(p || 0) - 1);
+      if (next <= 0) {
+        stopTimer();
+        if (choosingRef.current && !lockedRef.current) {
+          const autoDistance = randomDistance();
+          choiceLockedRef.current = true;
+          setLocked(true);
+          setChoosing(false);
+          setSelectedDistance(autoDistance);
+          if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
+            apiPost({ action: 'pvpSubmitMove', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current, move: { distance: autoDistance } }).catch(() => {});
+          } else if (playModeRef.current === 'bot') {
+            localOnClientMessage('choose_distance', { distance: autoDistance });
+          }
+        }
+      }
+      return next;
+    }), 1000);
+  };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   const apiPost = useCallback(async (payload) => {
     const res = await fetch('/api/user', {
@@ -395,7 +422,7 @@ const GamePage = () => {
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        startTimer();
+        startTimer(msg.timerSec != null ? msg.timerSec : 12);
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'opponent_locked': break;
@@ -516,12 +543,17 @@ const GamePage = () => {
       pvpLastStartKeyRef.current = startKey;
       choiceLockedRef.current = false;
       setSelectedDistance(null);
+      const phaseAtMs = Number(s.phaseAtMs || 0);
+      const elapsedMs = phaseAtMs > 0 ? Math.max(0, Date.now() - phaseAtMs) : 0;
+      const remainMs = Math.max(0, 12_000 - elapsedMs);
+      const timerSec = Math.max(0, Math.min(12, Math.ceil(remainMs / 1000)));
       handleMsg({
         type: 'round_start',
         round: Number(s.round || 0) + 1,
         maxRounds: Number(s.maxRounds || 7),
         phase: phaseNum,
         scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)],
+        timerSec,
       });
       return;
     }
@@ -977,6 +1009,9 @@ const GamePage = () => {
   const p0Name=pi===0?myName:opName, p1Name=pi===1?myName:opName;
   const p0Score=scores[0]??0, p1Score=scores[1]??0;
   const phaseLabel=gamePhase==='overtime'?'OT':null;
+  const P_GREEN = '#34C759';
+  const P_RED = '#FF3B30';
+  const p0IsMe = pi === 0;
 
   return (
     <div className="h-screen relative overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
@@ -992,8 +1027,8 @@ const GamePage = () => {
           {currentStakeTon != null && <div className="text-center text-[10px] text-emerald-300 uppercase tracking-wider mb-1">Ставка: {currentStakeTon} TON</div>}
           <div className="flex justify-between items-center">
             <div className="flex-1 text-center">
-              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p0Name}</p>
-              <p className="text-5xl text-[#34C759] leading-none mt-0.5">{p0Score}</p>
+              <p className="text-xs uppercase tracking-wider truncate" style={{ color: p0IsMe ? P_GREEN : P_RED }}>{p0Name}</p>
+              <p className="text-5xl leading-none mt-0.5" style={{ color: p0IsMe ? P_GREEN : P_RED }}>{p0Score}</p>
             </div>
             <div className="flex flex-col items-center px-4 gap-0.5">
               <span className="text-2xl text-white/80 tracking-widest">VS</span>
@@ -1002,8 +1037,8 @@ const GamePage = () => {
               {choosing&&!locked&&<span className={`text-sm ${timer<=3?'text-red-400 animate-pulse':'text-white/25'}`}>{timer}s</span>}
             </div>
             <div className="flex-1 text-center">
-              <p className="text-xs text-[#34C759] uppercase tracking-wider truncate">{p1Name}</p>
-              <p className="text-5xl text-[#34C759] leading-none mt-0.5">{p1Score}</p>
+              <p className="text-xs uppercase tracking-wider truncate" style={{ color: p0IsMe ? P_RED : P_GREEN }}>{p1Name}</p>
+              <p className="text-5xl leading-none mt-0.5" style={{ color: p0IsMe ? P_RED : P_GREEN }}>{p1Score}</p>
             </div>
           </div>
         </div>
