@@ -735,11 +735,11 @@ function beginOnlineSearch() {
 function cancelWait() {
     if (isBotMode) {
         localMatch = null;
-        showScreen('start');
+        window.location.href = '/';
         return;
     }
     stopPvpPolling();
-    pvpLeaveRoomSafe().finally(function() { showScreen('start'); });
+    pvpLeaveRoomSafe().finally(function() { window.location.href = '/'; });
 }
 
 function onGameFound(msg) {
@@ -966,6 +966,13 @@ async function onRoundStart(msg) {
         $('tpoints-0').innerHTML = '';
         $('tpoints-1').innerHTML = '';
         generateGameTracks(OT_ROUNDS);
+        // Явно показываем ловушки которые мы поставили сопернику
+        if (myOvertimeTraps && myOvertimeTraps.length > 0) {
+            myOvertimeTraps.forEach(function(trapIdx) {
+                var mineDot = $('dot-1-' + trapIdx);
+                if (mineDot) mineDot.classList.add('mine-placed');
+            });
+        }
         highlightCurrentDot(0);
         $('round-reveal').classList.add('hidden');
         $('round-reveal').style.opacity = '';
@@ -1643,6 +1650,13 @@ function onOvertimeStart(msg) {
     $('tpoints-0').innerHTML = '';
     $('tpoints-1').innerHTML = '';
     generateGameTracks(OT_ROUNDS);
+    // Явно показываем ловушки которые мы поставили сопернику
+    if (myOvertimeTraps && myOvertimeTraps.length > 0) {
+        myOvertimeTraps.forEach(function(trapIdx) {
+            var mineDot = $('dot-1-' + trapIdx);
+            if (mineDot) mineDot.classList.add('mine-placed');
+        });
+    }
     highlightCurrentDot(0);
     $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
     $('round-val').textContent = '1/' + OT_ROUNDS;
