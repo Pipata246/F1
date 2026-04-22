@@ -1502,11 +1502,9 @@ async function onRoundResult(msg) {
     if (myDot) {
         myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
         if (my.hasTrap && my.reason === 'hit_trap') {
-            // Ran into a trap — fail indicator, bomb floats above
             myDot.classList.add('fail', 'mine-hit');
             myDot.textContent = '\u2717';
         } else if (my.hasTrap && my.reason === 'dodged_trap') {
-            // Jumped over a trap — success indicator, bomb floats above
             myDot.classList.add('success', 'mine-dodged');
             myDot.textContent = '\u2713';
         } else {
@@ -1514,16 +1512,22 @@ async function onRoundResult(msg) {
             myDot.classList.add(myOk ? 'success' : 'fail');
             myDot.textContent = myOk ? '\u2713' : '\u2717';
         }
+        // Бейдж умения на моей ячейке
+        if (my.usedAbility === 'double') {
+            myDot.classList.add(my.success ? 'ability-double' : 'ability-double-fail');
+        } else if (my.usedAbility === 'sabotage') {
+            myDot.classList.add('ability-sabotage');
+        } else if (my.sabotaged) {
+            myDot.classList.add('ability-sabotaged');
+        }
     }
     if (oppDot) {
         oppDot.classList.remove('current');
         if (opp.hasTrap && opp.reason === 'hit_trap') {
-            // Opponent hit our mine — dot red, bomb becomes explosion above
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('fail', 'mine-exploded');
             oppDot.textContent = '\u2717';
         } else if (opp.hasTrap && opp.reason === 'dodged_trap') {
-            // Opponent dodged — dot green, dimmed bomb + checkmark above
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('mine-safe');
             oppDot.textContent = '\u2713';
@@ -1532,6 +1536,14 @@ async function onRoundResult(msg) {
             const oppOk = opp.points > 0 && !opp.sabotaged;
             oppDot.classList.add(oppOk ? 'success' : 'fail');
             oppDot.textContent = oppOk ? '\u2713' : '\u2717';
+        }
+        // Бейдж умения на ячейке соперника
+        if (opp.usedAbility === 'double') {
+            oppDot.classList.add(opp.success ? 'ability-double' : 'ability-double-fail');
+        } else if (opp.usedAbility === 'sabotage') {
+            oppDot.classList.add('ability-sabotage');
+        } else if (opp.sabotaged) {
+            oppDot.classList.add('ability-sabotaged');
         }
     }
 
