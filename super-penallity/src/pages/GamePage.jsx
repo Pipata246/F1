@@ -1267,6 +1267,35 @@ const GamePage = () => {
 
       {/* Role announcement removed — text moved below ball */}
 
+      {/* Role announcement overlay */}
+      <AnimatePresence>
+        {roleAnnounce && (
+          <motion.div
+            key={`role-${roleAnnounce.round}`}
+            initial={{ opacity: 0, scale: 0.7, y: -20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: -10 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 flex items-center justify-center z-[80] pointer-events-none"
+          >
+            <div className={`px-8 py-4 rounded-2xl border-2 shadow-2xl text-center backdrop-blur-sm ${
+              roleAnnounce.role === 'kicker'
+                ? 'bg-yellow-500/20 border-yellow-400/60 shadow-yellow-500/30'
+                : 'bg-blue-500/20 border-blue-400/60 shadow-blue-500/30'
+            }`}>
+              <div className="text-3xl mb-1">
+                {roleAnnounce.role === 'kicker' ? '⚽' : '🧤'}
+              </div>
+              <div className={`text-xl font-black tracking-widest uppercase ${
+                roleAnnounce.role === 'kicker' ? 'text-yellow-300' : 'text-blue-300'
+              }`}>
+                {roleAnnounce.role === 'kicker' ? 'Твой удар!' : 'Отбивай мяч!'}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Gate area + field markings */}
       <div className="relative z-10 w-[360px] h-[280px] mt-1 mx-auto flex justify-center">
         {/* Penalty area lines */}
@@ -1298,6 +1327,10 @@ const GamePage = () => {
                 height: keeperState === 'save' ? '100px' : '140px',
                 transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
                 transition: 'transform 0.15s ease-out, height 0.2s ease-out',
+                // Я вратарь → зелёный, соперник вратарь → красный
+                filter: role === 'keeper'
+                  ? 'hue-rotate(90deg) saturate(1.4) brightness(1.1)'
+                  : 'hue-rotate(-30deg) saturate(2) brightness(1.05)',
               }}
             />
           </div>
