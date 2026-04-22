@@ -2332,11 +2332,26 @@ function pvpAdvanceByTime(room) {
       const c = asObj(s.choices);
       if (!c.p2) {
         if (botPending.kind !== "basketball_move") {
-          const dists = ["close", "mid", "far"];
+          // Умный бот: 65% — оптимальный выбор, 35% — случайный
+          const botScoreP2 = Number(asObj(s.scores).p2 || 0);
+          const botScoreP1 = Number(asObj(s.scores).p1 || 0);
+          const diff = botScoreP2 - botScoreP1;
+          let smartDist;
+          if (Math.random() < 0.65) {
+            // Оптимальная стратегия: если отстаём — рискуем (far), если ведём — осторожно (close/mid)
+            if (diff >= 3) smartDist = "close";
+            else if (diff >= 1) smartDist = "mid";
+            else if (diff === 0) smartDist = "far";
+            else if (diff >= -2) smartDist = "far";
+            else smartDist = "far";
+          } else {
+            const dists = ["close", "mid", "far"];
+            smartDist = dists[Math.floor(Math.random() * dists.length)];
+          }
           next.botPending = {
             kind: "basketball_move",
             dueAtMs: now + pvpBotMoveDelayMs(),
-            value: dists[Math.floor(Math.random() * dists.length)],
+            value: smartDist,
           };
           next.updatedAt = new Date().toISOString();
           return { changed: true, state: next };
@@ -2466,10 +2481,33 @@ function pvpAdvanceByTime(room) {
         : (String(players.p2 || "").startsWith("bot_fallback_") ? "p2" : "p2");
       if (c[botSide] === null || c[botSide] === undefined) {
         if (botPending.kind !== "super_penalty_move") {
+          // Умный бот: 65% — угадывает зону соперника (keeper) или бьёт в незащищённую (kicker)
+          const kickerSide = pvpSuperPenaltyKickerSide(s);
+          const isKicker = botSide === kickerSide;
+          let smartZone;
+          if (Math.random() < 0.65) {
+            const history = Array.isArray(s.history) ? s.history : [];
+            const humanSide = botSide === "p1" ? "p2" : "p1";
+            // Считаем частоту зон соперника за последние 5 ходов
+            const recentHuman = history.slice(-5).filter(h =>
+              isKicker ? h.kickerIndex !== (botSide === "p1" ? 0 : 1) : h.kickerIndex === (botSide === "p1" ? 0 : 1)
+            );
+            const zoneCounts = [0, 0, 0, 0];
+            recentHuman.forEach(h => { if (isKicker) zoneCounts[h.keeperZone]++; else zoneCounts[h.kickerZone]++; });
+            if (isKicker) {
+              // Бьём в зону которую вратарь защищает реже всего
+              smartZone = zoneCounts.indexOf(Math.min(...zoneCounts));
+            } else {
+              // Прыгаем в зону куда бьёт чаще всего
+              smartZone = zoneCounts.indexOf(Math.max(...zoneCounts));
+            }
+          } else {
+            smartZone = Math.floor(Math.random() * 4);
+          }
           next.botPending = {
             kind: "super_penalty_move",
             dueAtMs: now + pvpBotMoveDelayMs(),
-            value: Math.floor(Math.random() * 4),
+            value: smartZone,
           };
           next.updatedAt = new Date().toISOString();
           return { changed: true, state: next };
@@ -2605,10 +2643,22 @@ function pvpAdvanceByTime(room) {
         const pm = asObj(s.pendingMoves);
         if (!pm.p2) {
           if (botPending.kind !== "obstacle_move") {
+            // Умный бот: 65% — знает где ловушки игрока и делает правильный ход
+            const step = s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0);
+            const playerTraps = s.overtime
+              ? (Array.isArray(asObj(s.overtimeTraps).p1) ? asObj(s.overtimeTraps).p1 : [])
+              : (Array.isArray(asObj(s.traps).p1) ? asObj(s.traps).p1 : []);
+            let smartAction;
+            if (Math.random() < 0.65) {
+              // Знаем где ловушка — делаем правильный ход
+              smartAction = playerTraps.includes(step) ? "jump" : "run";
+            } else {
+              smartAction = Math.random() < 0.5 ? "run" : "jump";
+            }
             next.botPending = {
               kind: "obstacle_move",
               dueAtMs: now + pvpBotMoveDelayMs(),
-              value: { action: Math.random() < 0.5 ? "run" : "jump", useAbility: false },
+              value: { action: smartAction, useAbility: false },
             };
             next.updatedAt = new Date().toISOString();
             return { changed: true, state: next };

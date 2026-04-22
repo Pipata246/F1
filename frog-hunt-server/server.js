@@ -335,7 +335,23 @@ function doFrogHide(room, cell) {
 }
 
 function botHunterMove(room) {
-  const cells = pickRandomCells(room.totalCells, room.hunterShots, -1);
+  // 65% — умный выбор (избегает предыдущую клетку лягушки), 35% — случайный
+  let cells;
+  if (Math.random() < 0.65 && room.previousFrogCell !== null) {
+    // Лягушка редко остаётся на месте — выбираем соседние клетки
+    const prev = room.previousFrogCell;
+    const candidates = [];
+    for (let i = 0; i < room.totalCells; i++) {
+      if (Math.abs(i - prev) <= 2 && i !== prev) candidates.push(i);
+    }
+    if (candidates.length >= room.hunterShots) {
+      cells = candidates.slice(0, room.hunterShots);
+    } else {
+      cells = pickRandomCells(room.totalCells, room.hunterShots, -1);
+    }
+  } else {
+    cells = pickRandomCells(room.totalCells, room.hunterShots, -1);
+  }
   doHunterShoot(room, cells);
 }
 

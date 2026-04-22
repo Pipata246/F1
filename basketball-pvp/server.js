@@ -63,18 +63,19 @@ function resolveShot(distance) {
 }
 
 function botChooseDistance(myScore, oppScore) {
-  const diff = myScore - oppScore;
-  let w;
-  if (diff >= 4)      w = { close: 55, mid: 35, far: 10 };
-  else if (diff >= 2) w = { close: 35, mid: 45, far: 20 };
-  else if (diff > 0)  w = { close: 25, mid: 45, far: 30 };
-  else if (diff === 0) w = { close: 15, mid: 45, far: 40 };
-  else if (diff >= -2) w = { close: 10, mid: 35, far: 55 };
-  else                 w = { close: 5, mid: 25, far: 70 };
-  const total = w.close + w.mid + w.far;
-  const r = Math.random() * total;
-  if (r < w.close) return 'close';
-  if (r < w.close + w.mid) return 'mid';
+  // 65% — оптимальный выбор, 35% — случайный
+  if (Math.random() < 0.65) {
+    const diff = myScore - oppScore;
+    if (diff >= 4)      return 'close';
+    else if (diff >= 2) return 'mid';
+    else if (diff > 0)  return 'far';
+    else if (diff === 0) return 'far';
+    else if (diff >= -2) return 'far';
+    else                 return 'far';
+  }
+  const r = Math.random();
+  if (r < 0.33) return 'close';
+  if (r < 0.66) return 'mid';
   return 'far';
 }
 

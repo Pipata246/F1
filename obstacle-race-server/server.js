@@ -350,23 +350,20 @@ function scheduleBotMove(room) {
   setTimeout(() => {
     if (room.phase !== 'running') return;
     const step = room.overtime ? room.overtimeRound : room.currentStep;
-    const wantsAbility = !room.overtime && !room.abilityUsed[bot.playerIndex] &&
-      step === room.botAbilityRound;
 
-    if (wantsAbility && room.abilities[bot.playerIndex] === 'xray') {
-      const oppIdx = 1 - bot.playerIndex;
-      const hasTrap = room.traps[oppIdx].includes(step);
-      room.abilityUsed[bot.playerIndex] = true;
-      room.moves[bot.playerIndex] = {
-        action: hasTrap ? 'jump' : 'run',
-        useAbility: false
-      };
+    // Умный бот: 65% — знает где ловушки игрока
+    let action;
+    if (Math.random() < 0.65) {
+      const playerTraps = room.overtime
+        ? (room.overtimeTraps ? room.overtimeTraps[1 - bot.playerIndex] : [])
+        : (room.traps ? room.traps[1 - bot.playerIndex] : []);
+      const hasTrap = Array.isArray(playerTraps) && playerTraps.includes(step);
+      action = hasTrap ? 'jump' : 'run';
     } else {
-      room.moves[bot.playerIndex] = {
-        action: Math.random() > 0.5 ? 'run' : 'jump',
-        useAbility: !room.overtime && wantsAbility
-      };
+      action = Math.random() > 0.5 ? 'run' : 'jump';
     }
+
+    room.moves[bot.playerIndex] = { action, useAbility: false };
     resolveRound(room);
   }, 600 + Math.random() * 1500);
 }
