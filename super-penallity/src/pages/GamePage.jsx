@@ -1020,6 +1020,12 @@ const GamePage = () => {
       }
       return true;
     }
+    // Досрочное завершение: отстающий не может догнать
+    const remaining = m.maxRounds - roundsPlayed;
+    const p1KicksLeft = Math.ceil(remaining / 2);
+    const p2KicksLeft = Math.floor(remaining / 2);
+    if (s0 > s1 && s0 - s1 > p2KicksLeft) return true;
+    if (s1 > s0 && s1 - s0 > p1KicksLeft) return true;
     return false;
   };
 

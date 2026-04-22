@@ -2198,6 +2198,23 @@ function pvpResolveSuperPenaltyRound(state) {
         gameOver = true;
         winnerSide = p1 > p2 ? "p1" : "p2";
       }
+    } else {
+      // Досрочное завершение: если отстающий математически не может догнать
+      // В пенальти каждый бьёт через раунд. Считаем оставшиеся удары каждого.
+      const maxR = Number(s.maxRounds || 10);
+      const remaining = maxR - roundsPlayed; // оставшихся раундов
+      // p1 бьёт в чётных раундах (0,2,4...), p2 — в нечётных (1,3,5...)
+      // Считаем сколько ударов осталось у каждого
+      const p1KicksLeft = Math.ceil(remaining / 2);
+      const p2KicksLeft = Math.floor(remaining / 2);
+      // Если p1 ведёт и p2 не может догнать даже забив все оставшиеся
+      if (p1 > p2 && p1 - p2 > p2KicksLeft) {
+        gameOver = true;
+        winnerSide = "p1";
+      } else if (p2 > p1 && p2 - p1 > p1KicksLeft) {
+        gameOver = true;
+        winnerSide = "p2";
+      }
     }
   }
 
