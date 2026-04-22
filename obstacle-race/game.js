@@ -803,6 +803,10 @@ function stopTrapTimer() {
 }
 
 function startTrapTimer() {
+    // Не запускаем если уже подтвердили ловушки
+    if (trapsConfirmed) return;
+    // Не перезапускаем если таймер уже идёт
+    if (trapTimerInterval) return;
     stopTrapTimer();
     var maxTraps = overtimePlacing ? 1 : 3;
     var totalSec = 30;

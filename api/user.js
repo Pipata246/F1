@@ -2608,7 +2608,7 @@ function pvpAdvanceByTime(room) {
       return { changed: true, state: next };
     }
 
-    if (s.phase === "overtime_placing" && elapsed >= 12000) {
+    if (s.phase === "overtime_placing" && elapsed >= 30000) {
       const p1 = Array.isArray(asObj(s.overtimeTraps).p1) ? asObj(s.overtimeTraps).p1 : pvpRandomTraps(Number(s.overtimeRounds || 3), Number(s.trapsPerOvertime || 1));
       const p2 = Array.isArray(asObj(s.overtimeTraps).p2) ? asObj(s.overtimeTraps).p2 : pvpRandomTraps(Number(s.overtimeRounds || 3), Number(s.trapsPerOvertime || 1));
       next.overtimeTraps = { p1, p2 };
