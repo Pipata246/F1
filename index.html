@@ -57,6 +57,14 @@
       min-height:var(--app-vh);
       padding-bottom:calc(86px + var(--safe-bottom));
     }
+    /* Случайная игра — полноэкранная без nav/topbar */
+    #page-random-game {
+      position:fixed;
+      inset:0;
+      overflow-y:auto;
+      background: linear-gradient(180deg, var(--bg1), var(--bg2));
+      z-index:10;
+    }
     .topbar{
       position:sticky; top:0; z-index:20;
       padding: calc(10px + var(--safe-top)) 16px 10px;
@@ -805,17 +813,22 @@
 
       <!-- RANDOM GAME STAKE PICKER -->
       <section id="page-random-game" class="hidden">
-        <div class="glass card">
-          <h2 class="titleXL" id="randomTitle" style="margin:0 0 4px">🎲 Случайная игра</h2>
-          <p class="subtitle" id="randomSubtitle" style="margin-bottom:16px;">Выберите ставку чтобы попасть в случайную игру</p>
-          <div class="divider" id="randomDivider"></div>
-          <div id="randomStakeGrid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch;width:100%;margin:14px 0;"></div>
-          <button class="btn primary" id="randomPlayBtn" disabled style="margin-top:4px;">Найти игру</button>
-          <button class="btn ghost" id="randomBackBtn" style="margin-top:8px;">Назад</button>
-          <div id="randomSearching" style="display:none;text-align:center;margin-top:16px;">
-            <div class="spinner" style="margin:0 auto 10px;"></div>
-            <p class="text2" style="font-size:14px;">Ищем соперника в любой игре...</p>
-            <button class="btn ghost" id="randomCancelBtn" style="margin-top:12px;max-width:200px;">Отмена</button>
+        <div style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(env(safe-area-inset-top,0px)+20px) 20px calc(env(safe-area-inset-bottom,0px)+20px);box-sizing:border-box;">
+          <div class="glass card" style="width:100%;max-width:400px;">
+            <div id="randomTitle" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+              <span style="font-size:28px;">🎲</span>
+              <h2 class="titleXL" style="margin:0;">Случайная игра</h2>
+            </div>
+            <p id="randomSubtitle" class="subtitle" style="margin-bottom:16px;">Выберите ставку чтобы попасть в случайную игру</p>
+            <div id="randomDivider" class="divider"></div>
+            <div id="randomStakeGrid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch;width:100%;margin:14px 0;"></div>
+            <button class="btn primary" id="randomPlayBtn" disabled style="margin-top:4px;">Найти игру</button>
+            <button class="btn ghost" id="randomBackBtn" style="margin-top:8px;">Назад</button>
+            <div id="randomSearching" style="display:none;text-align:center;padding:16px 0;">
+              <div class="spinner" style="margin:0 auto 12px;"></div>
+              <p class="text2" style="font-size:15px;font-weight:700;">Ищем соперника в любой игре...</p>
+              <button class="btn ghost" id="randomCancelBtn" style="margin-top:16px;max-width:220px;">Отмена</button>
+            </div>
           </div>
         </div>
       </section>
@@ -1411,10 +1424,10 @@
       if(tab) tab.classList.toggle("active", t===page);
     });
     const mainNav = document.getElementById("mainNav");
-    if(mainNav){
-      const isOnboarding = page.startsWith("onb-");
-      mainNav.classList.toggle("hidden", isOnboarding);
-    }
+    const topbar = document.querySelector(".topbar");
+    const isHideChrome = page.startsWith("onb-") || page === "random-game";
+    if(mainNav){ mainNav.classList.toggle("hidden", isHideChrome); }
+    if(topbar){ topbar.classList.toggle("hidden", isHideChrome); }
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "wallet" && hasTgAuth){
