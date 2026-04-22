@@ -809,7 +809,7 @@
           <h2 class="titleXL" style="margin:0 0 4px">🎲 Случайная игра</h2>
           <p class="subtitle" style="margin-bottom:16px;">Выберите ставку чтобы попасть в случайную игру</p>
           <div class="divider"></div>
-          <div id="randomStakeGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0;"></div>
+          <div id="randomStakeGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0;width:100%;"></div>
           <button class="btn primary" id="randomPlayBtn" disabled style="margin-top:4px;">Найти игру</button>
           <button class="btn ghost" id="randomBackBtn" style="margin-top:8px;">Назад</button>
           <div id="randomSearching" style="display:none;text-align:center;margin-top:16px;">
@@ -1654,8 +1654,8 @@
       const active = randomSelectedStakes.some(s => Math.abs(s - stake) < 0.001);
       const b = document.createElement("button");
       b.style.cssText = [
-        "border:none;cursor:pointer;border-radius:14px;padding:14px 8px;",
-        "font-size:13px;font-weight:900;letter-spacing:.3px;",
+        "width:100%;border:none;cursor:pointer;border-radius:14px;padding:13px 4px;",
+        "font-size:13px;font-weight:900;letter-spacing:.3px;white-space:nowrap;",
         "transition:all .15s;",
         blocked
           ? "background:rgba(255,92,92,.18);border:1px solid rgba(255,92,92,.30);color:#ff7a7a;opacity:.7;"
