@@ -1515,18 +1515,25 @@ async function onRoundResult(msg) {
     playSound(isGood(my) ? 'good' : 'bad');
 
         // Mark dots — enhanced with mine visuals
+    // Иконки способностей вместо ✓/✗ когда способность использована
+    function dotIcon(r) {
+        if (r.usedAbility === 'double') return '⚡';
+        if (r.usedAbility === 'sabotage') return '💀';
+        if (r.sabotaged) return '💀';
+        return r.points > 0 && !r.sabotaged ? '\u2713' : '\u2717';
+    }
     if (myDot) {
         myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
         if (my.hasTrap && my.reason === 'hit_trap') {
             myDot.classList.add('fail', 'mine-hit');
-            myDot.textContent = '\u2717';
+            myDot.textContent = my.usedAbility ? dotIcon(my) : '\u2717';
         } else if (my.hasTrap && my.reason === 'dodged_trap') {
             myDot.classList.add('success', 'mine-dodged');
-            myDot.textContent = '\u2713';
+            myDot.textContent = my.usedAbility ? dotIcon(my) : '\u2713';
         } else {
             const myOk = my.points > 0 && !my.sabotaged;
             myDot.classList.add(myOk ? 'success' : 'fail');
-            myDot.textContent = myOk ? '\u2713' : '\u2717';
+            myDot.textContent = dotIcon(my);
         }
     }
     if (oppDot) {
@@ -1534,16 +1541,16 @@ async function onRoundResult(msg) {
         if (opp.hasTrap && opp.reason === 'hit_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('fail', 'mine-exploded');
-            oppDot.textContent = '\u2717';
+            oppDot.textContent = opp.usedAbility ? dotIcon(opp) : '\u2717';
         } else if (opp.hasTrap && opp.reason === 'dodged_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('mine-safe');
-            oppDot.textContent = '\u2713';
+            oppDot.textContent = opp.usedAbility ? dotIcon(opp) : '\u2713';
         } else {
             oppDot.classList.remove('mine-placed');
             const oppOk = opp.points > 0 && !opp.sabotaged;
             oppDot.classList.add(oppOk ? 'success' : 'fail');
-            oppDot.textContent = oppOk ? '\u2713' : '\u2717';
+            oppDot.textContent = dotIcon(opp);
         }
     }
 
