@@ -1654,7 +1654,7 @@
       const active = randomSelectedStakes.some(s => Math.abs(s - stake) < 0.001);
       const b = document.createElement("button");
       b.className = "btn " + (active ? "primary" : "ghost");
-      b.style.cssText = "aspect-ratio:1/1;font-size:13px;font-weight:900;padding:0;" + (blocked ? "opacity:.5;" : "");
+      b.style.cssText = "font-size:14px;font-weight:900;padding:12px 8px;" + (blocked ? "opacity:.5;" : "");
       b.textContent = stake + " TON";
       b.disabled = blocked;
       b.onclick = () => {
