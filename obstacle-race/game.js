@@ -179,7 +179,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (launchMode === 'demo') {
         setTimeout(() => openDemoIntro(), 0);
     } else if (launchMode === 'play') {
-        setTimeout(() => startGame(false), 0);
+        const directRoomId = urlParams.get('roomId');
+        if (directRoomId) {
+            // Случайная игра — подключаемся напрямую к комнате
+            setTimeout(function() {
+                isBotMode = false;
+                pvpRoomId = String(directRoomId);
+                syncMyNameFromServer(function() {
+                    showScreen('waiting');
+                    startPvpPolling();
+                });
+            }, 0);
+        } else {
+            setTimeout(() => startGame(false), 0);
+        }
     } else {
         window.location.href = '/';
     }

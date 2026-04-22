@@ -1050,13 +1050,24 @@ const GamePage = () => {
 
   useEffect(() => {
     if (launchHandledRef.current) return;
-    const launchMode = String(new URLSearchParams(window.location.search).get('launch') || '').toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    const launchMode = String(params.get('launch') || '').toLowerCase();
     if (launchMode !== 'play' && launchMode !== 'demo') return;
     launchHandledRef.current = true;
     if (launchMode === 'demo') {
       setScreen('demo-intro');
     } else {
-      setScreen('stake-online');
+      const roomId = params.get('roomId');
+      if (roomId) {
+        // Случайная игра — сразу подключаемся к комнате
+        tgInitDataRef.current = window.Telegram?.WebApp?.initData || tgInitDataRef.current || '';
+        pvpRoomIdRef.current = Number(roomId);
+        playModeRef.current = 'pvp';
+        setScreen('waiting');
+        startPvpPolling();
+      } else {
+        setScreen('stake-online');
+      }
     }
   }, []);
 

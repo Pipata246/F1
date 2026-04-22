@@ -1702,8 +1702,8 @@
       const gameKey = String(data.room.game_key || "");
       const gameUrl = RANDOM_GAME_URLS[gameKey];
       if (!gameUrl) throw new Error("Unknown game: " + gameKey);
-      // Сразу редиректим в игру — она сама подхватит состояние комнаты
-      window.location.href = gameUrl + "?launch=play";
+      // Сразу редиректим в игру — передаём roomId чтобы игра подключилась напрямую
+      window.location.href = gameUrl + "?launch=play&roomId=" + encodeURIComponent(data.room.id);
     } catch(e) {
       resetRandomSearch();
       toast(String(e?.message || "Ошибка поиска. Попробуй снова."), 3000);
