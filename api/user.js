@@ -1668,34 +1668,61 @@ function isPvpBotFallbackRoom(room) {
 }
 
 function pvpPickBotName() {
-  const roots = [
-    "Alex", "Nika", "Mila", "Den", "Artem", "Vera", "Lena", "Roma", "Kir", "Ira",
-    "Max", "Dima", "Sasha", "Maks", "Vlad", "Yana", "Liza", "Oleg", "Misha", "Egor",
+  const BOT_NAMES = [
+    "darknode77","ivan_petrov","task.manager","silentwolf","alex_support",
+    "crypto_helper","mr.nobody","dataflow","night_shift","sergey_work",
+    "pixelghost","admin.help","ghost_user","office.bot","vladislav_dev",
+    "randomnick","fastreply","user_404","unknown.exe","tech_support",
+    "manager.pro","workline","justhuman","no_name_user","system_core",
+    "alpha_unit","beta_node","delta_user","omega_point","shadowbyte",
+    "neoncloud","urbanfox","silent_admin","taskforce","data_agent",
+    "ivan_ivanov","pavel_online","worker_node","simpleuser","coolnickname",
+    "alex.work","mikhail.tech","cloudworker","debug_mode","offline_user",
+    "online_agent","fastworker","dev_support","core_admin","system_user",
+    "ghost_line 👻","night_worker 🌙","silent_mode 🔕","fast_help ⚡","work_bot 🤖",
+    "admin_line 📞","data_stream 🌊","shadow_user 🕶️","tech_guy 💻","office_helper 📂",
+    "server_node 🖥️","error_404 ❌","no_signal 📡","cyber_man 🤖","task_done ✅",
+    "fix_it 🔧","admin_power ⚙️","work_flow 🔄","info_line ℹ️","night_call 📞",
+    "coolfox","ironman","iacuser","linebot","manager",
+    "remote_worker","admin_flow","cloudmaster","cyberline","datacontrol",
+    "flowmanager","quickadmin","serverflow","usermatrix","coreflow",
+    "systemline","nightadmin","helpcenter","fastadmin","userassist",
+    "workerline","рабочий_акк","поддержка_онлайн","менеджер_связь","техподдержка",
+    "оператор_линия","офисный_бот","рабочий_чат","аккаунт_работа","служба_ответа",
+    "сервис_онлайн","redshadow","bluesignal","greenbyte","blacknode",
+    "whitecore","yellowfox","purpledata","silverline","goldworker",
+    "bronzetech","deepnight 🌑","neonlight 💡","fastlane 🚀","secureline 🔒",
+    "worktime ⏰","hotline 📞","fixline 🔧","controlpanel 🎛️","dataline 📊",
+    "cloudlink ☁️","simple_bot","helpdesk","supportline","office_line",
+    "client_help","systemhelp","userhelp","adminhelp","workhelp",
+    "quickhelp","x_user_01","x_user_02","x_user_03","alpha_01",
+    "beta_02","gamma_03","node_01","node_02","node_03",
+    "unit_01","cyberghost 👻","darkadmin 🖤","fastnode ⚡","silentbot 🤖",
+    "admincall 📞","taskbot 📋","workghost 👤","databot 🤖","techline 💻",
+    "systembot ⚙️","hello_user","user_test","test_account","fake_user",
+    "demo_account","trial_user","sample_user","temp_account","guest_user",
+    "visitor_line","ivan_dev","alex_code","pavel_sys","dmitry_net",
+    "sergey_host","nikita_dev","roman_code","andrey_sys","kirill_net",
+    "egor_host","dataflow 🔄","cloudsync ☁️","fastsync ⚡","nodesync 🔗",
+    "worksync 📂","botsync 🤖","usersync 👤","coresync ⚙️","linesync 📞",
+    "netsync 🌐","officeuser","officeadmin","officebot","officeline",
+    "officehelp","officetask","officeflow","officecore","officenet",
+    "officework","quickfox","slowfox","darkfox","lightfox",
+    "silentfox","urbanfox","wildfox","cyberfox","nightfox","redfox",
   ];
-  const tails = [
-    "", "", "", "_", ".", "x", "xx", "pro", "top", "go", "one", "play", "win", "live",
-  ];
-  const digits = ["", "", "", "7", "9", "11", "21", "23", "77", "99"];
-  for (let i = 0; i < 120; i++) {
-    const root = roots[Math.floor(Math.random() * roots.length)];
-    const tail = tails[Math.floor(Math.random() * tails.length)];
-    const dg = digits[Math.floor(Math.random() * digits.length)];
-    let s = `${root}${tail}${dg}`.replace(/\.\./g, ".").replace(/__+/g, "_");
-    if (s.length < 3) s = `${s}x`;
-    if (s.length > 12) s = s.slice(0, 12);
-    // Keep nickname-like format: letters/numbers/._ only.
-    s = s.replace(/[^A-Za-z0-9._]/g, "");
-    if (s.length < 3) continue;
-    if (!PVP_BOT_NAME_RECENT.has(s)) {
-      PVP_BOT_NAME_RECENT.add(s);
+  // Выбираем случайный ник, избегая недавно использованных
+  for (let i = 0; i < 30; i++) {
+    const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+    if (!PVP_BOT_NAME_RECENT.has(name)) {
+      PVP_BOT_NAME_RECENT.add(name);
       if (PVP_BOT_NAME_RECENT.size > PVP_BOT_NAME_RECENT_LIMIT) {
         const first = PVP_BOT_NAME_RECENT.values().next().value;
         if (first) PVP_BOT_NAME_RECENT.delete(first);
       }
-      return s;
+      return name;
     }
   }
-  return `Player${Math.floor(100 + Math.random() * 900)}`;
+  return BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
 }
 
 function pvpBotMoveDelayMs() {
