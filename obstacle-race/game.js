@@ -44,6 +44,7 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 const PVP_POLL_MS = 900;
+const PVP_POLL_FAST_MS = 500; // Быстрый polling когда ждём результат хода
 
 const OT_ROUNDS = 3;
 
@@ -383,6 +384,12 @@ function startPvpPolling() {
     pvpPollState();
 }
 
+function startPvpPollingFast() {
+    stopPvpPolling();
+    pvpPollTimer = setInterval(function() { pvpPollState(); }, PVP_POLL_FAST_MS);
+    pvpPollState();
+}
+
 function resetPvpMarkers() {
     pvpLastRoundMarker = 0;
     pvpLastXrayMarker = 0;
@@ -638,19 +645,53 @@ function sendMsg(m) {
         return;
     }
     if (msg.type === 'make_move') {
-        apiPost({
-            action: 'pvpSubmitMove',
-            initData: tgInitData,
-            roomId: pvpRoomId,
-            move: { action: msg.action, useAbility: !!msg.useAbility }
-        }).then(function(data) {
-            if (data && data.ok && data.room) applyPvpRoomState(data.room);
-        }).catch(function() {
-            moveChosen = false;
-            $('btn-run').disabled = false;
-            $('btn-jump').disabled = false;
-            $('move-wait').classList.add('hidden');
-        });
+        var moveAction = msg.action;
+        var moveAbility = !!msg.useAbility;
+        var moveAttempts = 0;
+
+        function submitMove() {
+            moveAttempts++;
+            apiPost({
+                action: 'pvpSubmitMove',
+                initData: tgInitData,
+                roomId: pvpRoomId,
+                move: { action: moveAction, useAbility: moveAbility }
+            }).then(function(data) {
+                if (data && data.ok && data.room) {
+                    applyPvpRoomState(data.room);
+                } else if (moveAttempts < 3) {
+                    // Retry через 800мс если ответ не ok
+                    setTimeout(submitMove, 800);
+                } else {
+                    // После 3 попыток разблокируем кнопки
+                    moveChosen = false;
+                    $('btn-run').disabled = false;
+                    $('btn-jump').disabled = false;
+                    $('move-wait').classList.add('hidden');
+                }
+            }).catch(function() {
+                if (moveAttempts < 3) {
+                    setTimeout(submitMove, 800);
+                } else {
+                    moveChosen = false;
+                    $('btn-run').disabled = false;
+                    $('btn-jump').disabled = false;
+                    $('move-wait').classList.add('hidden');
+                }
+            });
+        }
+
+        submitMove();
+
+        // Переключаемся на быстрый polling пока ждём результат
+        startPvpPollingFast();
+
+        // Watchdog: если через 8 сек нет round_result — форсируем poll
+        setTimeout(function() {
+            if (moveChosen && pvpRoomId && tgInitData) {
+                pvpPollState();
+            }
+        }, 8000);
     }
 }
 
@@ -934,6 +975,8 @@ async function onRoundStart(msg) {
     currentStep = msg.step;
     moveChosen = false;
     abilityActive = false;
+    // Возвращаем нормальный polling — быстрый больше не нужен
+    if (!isBotMode && pvpRoomId) startPvpPolling();
 
     if (msg.overtime) isOvertime = true;
 
@@ -946,6 +989,12 @@ async function onRoundStart(msg) {
         }
     } else if (isOvertime && currentStep === 0) {
         // Способность придёт из overtime_start, не сбрасываем здесь
+    }
+
+    // В овертайме способности отключены
+    if (isOvertime) {
+        myAbility = null;
+        abilityUsed = true;
     }
 
     showScreen('game');
@@ -1157,8 +1206,8 @@ function showActionButtons() {
     abilityActive = false;
     updatePromptText();
 
-    // Double заблокирован после раунда 5 и в овертайме
-    const abilityLocked = myAbility === 'double' && (currentStep >= 5 || isOvertime);
+    // Double заблокирован после раунда 5 и в овертайме; в овертайме способности отключены полностью
+    const abilityLocked = isOvertime || (myAbility === 'double' && currentStep >= 5);
     if (!abilityUsed && myAbility && !abilityLocked) {
         $('ability-zone').classList.remove('hidden');
         const info = ABILITIES[myAbility];
@@ -1670,14 +1719,9 @@ async function onRoundResult(msg) {
 function onOvertimeStart(msg) {
     isOvertime = true;
     currentStep = 0;
-    // Получаем способность из overtime_start
-    if (msg && msg.ability) {
-        myAbility = msg.ability;
-        abilityUsed = false;
-    } else {
-        myAbility = null;
-        abilityUsed = true;
-    }
+    // В овертайме способности отключены
+    myAbility = null;
+    abilityUsed = true;
     oppAbility = null;
     selectedTraps = [];
     revealedPoints = {};

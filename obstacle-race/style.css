@@ -452,50 +452,11 @@ body.xray-mode .track-avatar {
     border-color: var(--success) !important;
     color: var(--success) !important;
 }
-/* Bomb indicator above dots */
-.track-dot.mine-placed::before,
-.track-dot.xray-trap::before,
-.track-dot.mine-hit::before,
-.track-dot.mine-dodged::before {
-    content: '\1F6A7';
-    position: absolute;
-    top: -22px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 15px;
-    opacity: 0.6;
-    pointer-events: none;
-    z-index: 3;
-    line-height: 1;
-}
-/* Exploded mine — bomb becomes explosion above */
-.track-dot.mine-exploded::before {
-    content: '\1F4A5';
-    position: absolute;
-    top: -22px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 15px;
-    opacity: 0.85;
-    pointer-events: none;
-    z-index: 3;
-    line-height: 1;
-}
-/* Safe mine — dimmed bomb with checkmark overlay */
-.track-dot.mine-safe::before {
-    content: '\1F6A7';
-    position: absolute;
-    top: -22px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 15px;
-    opacity: 0.3;
-    pointer-events: none;
-    z-index: 3;
-    line-height: 1;
+/* Bomb indicator above dots — убрано */
+.track-dot.mine-placed {
+    border-color: rgba(255, 165, 2, 0.5);
+    background: rgba(255, 165, 2, 0.1);
+    color: var(--warn);
 }
 .track-dot.mine-safe::after {
     content: '\2713';

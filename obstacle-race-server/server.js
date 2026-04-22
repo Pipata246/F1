@@ -391,23 +391,15 @@ function resolveRound(room) {
     }
 
     // Apply ability (double/sabotage only — xray consumed during scan phase)
-    // Double can only be used until round 5 (step 0-4), и никогда в овертайме
-    const currentAbility = room.overtime ? room.overtimeAbilities[i] : room.abilities[i];
-    if (move.useAbility && !room.abilityUsed[i] && currentAbility) {
-      if (room.overtime) {
-        // В овертайме: только sabotage (xray — через scan)
-        if (currentAbility === 'sabotage') {
-          usedAbility = currentAbility;
-          room.abilityUsed[i] = true;
-        }
+    // В овертайме способности отключены
+    const currentAbility = room.overtime ? null : (room.overtime ? room.overtimeAbilities[i] : room.abilities[i]);
+    if (!room.overtime && move.useAbility && !room.abilityUsed[i] && currentAbility) {
+      const ab = room.abilities[i];
+      if (ab === 'double' && room.currentStep > 4) {
+        // double blocked after round 5
       } else {
-        const ab = room.abilities[i];
-        if (ab === 'double' && room.currentStep > 4) {
-          // double blocked after round 5
-        } else {
-          usedAbility = ab;
-          room.abilityUsed[i] = true;
-        }
+        usedAbility = ab;
+        room.abilityUsed[i] = true;
       }
     }
 

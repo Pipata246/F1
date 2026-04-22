@@ -1989,19 +1989,14 @@ function pvpResolveObstacleRound(state) {
     const trapSet = s.overtime ? asObj(s.overtimeTraps)[opp] : asObj(s.traps)[opp];
     const hasTrap = Array.isArray(trapSet) ? trapSet.includes(step) : false;
     let usedAbility = null;
-    if (useAbility && !asObj(s.abilityUsed)[side] && !s.overtime) {
-      const ab = asObj(s.abilities)[side];
-      if (!(ab === "double" && step > 4)) {
-        usedAbility = ab;
-        s.abilityUsed = { ...asObj(s.abilityUsed), [side]: true };
-      }
-    }
-    // В овертайме: sabotage через useAbility (xray — через scan)
-    if (useAbility && !asObj(s.abilityUsed)[side] && s.overtime) {
-      const ab = asObj(s.overtimeAbilities || {})[side];
-      if (ab === 'sabotage') {
-        usedAbility = ab;
-        s.abilityUsed = { ...asObj(s.abilityUsed), [side]: true };
+    // В овертайме способности отключены
+    if (!s.overtime) {
+      if (useAbility && !asObj(s.abilityUsed)[side]) {
+        const ab = asObj(s.abilities)[side];
+        if (!(ab === "double" && step > 4)) {
+          usedAbility = ab;
+          s.abilityUsed = { ...asObj(s.abilityUsed), [side]: true };
+        }
       }
     }
     const success = (action === "run" && !hasTrap) || (action === "jump" && hasTrap);
@@ -3121,8 +3116,10 @@ async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
 
   // Нет открытых комнат — создаём в случайной игре с меткой is_random
   const randomGame = ALL_GAMES[Math.floor(Math.random() * ALL_GAMES.length)];
-  await pvpPruneUserNonActiveRooms(tgId, randomGame);
-  await pvpEnforceSingleActiveRoom(randomGame, tgId, safeName, 0);
+  // Чистим старые waiting-комнаты пользователя во всех играх
+  for (const g of ALL_GAMES) {
+    await pvpPruneUserNonActiveRooms(tgId, g).catch(() => {});
+  }
 
   const created = await sb("pvp_rooms", {
     method: "POST",
@@ -3146,7 +3143,10 @@ async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
   });
   const ownRoom = created?.[0];
   if (!ownRoom) throw new Error("Failed to create queue room");
-  await pvpEnforceSingleActiveRoom(randomGame, tgId, safeName, ownRoom.id);
+  // Чистим дубли только других игр, сохраняем свою комнату
+  for (const g of ALL_GAMES) {
+    await pvpEnforceSingleActiveRoom(g, tgId, safeName, ownRoom.id).catch(() => {});
+  }
   return ownRoom;
 }
 
