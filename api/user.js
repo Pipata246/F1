@@ -2619,15 +2619,25 @@ function pvpAdvanceByTime(room) {
       return { changed: true, state: next };
     }
 
-    if (s.phase === "running" && elapsed >= 12000) {
+    if (s.phase === "running") {
       const pending = { ...asObj(s.pendingMoves) };
-      const randAction = () => (Math.random() < 0.5 ? "run" : "jump");
-      if (!pending.p1) pending.p1 = { action: randAction(), useAbility: false };
-      if (!pending.p2) pending.p2 = { action: randAction(), useAbility: false };
-      next.pendingMoves = pending;
-      const resolved = pvpResolveObstacleRound(next);
-      resolved.updatedAt = new Date().toISOString();
-      return { changed: true, state: resolved };
+      // Если оба уже сделали ход — резолвим немедленно, не ждём таймаута
+      if (pending.p1 && pending.p2) {
+        next.pendingMoves = pending;
+        const resolved = pvpResolveObstacleRound(next);
+        resolved.updatedAt = new Date().toISOString();
+        return { changed: true, state: resolved };
+      }
+      // Авто-форс только если прошло 15+ сек и кто-то не ответил
+      if (elapsed >= 15000) {
+        const randAction = () => (Math.random() < 0.5 ? "run" : "jump");
+        if (!pending.p1) pending.p1 = { action: randAction(), useAbility: false };
+        if (!pending.p2) pending.p2 = { action: randAction(), useAbility: false };
+        next.pendingMoves = pending;
+        const resolved = pvpResolveObstacleRound(next);
+        resolved.updatedAt = new Date().toISOString();
+        return { changed: true, state: resolved };
+      }
     }
 
     if (s.phase === "round_result" && elapsed >= 1800) {
