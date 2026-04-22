@@ -1428,6 +1428,22 @@ async function onRoundResult(msg) {
         oppAbility = opp.usedAbility;
     }
 
+    // Показываем тост если соперник использовал умение
+    if (opp.usedAbility) {
+        var toastInfo = {
+            double:   { icon: '⚡', text: opponentName + ' использовал Удвоение!', cls: 'double' },
+            sabotage: { icon: '💀', text: opponentName + ' использовал Саботаж!', cls: 'sabotage' },
+            xray:     { icon: '👁', text: opponentName + ' использовал Рентген!', cls: 'xray' },
+        }[opp.usedAbility];
+        if (toastInfo) {
+            var toast = document.createElement('div');
+            toast.className = 'ability-toast ' + toastInfo.cls;
+            toast.innerHTML = '<span class="ability-toast-icon">' + toastInfo.icon + '</span><span>' + toastInfo.text + '</span>';
+            document.body.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 2200);
+        }
+    }
+
     // Track traps discovered on my track
     knownTrapsOnMyTrack[msg.step] = my.hasTrap;
 
@@ -1498,7 +1514,7 @@ async function onRoundResult(msg) {
     $('reveal-opp-result').className = 'reveal-result ' + (isGood(opp) ? 'good' : 'bad');
     playSound(isGood(my) ? 'good' : 'bad');
 
-    // Mark dots — enhanced with mine visuals
+        // Mark dots — enhanced with mine visuals
     if (myDot) {
         myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
         if (my.hasTrap && my.reason === 'hit_trap') {
@@ -1511,14 +1527,6 @@ async function onRoundResult(msg) {
             const myOk = my.points > 0 && !my.sabotaged;
             myDot.classList.add(myOk ? 'success' : 'fail');
             myDot.textContent = myOk ? '\u2713' : '\u2717';
-        }
-        // Бейдж умения на моей ячейке
-        if (my.usedAbility === 'double') {
-            myDot.classList.add(my.success ? 'ability-double' : 'ability-double-fail');
-        } else if (my.usedAbility === 'sabotage') {
-            myDot.classList.add('ability-sabotage');
-        } else if (my.sabotaged) {
-            myDot.classList.add('ability-sabotaged');
         }
     }
     if (oppDot) {
@@ -1536,14 +1544,6 @@ async function onRoundResult(msg) {
             const oppOk = opp.points > 0 && !opp.sabotaged;
             oppDot.classList.add(oppOk ? 'success' : 'fail');
             oppDot.textContent = oppOk ? '\u2713' : '\u2717';
-        }
-        // Бейдж умения на ячейке соперника
-        if (opp.usedAbility === 'double') {
-            oppDot.classList.add(opp.success ? 'ability-double' : 'ability-double-fail');
-        } else if (opp.usedAbility === 'sabotage') {
-            oppDot.classList.add('ability-sabotage');
-        } else if (opp.sabotaged) {
-            oppDot.classList.add('ability-sabotaged');
         }
     }
 
