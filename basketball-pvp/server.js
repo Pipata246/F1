@@ -64,7 +64,7 @@ function resolveShot(distance) {
 
 function botChooseDistance(myScore, oppScore) {
   // 65% — оптимальный выбор, 35% — случайный
-  if (Math.random() < 0.65) {
+  if (Math.random() < 0.5) {
     const diff = myScore - oppScore;
     if (diff >= 4)      return 'close';
     else if (diff >= 2) return 'mid';

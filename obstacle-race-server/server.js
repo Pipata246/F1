@@ -353,7 +353,7 @@ function scheduleBotMove(room) {
 
     // Умный бот: 65% — знает где ловушки игрока
     let action;
-    if (Math.random() < 0.65) {
+    if (Math.random() < 0.5) {
       const playerTraps = room.overtime
         ? (room.overtimeTraps ? room.overtimeTraps[1 - bot.playerIndex] : [])
         : (room.traps ? room.traps[1 - bot.playerIndex] : []);

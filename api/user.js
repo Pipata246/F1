@@ -2332,7 +2332,7 @@ function pvpAdvanceByTime(room) {
           const botScoreP1 = Number(asObj(s.scores).p1 || 0);
           const diff = botScoreP2 - botScoreP1;
           let smartDist;
-          if (Math.random() < 0.65) {
+          if (Math.random() < 0.5) {
             // Оптимальная стратегия: если отстаём — рискуем (far), если ведём — осторожно (close/mid)
             if (diff >= 3) smartDist = "close";
             else if (diff >= 1) smartDist = "mid";
@@ -2480,7 +2480,7 @@ function pvpAdvanceByTime(room) {
           const kickerSide = pvpSuperPenaltyKickerSide(s);
           const isKicker = botSide === kickerSide;
           let smartZone;
-          if (Math.random() < 0.65) {
+          if (Math.random() < 0.5) {
             const history = Array.isArray(s.history) ? s.history : [];
             const humanSide = botSide === "p1" ? "p2" : "p1";
             // Считаем частоту зон соперника за последние 5 ходов
@@ -2644,7 +2644,7 @@ function pvpAdvanceByTime(room) {
               ? (Array.isArray(asObj(s.overtimeTraps).p1) ? asObj(s.overtimeTraps).p1 : [])
               : (Array.isArray(asObj(s.traps).p1) ? asObj(s.traps).p1 : []);
             let smartAction;
-            if (Math.random() < 0.65) {
+            if (Math.random() < 0.5) {
               // Знаем где ловушка — делаем правильный ход
               smartAction = playerTraps.includes(step) ? "jump" : "run";
             } else {

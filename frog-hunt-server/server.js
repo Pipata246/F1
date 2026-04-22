@@ -337,7 +337,7 @@ function doFrogHide(room, cell) {
 function botHunterMove(room) {
   // 65% — умный выбор (избегает предыдущую клетку лягушки), 35% — случайный
   let cells;
-  if (Math.random() < 0.65 && room.previousFrogCell !== null) {
+  if (Math.random() < 0.5 && room.previousFrogCell !== null) {
     // Лягушка редко остаётся на месте — выбираем соседние клетки
     const prev = room.previousFrogCell;
     const candidates = [];
