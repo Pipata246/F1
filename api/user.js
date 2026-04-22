@@ -1993,6 +1993,7 @@ function pvpResolveObstacleRound(state) {
   else s.currentStep = Number(s.currentStep || 0) + 1;
 
   const mainRounds = Number(s.mainRounds || 7);
+  const winScore = Number(s.winScore || 5);
   const overtimeRounds = Number(s.overtimeRounds || 3);
   let winnerSide = null;
   let startOvertime = false;
@@ -2003,7 +2004,16 @@ function pvpResolveObstacleRound(state) {
   } else {
     const p1 = Number(s.scores.p1 || 0);
     const p2 = Number(s.scores.p2 || 0);
-    if (Number(s.currentStep || 0) >= mainRounds) {
+    // Победа досрочно если кто-то достиг winScore
+    if (p1 >= winScore && p2 >= winScore) {
+      if (p1 > p2) winnerSide = "p1";
+      else if (p2 > p1) winnerSide = "p2";
+      else startOvertime = true;
+    } else if (p1 >= winScore) {
+      winnerSide = "p1";
+    } else if (p2 >= winScore) {
+      winnerSide = "p2";
+    } else if (Number(s.currentStep || 0) >= mainRounds) {
       if (p1 > p2) winnerSide = "p1";
       else if (p2 > p1) winnerSide = "p2";
       else startOvertime = true;

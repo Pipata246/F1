@@ -1325,6 +1325,7 @@ function localResolveRound() {
     else m.currentStep++;
 
     const MAIN_ROUNDS = 7;
+    const WIN_SCORE_LOCAL = 5;
     let gameOver = false;
     let winner = null;
     let startOvertime = false;
@@ -1335,12 +1336,19 @@ function localResolveRound() {
             winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
         } else if (m.overtimeRound >= OT_ROUNDS) startOvertime = true;
     } else {
-        if (m.currentStep >= MAIN_ROUNDS) {
-            if (m.scores[0] === m.scores[1]) startOvertime = true;
-            else {
-                gameOver = true;
-                winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
-            }
+        const p0 = m.scores[0], p1 = m.scores[1];
+        // Досрочная победа если кто-то достиг WIN_SCORE
+        if (p0 >= WIN_SCORE_LOCAL && p1 >= WIN_SCORE_LOCAL) {
+            if (p0 > p1) { gameOver = true; winner = 'win'; }
+            else if (p1 > p0) { gameOver = true; winner = 'lose'; }
+            else startOvertime = true;
+        } else if (p0 >= WIN_SCORE_LOCAL) {
+            gameOver = true; winner = 'win';
+        } else if (p1 >= WIN_SCORE_LOCAL) {
+            gameOver = true; winner = 'lose';
+        } else if (m.currentStep >= MAIN_ROUNDS) {
+            if (p0 === p1) startOvertime = true;
+            else { gameOver = true; winner = p0 > p1 ? 'win' : 'lose'; }
         }
     }
 
@@ -1536,8 +1544,8 @@ async function onRoundResult(msg) {
     myAv.classList.remove('shake', 'jump-anim');
     oppAv.classList.remove('shake', 'jump-anim');
 
-    // Update scores
-    const mi = playerIndex;
+    // Update scores — используем playerIndex из сообщения чтобы избежать рассинхрона
+    const mi = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
     scores = [msg.scores[mi], msg.scores[1 - mi]];
     const s0 = $('sb-score-0'); const s1 = $('sb-score-1');
     s0.textContent = scores[0]; s1.textContent = scores[1];
