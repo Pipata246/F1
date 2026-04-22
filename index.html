@@ -806,9 +806,9 @@
       <!-- RANDOM GAME STAKE PICKER -->
       <section id="page-random-game" class="hidden">
         <div class="glass card">
-          <h2 class="titleXL" style="margin:0 0 4px">🎲 Случайная игра</h2>
-          <p class="subtitle" style="margin-bottom:16px;">Выберите ставку чтобы попасть в случайную игру</p>
-          <div class="divider"></div>
+          <h2 class="titleXL" id="randomTitle" style="margin:0 0 4px">🎲 Случайная игра</h2>
+          <p class="subtitle" id="randomSubtitle" style="margin-bottom:16px;">Выберите ставку чтобы попасть в случайную игру</p>
+          <div class="divider" id="randomDivider"></div>
           <div id="randomStakeGrid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch;width:100%;margin:14px 0;"></div>
           <button class="btn primary" id="randomPlayBtn" disabled style="margin-top:4px;">Найти игру</button>
           <button class="btn ghost" id="randomBackBtn" style="margin-top:8px;">Назад</button>
@@ -1689,6 +1689,9 @@
     document.getElementById("randomPlayBtn").style.display = "none";
     document.getElementById("randomBackBtn").style.display = "none";
     document.getElementById("randomStakeGrid").style.display = "none";
+    document.getElementById("randomTitle").style.display = "none";
+    document.getElementById("randomSubtitle").style.display = "none";
+    document.getElementById("randomDivider").style.display = "none";
     document.getElementById("randomSearching").style.display = "block";
 
     try {
@@ -1763,6 +1766,12 @@
     if (backBtn) backBtn.style.display = "";
     if (grid) grid.style.display = "grid";
     if (searching) searching.style.display = "none";
+    const title = document.getElementById("randomTitle");
+    const subtitle = document.getElementById("randomSubtitle");
+    const divider = document.getElementById("randomDivider");
+    if (title) title.style.display = "";
+    if (subtitle) subtitle.style.display = "";
+    if (divider) divider.style.display = "";
     renderRandomStakePicker();
   }
 
