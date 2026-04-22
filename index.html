@@ -1702,15 +1702,20 @@
       const gameKey = String(data.room.game_key || "");
       const gameUrl = RANDOM_GAME_URLS[gameKey];
       if (!gameUrl) throw new Error("Unknown game: " + gameKey);
-      // Сразу редиректим в игру — передаём roomId чтобы игра подключилась напрямую
-      window.location.href = gameUrl + "?launch=play&roomId=" + encodeURIComponent(data.room.id);
+      // Если комната уже active (нашёлся соперник сразу) — редиректим
+      if (String(data.room.status) === "active" && data.room.player2_tg_user_id) {
+        window.location.href = gameUrl + "?launch=play&roomId=" + encodeURIComponent(data.room.id);
+      } else {
+        // Иначе остаёмся на странице случайной игры и ждём через polling
+        startRandomPolling();
+      }
     } catch(e) {
       resetRandomSearch();
       toast(String(e?.message || "Ошибка поиска. Попробуй снова."), 3000);
     }
   };
 
-  function startRandomPolling(gameUrl) {
+  function startRandomPolling() {
     if (randomPollTimer) clearInterval(randomPollTimer);
     randomPollTimer = setInterval(async () => {
       if (!randomRoomId) { clearInterval(randomPollTimer); return; }
@@ -1722,12 +1727,13 @@
         });
         if (!data.ok || !data.room) return;
         const room = data.room;
+        // Редиректим только когда нашёлся реальный соперник или бот
         if (String(room.status) === "active" && room.player2_tg_user_id) {
           clearInterval(randomPollTimer);
           randomPollTimer = null;
           const gk = String(room.game_key || "");
           const url = RANDOM_GAME_URLS[gk];
-          if (url) window.location.href = url + "?launch=play";
+          if (url) window.location.href = url + "?launch=play&roomId=" + encodeURIComponent(room.id);
         }
       } catch(e) {}
     }, 1500);
