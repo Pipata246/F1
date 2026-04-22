@@ -12,7 +12,7 @@ function withdrawalFeeBps() {
   if (Number.isFinite(frac) && frac > 0 && frac < 1) {
     return Math.min(9999, Math.max(1, Math.round(frac * 10000)));
   }
-  return 2000;
+  return 1000;
 }
 
 function withdrawalFeePercentDisplay() {

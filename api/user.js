@@ -58,7 +58,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const CRYPTO_BOT_TOKEN = String(process.env.CRYPTO_BOT_TOKEN || "").trim();
 const USDT_WITHDRAW_FEE_BPS = Math.max(
   0,
-  Math.min(10_000, Number(process.env.USDT_WITHDRAW_FEE_BPS) || 2000)
+  Math.min(10_000, Number(process.env.USDT_WITHDRAW_FEE_BPS) || 1000)
 );
 
 function parseInitData(initData) {
