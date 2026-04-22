@@ -1654,7 +1654,7 @@
       const active = randomSelectedStakes.some(s => Math.abs(s - stake) < 0.001);
       const b = document.createElement("button");
       b.style.cssText = [
-        "height:74px;width:100%;border:none;cursor:pointer;border-radius:14px;padding:0 6px;",
+        "aspect-ratio:1/1;width:100%;border:none;cursor:pointer;border-radius:14px;padding:0 6px;",
         "font-size:13px;font-weight:900;white-space:nowrap;",
         "display:flex;align-items:center;justify-content:center;",
         "transition:all .15s;",
@@ -1761,7 +1761,7 @@
     const searching = document.getElementById("randomSearching");
     if (playBtn) playBtn.style.display = "";
     if (backBtn) backBtn.style.display = "";
-    if (grid) grid.style.display = "";
+    if (grid) grid.style.display = "grid";
     if (searching) searching.style.display = "none";
     renderRandomStakePicker();
   }
