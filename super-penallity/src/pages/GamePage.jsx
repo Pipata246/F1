@@ -1272,24 +1272,24 @@ const GamePage = () => {
         {roleAnnounce && (
           <motion.div
             key={`role-${roleAnnounce.round}`}
-            initial={{ opacity: 0, scale: 0.7, y: -20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: -10 }}
-            transition={{ duration: 0.25 }}
+            initial={{ opacity: 0, y: -30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
             className="fixed inset-0 flex items-center justify-center z-[80] pointer-events-none"
           >
-            <div className={`px-8 py-4 rounded-2xl border-2 shadow-2xl text-center backdrop-blur-sm ${
+            <div className={`px-10 py-5 rounded-2xl shadow-2xl text-center border-2 ${
               roleAnnounce.role === 'kicker'
-                ? 'bg-yellow-500/20 border-yellow-400/60 shadow-yellow-500/30'
-                : 'bg-blue-500/20 border-blue-400/60 shadow-blue-500/30'
+                ? 'bg-black/85 border-yellow-400 shadow-yellow-500/40'
+                : 'bg-black/85 border-emerald-400 shadow-emerald-500/40'
             }`}>
-              <div className="text-3xl mb-1">
+              <div className="text-4xl mb-2">
                 {roleAnnounce.role === 'kicker' ? '⚽' : '🧤'}
               </div>
-              <div className={`text-xl font-black tracking-widest uppercase ${
-                roleAnnounce.role === 'kicker' ? 'text-yellow-300' : 'text-blue-300'
+              <div className={`text-2xl font-black tracking-widest uppercase ${
+                roleAnnounce.role === 'kicker' ? 'text-yellow-300' : 'text-emerald-300'
               }`}>
-                {roleAnnounce.role === 'kicker' ? 'Твой удар!' : 'Отбивай мяч!'}
+                {roleAnnounce.role === 'kicker' ? 'ТВОЙ УДАР!' : 'ОТБИВАЙ МЯЧ!'}
               </div>
             </div>
           </motion.div>
@@ -1320,17 +1320,17 @@ const GamePage = () => {
             }}
           >
             <img
-              src={keeperState === 'save' ? `${ASSET_BASE}keeper_save.png` : `${ASSET_BASE}keeper_idle.png`}
+              src={
+                role === 'keeper'
+                  ? (keeperState === 'save' ? `${ASSET_BASE}keeper_save.png` : `${ASSET_BASE}keeper_idle.png`)
+                  : (keeperState === 'save' ? `${ASSET_BASE}keeper_red.png`  : `${ASSET_BASE}keeper_green.png`)
+              }
               alt="Keeper"
               className="object-contain drop-shadow-2xl"
               style={{
                 height: keeperState === 'save' ? '100px' : '140px',
                 transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
                 transition: 'transform 0.15s ease-out, height 0.2s ease-out',
-                // Я вратарь → зелёный, соперник вратарь → красный
-                filter: role === 'keeper'
-                  ? 'hue-rotate(90deg) saturate(1.4) brightness(1.1)'
-                  : 'hue-rotate(-30deg) saturate(2) brightness(1.05)',
               }}
             />
           </div>
