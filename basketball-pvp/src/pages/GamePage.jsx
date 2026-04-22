@@ -39,7 +39,7 @@ const START_Y = DIST_Y.mid;
 const CHAR_W = Math.round(48 * 0.75);
 const CHAR_H = Math.round(48 * 0.9 * 1.4 * 1.5 * 0.85);
 const BALL_SIZE = 34;
-const ST = { fontFamily: "'Russo One', 'Impact', sans-serif" };
+const ST = { fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif" };
 
 const DISTS = [
   { key: 'close', label: 'БЛИЖНЯЯ', pts: '1 очко', pct: '~85%', bg: 'from-[#63e6be] to-[#8ff0cf]' },
@@ -275,20 +275,20 @@ const GamePage = () => {
   const randomDistance = () => DISTS[Math.floor(Math.random() * DISTS.length)]?.key || 'mid';
   // startTimer принимает либо секунды (для бота), либо абсолютный deadlineMs (для pvp).
   // В pvp всегда передаём deadlineMs напрямую чтобы оба клиента считали от одной точки.
-  const startTimer = (startSec = 12, deadlineMs = 0) => {
+  const startTimer = (startSec = 15, deadlineMs = 0) => {
     stopTimer();
     if (deadlineMs > 0) {
       // PvP: используем абсолютный дедлайн от сервера — одинаковый у обоих игроков
       turnDeadlineMsRef.current = deadlineMs;
     } else {
       // Bot/local: просто sec от текущего момента
-      const sec = Math.max(0, Math.min(12, Math.floor(Number(startSec || 0))));
+      const sec = Math.max(0, Math.min(15, Math.floor(Number(startSec || 0))));
       turnDeadlineMsRef.current = Date.now() + sec * 1000;
     }
     autoFiredRef.current = false;
     const tick = () => {
       const leftMs = Math.max(0, Number(turnDeadlineMsRef.current || 0) - Date.now());
-      const leftSec = Math.max(0, Math.min(12, Math.ceil(leftMs / 1000)));
+      const leftSec = Math.max(0, Math.min(15, Math.ceil(leftMs / 1000)));
       setTimer(leftSec);
       if (leftMs <= 0 && !autoFiredRef.current) {
         autoFiredRef.current = true;
@@ -446,7 +446,7 @@ const GamePage = () => {
         setChoosing(true);
         setLocked(false);
         // В pvp передаём абсолютный deadlineMs — одинаковый у обоих игроков
-        startTimer(msg.timerSec != null ? msg.timerSec : 12, msg.deadlineMs || 0);
+        startTimer(msg.timerSec != null ? msg.timerSec : 15, msg.deadlineMs || 0);
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'opponent_locked': break;
@@ -573,10 +573,10 @@ const GamePage = () => {
       const serverSkew = Number(serverSkewMsRef.current || 0); // localNow - serverNow
       // Переводим серверный phaseAtMs в локальное время и добавляем 12 секунд
       const deadlineMs = phaseAtMs > 0
-        ? (phaseAtMs + serverSkew) + 12_000
-        : Date.now() + 12_000;
+        ? (phaseAtMs + serverSkew) + 15_000
+        : Date.now() + 15_000;
       const remainMs = Math.max(0, deadlineMs - Date.now());
-      const timerSec = Math.max(0, Math.min(12, Math.ceil(remainMs / 1000)));
+      const timerSec = Math.max(0, Math.min(15, Math.ceil(remainMs / 1000)));
       handleMsg({
         type: 'round_start',
         round: Number(s.round || 0) + 1,

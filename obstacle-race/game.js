@@ -869,7 +869,7 @@ function generateGameTracks(n) {
             c.appendChild(d);
         }
         // Show player's mines on opponent's track
-        if (t === 1 && selectedTraps.length > 0) {
+        if (t === 1) {
             var trapsToShow = isOvertime ? myOvertimeTraps : selectedTraps;
             trapsToShow.forEach(function(trapIdx) {
                 var mineDot = $('dot-1-' + trapIdx);

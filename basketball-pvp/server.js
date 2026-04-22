@@ -23,7 +23,7 @@ const DISTANCES = {
 };
 const WARMUP_ROUNDS = 5;
 const MAIN_ROUNDS = 5;
-const TURN_TIMEOUT = 12000;
+const TURN_TIMEOUT = 15000;
 const MAX_GAME_TIME = 300000; // 5 minutes max per match
 const STUCK_CHECK_INTERVAL = 30000; // Check every 30s
 

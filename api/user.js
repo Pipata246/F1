@@ -2370,7 +2370,7 @@ function pvpAdvanceByTime(room) {
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
     }
-    if (s.phase === "turn_input" && elapsed >= 12000) {
+    if (s.phase === "turn_input" && elapsed >= 15000) {
       const choices = { ...asObj(s.choices) };
       const randDist = () => {
         const all = ["close", "mid", "far"];
