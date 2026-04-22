@@ -1113,8 +1113,11 @@ const GamePage = () => {
   if (screen === 'stake-online') {
     return (
       <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none relative`} style={safeFrameStyle}>
-        <div className="z-10 flex flex-col items-center gap-6 w-full max-w-xs px-4">
-          <div className="w-full max-w-xs mx-auto">
+        <div className="z-10 flex flex-col items-center gap-4 w-full max-w-xs px-4">
+          <div className="text-6xl">⚽</div>
+          <h1 className="text-3xl font-black text-white tracking-wide">ПЕНАЛЬТИ</h1>
+          <p className="text-gray-400 text-sm text-center leading-relaxed">PvP: бей и лови! 5 ударов каждому, серия до промаха при ничьей.</p>
+          <div className="w-full max-w-xs mx-auto mt-2">
             <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider text-center">Выбери ставки TON</p>
             <div className="grid grid-cols-3 gap-2">
               {[0.1, 0.5, 1, 5, 10, 25].map((stake) => {
