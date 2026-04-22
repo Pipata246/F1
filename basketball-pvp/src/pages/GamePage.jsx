@@ -460,7 +460,15 @@ const GamePage = () => {
         setAnnounce(null);
         roundResolvingRef.current = true;
         setRoundResolving(true);
+        // Watchdog: если анимация зависла — форсируем завершение через 12 сек
+        const rrWatchdog = setTimeout(() => {
+          if (roundResolvingRef.current) {
+            roundResolvingRef.current = false;
+            setRoundResolving(false);
+          }
+        }, 12000);
         animateRound(msg.shots, msg.phase, msg.scores, () => {
+          clearTimeout(rrWatchdog);
           roundResolvingRef.current = false;
           setRoundResolving(false);
           // Stage (2,3): only after BOTH throws.
@@ -846,18 +854,49 @@ const GamePage = () => {
       if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
       setLocked(true);
       stopTimer();
-      apiPost({
-        action: 'pvpSubmitMove',
-        initData: tgInitDataRef.current,
-        roomId: pvpRoomIdRef.current,
-        move: { distance: d },
-      }).then((data) => {
-        if (data?.ok && data.room) applyPvpRoomState(data.room);
-      }).catch(() => {
-        setLocked(false);
-        choiceLockedRef.current = false;
-        setSelectedDistance(null);
-      });
+
+      let basketAttempts = 0;
+      const submitBasketMove = () => {
+        basketAttempts++;
+        apiPost({
+          action: 'pvpSubmitMove',
+          initData: tgInitDataRef.current,
+          roomId: pvpRoomIdRef.current,
+          move: { distance: d },
+        }).then((data) => {
+          if (data?.ok && data.room) {
+            applyPvpRoomState(data.room);
+          } else if (basketAttempts < 3) {
+            setTimeout(submitBasketMove, 800);
+          } else {
+            setLocked(false);
+            choiceLockedRef.current = false;
+            setSelectedDistance(null);
+          }
+        }).catch(() => {
+          if (basketAttempts < 3) {
+            setTimeout(submitBasketMove, 800);
+          } else {
+            setLocked(false);
+            choiceLockedRef.current = false;
+            setSelectedDistance(null);
+          }
+        });
+      };
+      submitBasketMove();
+
+      // Watchdog: если через 8 сек нет round_result — форсируем poll
+      setTimeout(() => {
+        if (choiceLockedRef.current && pvpRoomIdRef.current && tgInitDataRef.current) {
+          apiPost({
+            action: 'pvpGetRoomState',
+            initData: tgInitDataRef.current,
+            roomId: pvpRoomIdRef.current,
+          }).then((data) => {
+            if (data?.ok && data.room) applyPvpRoomState(data.room);
+          }).catch(() => {});
+        }
+      }, 8000);
       return;
     }
     localOnClientMessage('choose_distance', { distance: d });

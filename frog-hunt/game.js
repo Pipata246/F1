@@ -28,6 +28,8 @@ var pvpPendingSubmit = false;
 var pvpPollInFlight = false;
 var PVP_POLL_MS = 350;
 var pvpRecovering = false;
+// Watchdog: если ход сделан но нет ответа — форсируем poll
+var pvpMoveWatchdogTimer = null;
 var selectedStakeOptions = [];
 var currentStakeTon = null;
 var ALLOWED_STAKES = [0.1, 0.5, 1, 5, 10, 25];
@@ -865,20 +867,45 @@ function confirmChoice() {
     var move = myRole === 'frog'
       ? { frogCell: selectedCells[0] }
       : { hunterCells: selectedCells.slice() };
-    apiPost({
-      action: 'pvpSubmitMove',
-      initData: tgInitData,
-      roomId: pvpRoomId,
-      move: move
-    }).then(function(data) {
-      pvpPendingSubmit = false;
-      if (data && data.ok && data.room) applyPvpRoomState(data.room);
-    }).catch(function() {
-      pvpPendingSubmit = false;
-      moveChosen = false;
-      $('btn-confirm').disabled = false;
-      $('hint-text').textContent = 'Ошибка отправки хода. Попробуй ещё раз.';
-    });
+
+    var frogAttempts = 0;
+    function submitFrogMove() {
+      frogAttempts++;
+      apiPost({
+        action: 'pvpSubmitMove',
+        initData: tgInitData,
+        roomId: pvpRoomId,
+        move: move
+      }).then(function(data) {
+        pvpPendingSubmit = false;
+        if (data && data.ok && data.room) {
+          applyPvpRoomState(data.room);
+        } else if (frogAttempts < 3) {
+          pvpPendingSubmit = true;
+          setTimeout(submitFrogMove, 800);
+        } else {
+          moveChosen = false;
+          $('btn-confirm').disabled = false;
+          $('hint-text').textContent = 'Ошибка отправки хода. Попробуй ещё раз.';
+        }
+      }).catch(function() {
+        pvpPendingSubmit = false;
+        if (frogAttempts < 3) {
+          pvpPendingSubmit = true;
+          setTimeout(submitFrogMove, 800);
+        } else {
+          moveChosen = false;
+          $('btn-confirm').disabled = false;
+          $('hint-text').textContent = 'Ошибка отправки хода. Попробуй ещё раз.';
+        }
+      });
+    }
+    submitFrogMove();
+
+    // Watchdog: если через 8 сек нет ответа — форсируем poll
+    setTimeout(function() {
+      if (moveChosen && pvpRoomId && tgInitData) pvpPollState();
+    }, 8000);
     return;
   }
 

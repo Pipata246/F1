@@ -716,17 +716,44 @@ const GamePage = () => {
         setZoneLocked(true);
         setWaitingOpponent(true);
         stopTimer();
-        apiPost({
-          action: 'pvpSubmitMove',
-          initData: tgInitDataRef.current,
-          roomId: pvpRoomIdRef.current,
-          move: { zone },
-        }).then((data2) => {
-          if (data2?.ok && data2.room) applyPvpRoomState(data2.room);
-        }).catch(() => {
-          setZoneLocked(false);
-          setWaitingOpponent(false);
-        });
+
+        let penAttempts = 0;
+        const submitPenMove = () => {
+          penAttempts++;
+          apiPost({
+            action: 'pvpSubmitMove',
+            initData: tgInitDataRef.current,
+            roomId: pvpRoomIdRef.current,
+            move: { zone },
+          }).then((data2) => {
+            if (data2?.ok && data2.room) {
+              applyPvpRoomState(data2.room);
+            } else if (penAttempts < 3) {
+              setTimeout(submitPenMove, 800);
+            } else {
+              setZoneLocked(false);
+              setWaitingOpponent(false);
+            }
+          }).catch(() => {
+            if (penAttempts < 3) {
+              setTimeout(submitPenMove, 800);
+            } else {
+              setZoneLocked(false);
+              setWaitingOpponent(false);
+            }
+          });
+        };
+        submitPenMove();
+
+        // Watchdog: если через 8 сек нет round_result — форсируем poll
+        setTimeout(() => {
+          if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
+            apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
+              .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
+              .catch(() => {});
+          }
+        }, 8000);
+
         if (pvpOpponentIsBotRef.current) {
           clearWaitingBotMoveTimer();
           waitingBotMoveTimerRef.current = setTimeout(() => {

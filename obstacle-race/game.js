@@ -623,25 +623,49 @@ function sendMsg(m) {
     }
     if (!pvpRoomId || !tgInitData) return;
     if (msg.type === 'place_traps') {
-        apiPost({
-            action: 'pvpSubmitMove',
-            initData: tgInitData,
-            roomId: pvpRoomId,
-            move: { traps: msg.traps || [] }
-        }).then(function(data) {
-            if (data && data.ok && data.room) applyPvpRoomState(data.room);
-        }).catch(function() {});
+        var trapAttempts = 0;
+        var trapData = msg.traps || [];
+        function submitTraps() {
+            trapAttempts++;
+            apiPost({
+                action: 'pvpSubmitMove',
+                initData: tgInitData,
+                roomId: pvpRoomId,
+                move: { traps: trapData }
+            }).then(function(data) {
+                if (data && data.ok && data.room) {
+                    applyPvpRoomState(data.room);
+                } else if (trapAttempts < 3) {
+                    setTimeout(submitTraps, 800);
+                }
+            }).catch(function() {
+                if (trapAttempts < 3) setTimeout(submitTraps, 800);
+            });
+        }
+        submitTraps();
         return;
     }
     if (msg.type === 'xray_scan') {
-        apiPost({
-            action: 'pvpSubmitMove',
-            initData: tgInitData,
-            roomId: pvpRoomId,
-            move: { type: 'xray_scan', point: Number(msg.point || 0) }
-        }).then(function(data) {
-            if (data && data.ok && data.room) applyPvpRoomState(data.room);
-        }).catch(function() {});
+        var xrayAttempts = 0;
+        var xrayPoint = Number(msg.point || 0);
+        function submitXray() {
+            xrayAttempts++;
+            apiPost({
+                action: 'pvpSubmitMove',
+                initData: tgInitData,
+                roomId: pvpRoomId,
+                move: { type: 'xray_scan', point: xrayPoint }
+            }).then(function(data) {
+                if (data && data.ok && data.room) {
+                    applyPvpRoomState(data.room);
+                } else if (xrayAttempts < 3) {
+                    setTimeout(submitXray, 800);
+                }
+            }).catch(function() {
+                if (xrayAttempts < 3) setTimeout(submitXray, 800);
+            });
+        }
+        submitXray();
         return;
     }
     if (msg.type === 'make_move') {
