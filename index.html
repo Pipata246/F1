@@ -1747,7 +1747,7 @@
       apiJson("/api/user", { action: "pvpCancelQueue", initData: tgInitData, roomId: randomRoomId }).catch(()=>{});
       randomRoomId = null;
     }
-    resetRandomSearch();
+    go("games");
   };
 
   document.getElementById("randomBackBtn").onclick = () => {
