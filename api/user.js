@@ -1828,6 +1828,7 @@ async function pvpDedupPairRooms(gameKey, tgA, tgB, keepRoomId) {
 }
 
 async function pvpTryJoinWaiting(gameKey, tgId, safeName, wantedStakes) {
+  // Ищем обычные комнаты этой игры
   const waiting = await sb(
     `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=20`
   );
@@ -1847,6 +1848,30 @@ async function pvpTryJoinWaiting(gameKey, tgId, safeName, wantedStakes) {
     );
     if (joined) return joined;
   }
+
+  // Также ищем случайные комнаты (is_random: true) с той же игрой и ставкой
+  const randomWaiting = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&select=*&order=created_at.asc&limit=20`
+  );
+  for (const room of randomWaiting || []) {
+    const sj = asObj(room.state_json);
+    if (!sj.is_random) continue;
+    const sharedStake = pickSharedStake(wantedStakes, stakeOptionsFromRoom(room));
+    if (!sharedStake) continue;
+    const state = pvpWrapWithAcceptPhase(
+      pvpDefaultStateForGame(gameKey, room.player1_tg_user_id, tgId),
+      { player2_tg_user_id: tgId }
+    );
+    const joined = await pvpTryJoinWaitingWithStake(
+      room,
+      tgId,
+      safeName,
+      { ...state, phaseAtMs: Date.now() },
+      sharedStake
+    );
+    if (joined) return joined;
+  }
+
   return null;
 }
 
@@ -3017,7 +3042,7 @@ async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
     }
   }
 
-  // Нет открытых комнат — создаём в случайной игре
+  // Нет открытых комнат — создаём в случайной игре с меткой is_random
   const randomGame = ALL_GAMES[Math.floor(Math.random() * ALL_GAMES.length)];
   await pvpPruneUserNonActiveRooms(tgId, randomGame);
   await pvpEnforceSingleActiveRoom(randomGame, tgId, safeName, 0);
@@ -3036,7 +3061,7 @@ async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
       stake_ton: null,
       stake_locked_at: null,
       stake_settled_at: null,
-      state_json: {},
+      state_json: { is_random: true },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
