@@ -1407,17 +1407,18 @@ function normalizeGameKey(value) {
   return key;
 }
 
-const PVP_ALLOWED_STAKES = Object.freeze([1, 5, 10, 25, 50, 100]);
+const PVP_ALLOWED_STAKES = Object.freeze([0.1, 0.5, 1, 5, 10, 25]);
 
 function normalizeStakeOptions(values) {
   const arr = Array.isArray(values) ? values : [];
   const uniq = [];
   for (const v of arr) {
     const n = Number(v);
-    if (!Number.isFinite(n)) continue;
-    const fixed = Number(n.toFixed(9));
-    if (!PVP_ALLOWED_STAKES.includes(fixed)) continue;
-    if (!uniq.includes(fixed)) uniq.push(fixed);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    // Округляем до 1 знака для надёжного сравнения (0.1, 0.5, 1, 5, 10, 25)
+    const rounded = Math.round(n * 10) / 10;
+    if (!PVP_ALLOWED_STAKES.some(s => Math.abs(s - rounded) < 0.001)) continue;
+    if (!uniq.some(x => Math.abs(x - rounded) < 0.001)) uniq.push(rounded);
   }
   uniq.sort((a, b) => a - b);
   if (!uniq.length) throw new Error("Choose at least one stake amount");

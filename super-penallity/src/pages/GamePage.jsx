@@ -1117,7 +1117,7 @@ const GamePage = () => {
           <div className="w-full max-w-xs mx-auto">
             <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider text-center">Выбери ставки TON</p>
             <div className="grid grid-cols-3 gap-2">
-              {[1, 5, 10, 25, 50, 100].map((stake) => {
+              {[0.1, 0.5, 1, 5, 10, 25].map((stake) => {
                 const active = selectedStakeOptions.includes(stake);
                 const blocked = Number(balanceTon || 0) < Number(stake);
                 return (
