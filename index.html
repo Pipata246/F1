@@ -680,6 +680,16 @@
           </div>
         </div>
 
+        <!-- RANDOM GAME -->
+        <div class="glass card" style="margin-bottom:12px; background: linear-gradient(135deg, rgba(140,255,193,0.08), rgba(99,230,190,0.04)); border-color: rgba(140,255,193,0.25);">
+          <div class="gameCardTitle" style="margin-bottom:4px;">
+            <span class="gameIcon gameIcon--lg" aria-hidden="true" style="font-size:26px;">🎲</span>
+            <h2 style="color:#8CFFC1;">Случайная игра</h2>
+          </div>
+          <div class="muted" style="margin-bottom:14px;">Попади в случайную PvP-игру — система подберёт тебе соперника в любой из игр по твоей ставке.</div>
+          <button class="btn primary" id="openRandomGame" style="width:100%;">Играть</button>
+        </div>
+
         <!-- Frog Hunt PvP -->
         <div class="glass card" style="margin-bottom:12px;">
           <div class="gameCardTitle">
@@ -789,6 +799,23 @@
           <div style="margin-top:14px" class="row">
             <button class="btn primary" id="openBasketballPlay" style="flex:1">Играть</button>
             <button class="btn ghost" id="openBasketballDemo" style="flex:1">Дэмо</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- RANDOM GAME STAKE PICKER -->
+      <section id="page-random-game" class="hidden">
+        <div class="glass card">
+          <h2 class="titleXL" style="margin:0 0 4px">🎲 Случайная игра</h2>
+          <p class="subtitle" style="margin-bottom:16px;">Выберите ставку чтобы попасть в случайную игру</p>
+          <div class="divider"></div>
+          <div id="randomStakeGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0;"></div>
+          <button class="btn primary" id="randomPlayBtn" disabled style="margin-top:4px;">Найти игру</button>
+          <button class="btn ghost" id="randomBackBtn" style="margin-top:8px;">Назад</button>
+          <div id="randomSearching" style="display:none;text-align:center;margin-top:16px;">
+            <div class="spinner" style="margin:0 auto 10px;"></div>
+            <p class="text2" style="font-size:14px;">Ищем соперника в любой игре...</p>
+            <button class="btn ghost" id="randomCancelBtn" style="margin-top:12px;max-width:200px;">Отмена</button>
           </div>
         </div>
       </section>
@@ -1373,7 +1400,7 @@
     modalCancel.onclick = ()=> modalWrap.classList.remove("show");
   }
 
-  const pages = ["onb-rules","onb-ref","games","wallet","matches","profile"];
+  const pages = ["onb-rules","onb-ref","games","wallet","matches","profile","random-game"];
   function go(page){
     pages.forEach(p=>{
       const el = document.getElementById("page-"+p);
@@ -1596,6 +1623,137 @@
   document.getElementById("openObstacleRaceDemo").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/obstacle-race/", "demo"); };
   document.getElementById("openPenaltyPlay").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/super-penallity/", "play"); };
   document.getElementById("openPenaltyDemo").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/super-penallity/", "demo"); };
+  document.getElementById("openRandomGame").onclick = ()=>{ hImpact("light"); openRandomGamePage(); };
+
+  // ===== RANDOM GAME =====
+  const RANDOM_ALLOWED_STAKES = [0.1, 0.5, 1, 5, 10, 25];
+  const RANDOM_GAME_URLS = {
+    frog_hunt: "/frog-hunt/",
+    obstacle_race: "/obstacle-race/",
+    super_penalty: "/super-penallity/",
+    basketball: "/basketball-pvp/",
+  };
+  let randomSelectedStakes = [];
+  let randomPollTimer = null;
+  let randomRoomId = null;
+
+  function openRandomGamePage() {
+    randomSelectedStakes = [];
+    renderRandomStakePicker();
+    go("random-game");
+    resetRandomSearch();
+  }
+
+  function renderRandomStakePicker() {
+    const grid = document.getElementById("randomStakeGrid");
+    if (!grid) return;
+    const bal = state.profile.serverBalanceTon != null ? Number(state.profile.serverBalanceTon) : 0;
+    grid.innerHTML = "";
+    RANDOM_ALLOWED_STAKES.forEach(stake => {
+      const blocked = bal < stake;
+      const active = randomSelectedStakes.some(s => Math.abs(s - stake) < 0.001);
+      const b = document.createElement("button");
+      b.className = "btn " + (active ? "primary" : "ghost");
+      b.style.cssText = "aspect-ratio:1/1;font-size:13px;font-weight:900;padding:0;" + (blocked ? "opacity:.5;" : "");
+      b.textContent = stake + " TON";
+      b.disabled = blocked;
+      b.onclick = () => {
+        if (blocked) return;
+        if (randomSelectedStakes.some(s => Math.abs(s - stake) < 0.001)) {
+          randomSelectedStakes = randomSelectedStakes.filter(s => Math.abs(s - stake) >= 0.001);
+        } else {
+          randomSelectedStakes.push(stake);
+        }
+        renderRandomStakePicker();
+        const playBtn = document.getElementById("randomPlayBtn");
+        if (playBtn) playBtn.disabled = randomSelectedStakes.length === 0;
+      };
+      grid.appendChild(b);
+    });
+    const playBtn = document.getElementById("randomPlayBtn");
+    if (playBtn) playBtn.disabled = randomSelectedStakes.length === 0;
+  }
+
+  document.getElementById("randomPlayBtn").onclick = async () => {
+    if (!randomSelectedStakes.length) return;
+    hImpact("light");
+    document.getElementById("randomPlayBtn").style.display = "none";
+    document.getElementById("randomBackBtn").style.display = "none";
+    document.getElementById("randomStakeGrid").style.display = "none";
+    document.getElementById("randomSearching").style.display = "block";
+
+    try {
+      const data = await apiJson("/api/user", {
+        action: "pvpFindMatchRandom",
+        initData: tgInitData,
+        playerName: displayNick(),
+        stakeOptions: randomSelectedStakes.slice().sort((a,b)=>a-b),
+      });
+      if (!data.ok || !data.room) throw new Error("No room");
+      randomRoomId = data.room.id;
+      const gameKey = String(data.room.game_key || "");
+      const gameUrl = RANDOM_GAME_URLS[gameKey];
+      if (!gameUrl) throw new Error("Unknown game: " + gameKey);
+      if (String(data.room.status) === "active") {
+        window.location.href = gameUrl + "?launch=play";
+      } else {
+        startRandomPolling(gameUrl);
+      }
+    } catch(e) {
+      resetRandomSearch();
+      toast(String(e?.message || "Ошибка поиска. Попробуй снова."), 3000);
+    }
+  };
+
+  function startRandomPolling(gameUrl) {
+    if (randomPollTimer) clearInterval(randomPollTimer);
+    randomPollTimer = setInterval(async () => {
+      if (!randomRoomId) { clearInterval(randomPollTimer); return; }
+      try {
+        const data = await apiJson("/api/user", {
+          action: "pvpGetRoomState",
+          initData: tgInitData,
+          roomId: randomRoomId,
+        });
+        if (!data.ok || !data.room) return;
+        const room = data.room;
+        if (String(room.status) === "active" && room.player2_tg_user_id) {
+          clearInterval(randomPollTimer);
+          randomPollTimer = null;
+          const gk = String(room.game_key || "");
+          const url = RANDOM_GAME_URLS[gk];
+          if (url) window.location.href = url + "?launch=play";
+        }
+      } catch(e) {}
+    }, 1500);
+  }
+
+  document.getElementById("randomCancelBtn").onclick = async () => {
+    clearInterval(randomPollTimer);
+    randomPollTimer = null;
+    if (randomRoomId) {
+      apiJson("/api/user", { action: "pvpCancelQueue", initData: tgInitData, roomId: randomRoomId }).catch(()=>{});
+      randomRoomId = null;
+    }
+    resetRandomSearch();
+  };
+
+  document.getElementById("randomBackBtn").onclick = () => {
+    go("games");
+  };
+
+  function resetRandomSearch() {
+    const playBtn = document.getElementById("randomPlayBtn");
+    const backBtn = document.getElementById("randomBackBtn");
+    const grid = document.getElementById("randomStakeGrid");
+    const searching = document.getElementById("randomSearching");
+    if (playBtn) playBtn.style.display = "";
+    if (backBtn) backBtn.style.display = "";
+    if (grid) grid.style.display = "";
+    if (searching) searching.style.display = "none";
+    renderRandomStakePicker();
+  }
+
   document.getElementById("openBasketballPlay").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/basketball-pvp/", "play"); };
   document.getElementById("openBasketballDemo").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/basketball-pvp/", "demo"); };
 

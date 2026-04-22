@@ -2986,6 +2986,68 @@ function pvpApplyMove(room, tgId, move) {
   return next;
 }
 
+async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const safeName = displayNameFromTg(verified.user).slice(0, 64);
+  const wantedStakes = normalizeStakeOptions(stakeOptions);
+  await assertUserCanQueueStake(tgId, wantedStakes);
+
+  const ALL_GAMES = ["frog_hunt", "obstacle_race", "super_penalty", "basketball"];
+
+  // Ищем любую открытую комнату по ставке во всех играх
+  for (const stake of wantedStakes) {
+    const waiting = await sb(
+      `pvp_rooms?status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&game_key=in.(frog_hunt,obstacle_race,super_penalty,basketball)&select=*&order=created_at.asc&limit=20`
+    );
+    for (const room of waiting || []) {
+      if (!ALL_GAMES.includes(String(room.game_key || ""))) continue;
+      const roomStakes = stakeOptionsFromRoom(room);
+      if (!roomStakes.some(s => Math.abs(s - stake) < 0.001)) continue;
+      // Нашли подходящую комнату — присоединяемся
+      const sharedStake = stake;
+      const state = pvpWrapWithAcceptPhase(
+        pvpDefaultStateForGame(room.game_key, room.player1_tg_user_id, tgId),
+        { player2_tg_user_id: tgId }
+      );
+      const joined = await pvpTryJoinWaitingWithStake(room, tgId, safeName, { ...state, phaseAtMs: Date.now() }, sharedStake);
+      if (joined) return joined;
+    }
+  }
+
+  // Нет открытых комнат — создаём в случайной игре
+  const randomGame = ALL_GAMES[Math.floor(Math.random() * ALL_GAMES.length)];
+  await pvpPruneUserNonActiveRooms(tgId, randomGame);
+  await pvpEnforceSingleActiveRoom(randomGame, tgId, safeName, 0);
+
+  const created = await sb("pvp_rooms", {
+    method: "POST",
+    body: {
+      game_key: randomGame,
+      status: "waiting",
+      player1_tg_user_id: tgId,
+      player1_name: safeName,
+      player2_tg_user_id: null,
+      player2_name: null,
+      winner_tg_user_id: null,
+      stake_options_ton: wantedStakes,
+      stake_ton: null,
+      stake_locked_at: null,
+      stake_settled_at: null,
+      state_json: {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    prefer: "return=representation",
+  });
+  const ownRoom = created?.[0];
+  if (!ownRoom) throw new Error("Failed to create queue room");
+  await pvpEnforceSingleActiveRoom(randomGame, tgId, safeName, ownRoom.id);
+  return ownRoom;
+}
+
 async function pvpFindMatch(initData, gameKey, playerName, stakeOptions) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -3788,6 +3850,14 @@ module.exports = async (req, res) => {
         req.body?.gameKey || "frog_hunt",
         req.body?.playerName || "",
         req.body?.stakeOptions || req.body?.stake_ton_options || []
+      );
+      return res.status(200).json({ ok: true, room });
+    }
+    if (action === "pvpFindMatchRandom") {
+      const room = await pvpFindMatchRandom(
+        req.body?.initData || "",
+        req.body?.playerName || "",
+        req.body?.stakeOptions || []
       );
       return res.status(200).json({ ok: true, room });
     }
