@@ -6,5 +6,4 @@ dist/
 .env.*
 !.env.example
 .env.example
-vscode/
-.gitignore
+.vscode/
