@@ -972,6 +972,9 @@ const GamePage = () => {
         tgInitDataRef.current = window.Telegram?.WebApp?.initData || tgInitDataRef.current || '';
         pvpRoomIdRef.current = Number(roomId);
         playModeRef.current = 'pvp';
+        // Восстанавливаем ставку из URL для кнопки "Играть снова"
+        const stakeFromUrl = Number(params.get('stake') || 0);
+        if (stakeFromUrl > 0) setSelectedStakeOptions([stakeFromUrl]);
         setScreen('waiting');
         startPvpPolling();
       } else {

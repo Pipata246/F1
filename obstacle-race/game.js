@@ -186,6 +186,11 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(function() {
                 isBotMode = false;
                 pvpRoomId = String(directRoomId);
+                // Восстанавливаем ставку из URL для кнопки "Играть снова"
+                const stakeFromUrl = Number(urlParams.get('stake') || 0);
+                if (stakeFromUrl > 0 && selectedStakeOptions.indexOf(stakeFromUrl) < 0) {
+                    selectedStakeOptions = [stakeFromUrl];
+                }
                 syncMyNameFromServer(function() {
                     showScreen('waiting');
                     startPvpPolling();

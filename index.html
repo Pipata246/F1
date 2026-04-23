@@ -1721,7 +1721,8 @@
       if (!gameUrl) throw new Error("Unknown game: " + gameKey);
       // Если комната уже active (нашёлся соперник сразу) — редиректим
       if (String(data.room.status) === "active" && data.room.player2_tg_user_id) {
-        window.location.href = gameUrl + "?launch=play&roomId=" + encodeURIComponent(data.room.id);
+        const stakeParam = randomSelectedStakes.length ? "&stake=" + encodeURIComponent(randomSelectedStakes[0]) : "";
+        window.location.href = gameUrl + "?launch=play&roomId=" + encodeURIComponent(data.room.id) + stakeParam;
       } else {
         // Иначе остаёмся на странице случайной игры и ждём через polling
         startRandomPolling();
@@ -1750,7 +1751,10 @@
           randomPollTimer = null;
           const gk = String(room.game_key || "");
           const url = RANDOM_GAME_URLS[gk];
-          if (url) window.location.href = url + "?launch=play&roomId=" + encodeURIComponent(room.id);
+          if (url) {
+            const stakeParam = randomSelectedStakes.length ? "&stake=" + encodeURIComponent(randomSelectedStakes[0]) : "";
+            window.location.href = url + "?launch=play&roomId=" + encodeURIComponent(room.id) + stakeParam;
+          }
         }
       } catch(e) {}
     }, 1500);
