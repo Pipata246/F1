@@ -23,6 +23,7 @@ let overtimePlacing = false;
 let trapsConfirmed = false;
 let trapTimerInterval = null;
 let myOvertimeTraps = [];
+let roundAnimating = false; // флаг: идёт анимация раунда, не обновляем счёт
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
@@ -644,9 +645,22 @@ function sendMsg(m) {
                     applyPvpRoomState(data.room);
                 } else if (trapAttempts < 3) {
                     setTimeout(submitTraps, 800);
+                } else {
+                    // После 3 попыток — разблокируем и показываем ошибку
+                    trapsConfirmed = false;
+                    $('btn-traps-ok').classList.remove('hidden');
+                    $('traps-wait').classList.add('hidden');
+                    showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
                 }
             }).catch(function() {
-                if (trapAttempts < 3) setTimeout(submitTraps, 800);
+                if (trapAttempts < 3) {
+                    setTimeout(submitTraps, 800);
+                } else {
+                    trapsConfirmed = false;
+                    $('btn-traps-ok').classList.remove('hidden');
+                    $('traps-wait').classList.add('hidden');
+                    showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
+                }
             });
         }
         submitTraps();
@@ -931,6 +945,7 @@ function startTrapTimer() {
 }
 
 function confirmTraps() {
+    if (trapsConfirmed) return; // защита от двойного вызова
     playSound('click');
     trapsConfirmed = true;
     stopTrapTimer();
@@ -1033,8 +1048,11 @@ async function onRoundStart(msg) {
     if (currentStep === 0 && !isOvertime) {
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
-        $('sb-score-0').textContent = String(scores[0] || 0);
-        $('sb-score-1').textContent = String(scores[1] || 0);
+        // Не обновляем счёт пока идёт анимация предыдущего раунда
+        if (!roundAnimating) {
+            $('sb-score-0').textContent = String(scores[0] || 0);
+            $('sb-score-1').textContent = String(scores[1] || 0);
+        }
         $('tname-0').textContent = myName;
         $('tname-1').textContent = opponentName;
         $('round-num').textContent = '\u0420\u0430\u0443\u043D\u0434';
@@ -1171,6 +1189,13 @@ function onXrayResult(msg) {
 function onOppXray(msg) {
     // Reveal opponent ability
     oppAbility = 'xray';
+
+    // Показываем тост что соперник использовал рентген
+    var toast = document.createElement('div');
+    toast.className = 'ability-toast xray';
+    toast.innerHTML = '<span class="ability-toast-icon">👁</span><span>' + opponentName + ' использовал Рентген!</span>';
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.remove(); }, 2200);
 
     // Scan sweep animation on opponent track (track 1)
     var trackLine = $('tpoints-1') ? $('tpoints-1').parentElement : null;
@@ -1511,6 +1536,7 @@ function startTimer() {
 
 async function onRoundResult(msg) {
     clearInterval(timerInterval);
+    roundAnimating = true; // блокируем обновление счёта в UI
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
     const my = msg.you;
@@ -1672,6 +1698,7 @@ async function onRoundResult(msg) {
     scores = [msg.scores[mi], msg.scores[1 - mi]];
     const s0 = $('sb-score-0'); const s1 = $('sb-score-1');
     s0.textContent = scores[0]; s1.textContent = scores[1];
+    roundAnimating = false; // разблокируем обновление счёта
 
     if (my.points > 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '+' + my.points, true); }
     else if (my.points < 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '' + my.points, false); }
@@ -1707,6 +1734,9 @@ async function onRoundResult(msg) {
     } else if (!msg.overtime) {
         $('round-val').textContent = Math.min(msg.round + 1, totalRounds) + '/' + totalRounds;
     }
+
+    // Возвращаем нормальный polling — результат получен, быстрый больше не нужен
+    if (!isBotMode && pvpRoomId) startPvpPolling();
 
     if (msg.gameOver) {
         await delay(300);

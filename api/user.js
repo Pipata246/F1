@@ -2681,7 +2681,7 @@ function pvpAdvanceByTime(room) {
       }
     }
     if ((s.phase === "placing_traps" || s.phase === "overtime_placing" || s.phase === "running" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 45000;
+      const staleMs = 90000; // 90 сек — защита от ложных срабатываний при кратких разрывах сети
       const p1Stale = now - p1Beat > staleMs;
       const p2Stale = now - p2Beat > staleMs;
       if (p1Stale !== p2Stale && elapsed >= 3000) {
