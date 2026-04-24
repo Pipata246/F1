@@ -24,6 +24,7 @@ let trapsConfirmed = false;
 let trapTimerInterval = null;
 let myOvertimeTraps = [];
 let roundAnimating = false; // флаг: идёт анимация раунда, не обновляем счёт
+let gameOverShown = false; // флаг: экран результата уже показан
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
@@ -782,6 +783,7 @@ function startGame(vsBot) {
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
     trapsConfirmed = false; myOvertimeTraps = []; stopTrapTimer();
+    roundAnimating = false; gameOverShown = false;
     clearInterval(timerInterval);
     matchSaved = false;
     isBotMode = !!vsBot;
@@ -1566,6 +1568,21 @@ async function onRoundResult(msg) {
             setTimeout(function() { toast.remove(); }, 2200);
         }
     }
+    // Показываем тост если ты сам использовал умение
+    if (my.usedAbility) {
+        var myToastInfo = {
+            double:   { icon: '⚡', text: 'Ты использовал Удвоение!', cls: 'double' },
+            sabotage: { icon: '💀', text: 'Ты использовал Саботаж!', cls: 'sabotage' },
+            xray:     { icon: '👁', text: 'Ты использовал Рентген!', cls: 'xray' },
+        }[my.usedAbility];
+        if (myToastInfo) {
+            var myToast = document.createElement('div');
+            myToast.className = 'ability-toast ' + myToastInfo.cls;
+            myToast.innerHTML = '<span class="ability-toast-icon">' + myToastInfo.icon + '</span><span>' + myToastInfo.text + '</span>';
+            document.body.appendChild(myToast);
+            setTimeout(function() { myToast.remove(); }, 2200);
+        }
+    }
 
     // Track traps discovered on my track
     knownTrapsOnMyTrack[msg.step] = my.hasTrap;
@@ -1642,17 +1659,17 @@ async function onRoundResult(msg) {
     function dotIcon(r) {
         if (r.usedAbility === 'double') return '⚡';
         if (r.usedAbility === 'sabotage') return '💀';
-        if (r.sabotaged) return '💀';
-        return r.points > 0 && !r.sabotaged ? '\u2713' : '\u2717';
+        if (r.sabotaged) return '🚫'; // заблокировано саботажем соперника
+        return r.points > 0 ? '\u2713' : '\u2717';
     }
     if (myDot) {
         myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
         if (my.hasTrap && my.reason === 'hit_trap') {
             myDot.classList.add('fail', 'mine-hit');
-            myDot.textContent = my.usedAbility ? dotIcon(my) : '\u2717';
+            myDot.textContent = dotIcon(my);
         } else if (my.hasTrap && my.reason === 'dodged_trap') {
             myDot.classList.add('success', 'mine-dodged');
-            myDot.textContent = my.usedAbility ? dotIcon(my) : '\u2713';
+            myDot.textContent = dotIcon(my);
         } else {
             const myOk = my.points > 0 && !my.sabotaged;
             myDot.classList.add(myOk ? 'success' : 'fail');
@@ -1664,11 +1681,11 @@ async function onRoundResult(msg) {
         if (opp.hasTrap && opp.reason === 'hit_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('fail', 'mine-exploded');
-            oppDot.textContent = opp.usedAbility ? dotIcon(opp) : '\u2717';
+            oppDot.textContent = dotIcon(opp);
         } else if (opp.hasTrap && opp.reason === 'dodged_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('mine-safe');
-            oppDot.textContent = opp.usedAbility ? dotIcon(opp) : '\u2713';
+            oppDot.textContent = dotIcon(opp);
         } else {
             oppDot.classList.remove('mine-placed');
             const oppOk = opp.points > 0 && !opp.sabotaged;
@@ -1862,7 +1879,8 @@ function showSabotageEffect() {
 }
 
 function showGameOver(winner, serverScores) {
-    const mi = playerIndex;
+    if (gameOverShown) return; // защита от двойного вызова
+    gameOverShown = true;
     const myScore = serverScores[mi];
     const oppScore = serverScores[1 - mi];
 

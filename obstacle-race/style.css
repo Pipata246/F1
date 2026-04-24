@@ -908,7 +908,5 @@ body.tg-theme {
 .ot-sub { color: var(--text2); font-size: 15px; margin-top: 8px; }
 
 .track-dot.ot-dot {
-    border-color: var(--warn);
-    color: var(--warn);
-    background: rgba(255,165,2,0.1);
+    /* В овертайме точки выглядят как обычные — зелёные */
 }
