@@ -19,6 +19,8 @@ let abilityActive = false;
 let revealedPoints = {};
 let xrayScanMode = false;
 let knownTrapsOnMyTrack = {};
+let myUsedXrayThisRound = false;  // я использовал рентген в этом раунде
+let oppUsedXrayThisRound = false; // соперник использовал рентген в этом раунде
 let overtimePlacing = false;
 let trapsConfirmed = false;
 let trapTimerInterval = null;
@@ -782,6 +784,7 @@ function startGame(vsBot) {
     moveChosen = false; isOvertime = false; trackDots = 7;
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
+    myUsedXrayThisRound = false; oppUsedXrayThisRound = false;
     trapsConfirmed = false; myOvertimeTraps = []; stopTrapTimer();
     roundAnimating = false; gameOverSoundPlayed = false;
     clearInterval(timerInterval);
@@ -1027,6 +1030,8 @@ async function onRoundStart(msg) {
     currentStep = msg.step;
     moveChosen = false;
     abilityActive = false;
+    myUsedXrayThisRound = false;  // сбрасываем флаги рентгена на каждый раунд
+    oppUsedXrayThisRound = false;
     // Возвращаем нормальный polling — быстрый больше не нужен
     if (!isBotMode && pvpRoomId) startPvpPolling();
 
@@ -1168,6 +1173,7 @@ function onXrayResult(msg) {
     xrayScanMode = false;
     abilityUsed = true;
     abilityActive = false;
+    myUsedXrayThisRound = true; // запоминаем что я использовал рентген в этом раунде
     document.body.classList.remove('xray-mode');
 
     // Scan sweep animation
@@ -1195,6 +1201,7 @@ function onXrayResult(msg) {
 function onOppXray(msg) {
     // Запоминаем что соперник использовал рентген — покажем на экране результата хода
     oppAbility = 'xray';
+    oppUsedXrayThisRound = true; // запоминаем для toast и dotIcon
 
     // Scan sweep animation on opponent track (track 1)
     var trackLine = $('tpoints-1') ? $('tpoints-1').parentElement : null;
@@ -1624,7 +1631,7 @@ async function onRoundResult(msg) {
     playSound(isGood(my) ? 'good' : 'bad');
 
     // Рентген соперника — показываем уведомление здесь, на экране результата хода
-    if (opp.usedAbility === 'xray') {
+    if (oppUsedXrayThisRound) {
         var xrayToast = document.createElement('div');
         xrayToast.className = 'ability-toast xray';
         xrayToast.innerHTML = '<span class="ability-toast-icon">👁</span><span>' + opponentName + ' использовал Рентген!</span>';
@@ -1638,8 +1645,9 @@ async function onRoundResult(msg) {
         if (r.usedAbility === 'double') return '⚡';
         if (r.usedAbility === 'sabotage') return '💀';
         if (r.usedAbility === 'xray') return '👁';
-        // Если соперник использовал рентген (пришло через onOppXray), показываем 👁
-        if (isOpp && oppAbility === 'xray') return '👁';
+        // Рентген не приходит в usedAbility — используем флаги
+        if (!isOpp && myUsedXrayThisRound) return '👁';
+        if (isOpp && oppUsedXrayThisRound) return '👁';
         if (r.sabotaged) return '💀'; // заблокировано саботажем — показываем череп
         return r.points > 0 ? '\u2713' : '\u2717';
     }
