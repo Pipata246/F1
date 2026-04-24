@@ -335,19 +335,38 @@ function doFrogHide(room, cell) {
 }
 
 function botHunterMove(room) {
-  // 65% — умный выбор (избегает предыдущую клетку лягушки), 35% — случайный
+  // 50% — умный выбор, 50% — случайный
   let cells;
-  if (Math.random() < 0.5 && room.previousFrogCell !== null) {
-    // Лягушка редко остаётся на месте — выбираем соседние клетки
-    const prev = room.previousFrogCell;
-    const candidates = [];
-    for (let i = 0; i < room.totalCells; i++) {
-      if (Math.abs(i - prev) <= 2 && i !== prev) candidates.push(i);
-    }
-    if (candidates.length >= room.hunterShots) {
-      cells = candidates.slice(0, room.hunterShots);
+  if (Math.random() < 0.5 && room.frogCell !== null) {
+    // Жаба остаётся на месте в ~30% случаев — учитываем это
+    const prev = room.frogCell;
+    const stayChance = Math.random();
+    if (stayChance < 0.3) {
+      // Стреляем на текущую позицию
+      cells = [prev];
+      if (room.hunterShots > 1) {
+        // Добавляем соседнюю клетку
+        const neighbor = prev > 0 ? prev - 1 : prev + 1;
+        if (neighbor < room.totalCells) cells.push(neighbor);
+      }
     } else {
-      cells = pickRandomCells(room.totalCells, room.hunterShots, -1);
+      // Жаба скорее всего переместилась — стреляем в соседние клетки
+      const candidates = [];
+      for (let i = 0; i < room.totalCells; i++) {
+        if (i !== prev) candidates.push(i);
+      }
+      // Перемешиваем и берём нужное количество
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      cells = candidates.slice(0, room.hunterShots);
+    }
+    // Убеждаемся что нет дублей и количество правильное
+    cells = [...new Set(cells)].slice(0, room.hunterShots);
+    while (cells.length < room.hunterShots) {
+      const r = Math.floor(Math.random() * room.totalCells);
+      if (!cells.includes(r)) cells.push(r);
     }
   } else {
     cells = pickRandomCells(room.totalCells, room.hunterShots, -1);

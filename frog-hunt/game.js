@@ -37,6 +37,7 @@ var currentBalanceTon = 0;
 var bottomNoticeTimer = null;
 var onlineModeSelected = false;
 var pvpAcceptDeadlineMs = 0;
+var pvpAcceptTickTimer = null;
 var pvpOpponentTgId = '';
 var pvpOpponentIsBot = false;
 var gameState = {
@@ -152,7 +153,16 @@ document.addEventListener('DOMContentLoaded', function() {
   refreshBalanceForStakePicker();
   $('btn-cancel').onclick = function() { leavePvpQueue(); window.location.href = '/'; };
   $('btn-confirm').onclick = confirmChoice;
-  $('btn-again').onclick = function() { isBotMode ? startSearchBot() : startSearchOnline(); };
+  $('btn-again').onclick = function() {
+    // Сбрасываем маркеры и состояние перед новым поиском
+    resetPvpMarkers();
+    window.__pvpRoleMarker = null;
+    pvpPendingSubmit = false;
+    moveChosen = false;
+    if (pvpAcceptTickTimer) { clearInterval(pvpAcceptTickTimer); pvpAcceptTickTimer = null; }
+    if (pvpMoveWatchdogTimer) { clearTimeout(pvpMoveWatchdogTimer); pvpMoveWatchdogTimer = null; }
+    isBotMode ? startSearchBot() : startSearchOnline();
+  };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
   window.addEventListener('pagehide', function() { leavePvpQueue(); presenceLeaveNet(); });
   window.addEventListener('beforeunload', function() { leavePvpQueue(); presenceLeaveNet(); });
@@ -323,7 +333,7 @@ function startSearchOnline() {
     isBotMode = false;
     setModeButtonsVisible(false);
     setStakePickerVisible(true);
-    refreshBalanceForStakePicker();
+    refreshBalanceForStakePicker(); // обновляем баланс каждый раз
     showBottomNotice('Выбери ставку и нажми "Играть"');
     return;
   }
@@ -341,6 +351,9 @@ function beginOnlineSearch() {
   function proceed() {
     showScreen('waiting');
     $('hint-text').textContent = 'Идёт поиск по ставкам: ' + selectedStakeOptions.join(', ') + ' TON';
+    // Показываем спиннер
+    var spinner = document.querySelector('#screen-waiting .spinner');
+    if (spinner) spinner.style.display = '';
     pvpFindMatch();
   }
   syncMyNameFromServer(proceed);
@@ -580,6 +593,7 @@ function applyPvpRoomState(room) {
     }
     if ($('accept-modal')) $('accept-modal').style.display = 'none';
     pvpAcceptDeadlineMs = 0;
+    if (pvpAcceptTickTimer) { clearInterval(pvpAcceptTickTimer); pvpAcceptTickTimer = null; }
     showScreen('waiting');
     return;
   }
@@ -595,6 +609,13 @@ function applyPvpRoomState(room) {
     showScreen('waiting');
     if ($('accept-timer')) $('accept-timer').textContent = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000)) + 'с';
     if ($('accept-modal')) $('accept-modal').style.display = 'flex';
+    // Запускаем живой тикер таймера
+    if (pvpAcceptTickTimer) clearInterval(pvpAcceptTickTimer);
+    pvpAcceptTickTimer = setInterval(function() {
+      var left = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000));
+      if ($('accept-timer')) $('accept-timer').textContent = left + 'с';
+      if (left <= 0) { clearInterval(pvpAcceptTickTimer); pvpAcceptTickTimer = null; }
+    }, 500);
     return;
   }
   if ($('accept-modal')) $('accept-modal').style.display = 'none';
@@ -909,9 +930,21 @@ function confirmChoice() {
     }
     submitFrogMove();
 
-    // Watchdog: если через 8 сек нет ответа — форсируем poll
-    setTimeout(function() {
-      if (moveChosen && pvpRoomId && tgInitData) pvpPollState();
+    // Watchdog: если через 8 сек нет ответа — форсируем poll и разблокируем
+    if (pvpMoveWatchdogTimer) clearTimeout(pvpMoveWatchdogTimer);
+    pvpMoveWatchdogTimer = setTimeout(function() {
+      if (moveChosen && pvpRoomId && tgInitData) {
+        pvpPollState();
+        // Если через ещё 3 сек всё ещё нет ответа — разблокируем кнопку
+        setTimeout(function() {
+          if (pvpPendingSubmit) {
+            pvpPendingSubmit = false;
+            moveChosen = false;
+            $('btn-confirm').disabled = false;
+            $('hint-text').textContent = 'Ошибка. Попробуй ещё раз.';
+          }
+        }, 3000);
+      }
     }, 8000);
     return;
   }
