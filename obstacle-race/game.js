@@ -1193,9 +1193,8 @@ function onXrayResult(msg) {
 }
 
 function onOppXray(msg) {
-    // Reveal opponent ability
+    // Запоминаем что соперник использовал рентген — покажем на экране результата хода
     oppAbility = 'xray';
-    // Уведомление о рентгене показывается на экране результата хода (в onRoundResult)
 
     // Scan sweep animation on opponent track (track 1)
     var trackLine = $('tpoints-1') ? $('tpoints-1').parentElement : null;
@@ -1205,14 +1204,7 @@ function onOppXray(msg) {
         trackLine.appendChild(scanLine);
         setTimeout(function() { scanLine.remove(); }, 700);
     }
-
-    // Highlight the scanned dot on opponent's track
-    setTimeout(function() {
-        var dot = $('dot-1-' + msg.point);
-        if (dot) {
-            dot.classList.add('xray-scanned-opp');
-        }
-    }, 600);
+    // Не добавляем xray-scanned-opp на ячейку — иконка 👁 будет показана в dotIcon() при onRoundResult
 }
 
 function toggleAbility() {
@@ -1642,9 +1634,12 @@ async function onRoundResult(msg) {
 
         // Mark dots — enhanced with mine visuals
     // Иконки способностей вместо ✓/✗ когда способность использована
-    function dotIcon(r) {
+    function dotIcon(r, isOpp) {
         if (r.usedAbility === 'double') return '⚡';
         if (r.usedAbility === 'sabotage') return '💀';
+        if (r.usedAbility === 'xray') return '👁';
+        // Если соперник использовал рентген (пришло через onOppXray), показываем 👁
+        if (isOpp && oppAbility === 'xray') return '👁';
         if (r.sabotaged) return '💀'; // заблокировано саботажем — показываем череп
         return r.points > 0 ? '\u2713' : '\u2717';
     }
@@ -1652,31 +1647,31 @@ async function onRoundResult(msg) {
         myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
         if (my.hasTrap && my.reason === 'hit_trap') {
             myDot.classList.add('fail', 'mine-hit');
-            myDot.textContent = dotIcon(my);
+            myDot.textContent = dotIcon(my, false);
         } else if (my.hasTrap && my.reason === 'dodged_trap') {
             myDot.classList.add('success', 'mine-dodged');
-            myDot.textContent = dotIcon(my);
+            myDot.textContent = dotIcon(my, false);
         } else {
             const myOk = my.points > 0 && !my.sabotaged;
             myDot.classList.add(myOk ? 'success' : 'fail');
-            myDot.textContent = dotIcon(my);
+            myDot.textContent = dotIcon(my, false);
         }
     }
     if (oppDot) {
-        oppDot.classList.remove('current');
+        oppDot.classList.remove('current', 'xray-scanned-opp');
         if (opp.hasTrap && opp.reason === 'hit_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('fail', 'mine-exploded');
-            oppDot.textContent = dotIcon(opp);
+            oppDot.textContent = dotIcon(opp, true);
         } else if (opp.hasTrap && opp.reason === 'dodged_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('mine-safe');
-            oppDot.textContent = dotIcon(opp);
+            oppDot.textContent = dotIcon(opp, true);
         } else {
             oppDot.classList.remove('mine-placed');
             const oppOk = opp.points > 0 && !opp.sabotaged;
             oppDot.classList.add(oppOk ? 'success' : 'fail');
-            oppDot.textContent = dotIcon(opp);
+            oppDot.textContent = dotIcon(opp, true);
         }
     }
 
