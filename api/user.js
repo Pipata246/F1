@@ -1777,7 +1777,7 @@ function pvpHeartbeat(state, tgId) {
   const now = Date.now();
   const presence = { ...(next.presence || {}) };
   const prev = Number(presence[side] || 0);
-  if (now - prev < 8000) return { changed: false, state: next };
+  if (now - prev < 15000) return { changed: false, state: next }; // было 8000
   presence[side] = now;
   next.presence = presence;
   next.updatedAt = new Date().toISOString();
@@ -3275,13 +3275,15 @@ async function pvpGetRoomState(initData, roomId) {
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
 
-  const rows = await sb(
-    `pvp_rooms?id=eq.${id}&select=*`
-  );
+  const rows = await sb(`pvp_rooms?id=eq.${id}&select=id,status,state_json,game_key,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,stake_ton,stake_options_ton,stake_settled_at,created_at,updated_at`);
   const room = rows?.[0];
   if (!room) throw new Error("Room not found");
-  if (!isPvpRoomParticipant(room, tgId)) {
-    throw new Error("Forbidden");
+  if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
+
+  // Пропускаем бот-фоллбэк и advance если комната уже завершена
+  const roomStatus = String(room.status || "");
+  if (roomStatus === "finished" || roomStatus === "cancelled") {
+    return room;
   }
 
   let roomForTick = await pvpMaybeFallbackToBot(room, tgId);
@@ -3289,6 +3291,8 @@ async function pvpGetRoomState(initData, roomId) {
   const advanced = pvpAdvanceByTime(roomForTick);
   let nextRoom = roomForTick;
   const hb = pvpHeartbeat(advanced.state, tgId);
+
+  // Только пишем в БД если реально что-то изменилось
   if (advanced.changed || hb.changed) {
     const patched = await sb(`pvp_rooms?id=eq.${id}`, {
       method: "PATCH",
@@ -3389,14 +3393,14 @@ async function pvpSubmitMove(initData, roomId, move) {
 
   // Optimistic retries protect from concurrent writes from both clients.
   for (let attempt = 0; attempt < 4; attempt++) {
-    const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
+    const rows = await sb(`pvp_rooms?id=eq.${id}&select=id,status,state_json,game_key,player1_tg_user_id,player2_tg_user_id,stake_ton,updated_at`);
     const room = rows?.[0];
     if (!room) throw new Error("Room not found");
     if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
     if (room.status !== "active") return room;
 
-    const nowState = pvpAdvanceByTime(room).state;
-    const withHeartbeat = pvpHeartbeat(nowState, tgId).state;
+    // Не вызываем pvpAdvanceByTime при сабмите — только применяем ход
+    const withHeartbeat = pvpHeartbeat(asObj(room.state_json), tgId).state;
     const nextState = pvpApplyMove({ ...room, state_json: withHeartbeat }, tgId, asObj(move));
     const patched = await sb(
       `pvp_rooms?id=eq.${id}&updated_at=eq.${encodeURIComponent(room.updated_at)}&status=eq.active`,

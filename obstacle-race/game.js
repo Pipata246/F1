@@ -577,7 +577,9 @@ function pvpPollState() {
         }
         if (!data.room) return;
         applyPvpRoomState(data.room);
-    }).catch(function() {}).finally(function() {
+    }).catch(function() {
+        // При ошибке сети — не спамим, просто ждём следующего интервала
+    }).finally(function() {
         pvpPollInFlight = false;
     });
 }

@@ -26,7 +26,7 @@ var pvpLastMatchMarker = 0;
 var pvpLastTurnKey = '';
 var pvpPendingSubmit = false;
 var pvpPollInFlight = false;
-var PVP_POLL_MS = 350;
+var PVP_POLL_MS = 800;
 var pvpRecovering = false;
 // Watchdog: если ход сделан но нет ответа — форсируем poll
 var pvpMoveWatchdogTimer = null;
@@ -526,7 +526,9 @@ function pvpPollState() {
     }
     if (!data.room) return;
     applyPvpRoomState(data.room);
-  }).catch(function() {}).finally(function() {
+  }).catch(function() {
+    // При ошибке сети — не спамим
+  }).finally(function() {
     pvpPollInFlight = false;
   });
 }
