@@ -30,6 +30,7 @@ var PVP_POLL_MS = 800;
 var pvpRecovering = false;
 // Watchdog: если ход сделан но нет ответа — форсируем poll
 var pvpMoveWatchdogTimer = null;
+var roundAnimating = false; // флаг: идёт анимация раунда, не обновляем счёт
 var selectedStakeOptions = [];
 var currentStakeTon = null;
 var ALLOWED_STAKES = [0.1, 0.5, 1, 5, 10, 25];
@@ -1098,6 +1099,11 @@ function onRoundResult(msg) {
   stopTimer();
   moveChosen = true;
   $('btn-confirm').disabled = true;
+  roundAnimating = true; // блокируем обновление счёта
+
+  // Замораживаем отображение счёта на время анимации
+  var scoreEl = $('match-score');
+  var frozenScore = scoreEl ? scoreEl.textContent : '';
 
   var pond = document.querySelector('.pond');
   pond.classList.remove('choosing-frog', 'choosing-hunter');
@@ -1117,15 +1123,18 @@ function onRoundResult(msg) {
   // After delay: show result
   setTimeout(function() {
     if (msg.hit) {
-      // Show frog on hit cell
       var hitCell = msg.frogCell;
       var hitPad = getPad(hitCell);
       if (hitPad) hitPad.classList.add('hit');
       showFrog(hitCell);
       playSound('hit');
       $('hint-text').textContent = 'Попадание!';
+      // Обновляем счёт после появления жабы
+      setTimeout(function() {
+        roundAnimating = false;
+        $('match-score').textContent = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
+      }, 600);
     } else {
-      // Reveal frog position on miss for both players
       showFrog(msg.frogCell);
       playSound('ribbit');
       playSound('miss');
@@ -1134,6 +1143,8 @@ function onRoundResult(msg) {
       } else {
         $('hint-text').textContent = 'Промах!';
       }
+      // При промахе счёт не меняется — просто снимаем блокировку
+      roundAnimating = false;
     }
 
     // Show overlay
@@ -1456,7 +1467,10 @@ function updateHeader() {
   } else {
     $('game-label').textContent = 'Игра ' + gameNum + '/2';
   }
-  $('match-score').textContent = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
+  // Не обновляем счёт пока идёт анимация раунда
+  if (!roundAnimating) {
+    $('match-score').textContent = matchScores[playerIndex] + ' : ' + matchScores[1 - playerIndex];
+  }
   $('round-label').textContent = 'Ход ' + currentRound + '/' + totalRounds;
   $('role-label').textContent = myRole === 'frog' ? 'Жаба' : 'Охотник';
 }
