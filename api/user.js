@@ -1777,7 +1777,7 @@ function pvpHeartbeat(state, tgId) {
   const now = Date.now();
   const presence = { ...(next.presence || {}) };
   const prev = Number(presence[side] || 0);
-  if (now - prev < 15000) return { changed: false, state: next }; // было 8000
+  if (now - prev < 8000) return { changed: false, state: next }; // было 8000
   presence[side] = now;
   next.presence = presence;
   next.updatedAt = new Date().toISOString();
@@ -2375,7 +2375,7 @@ function pvpAdvanceByTime(room) {
     }
 
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 15000;
+      const staleMs = 45000;
       const p1Stale = now - p1Beat > staleMs;
       const p2Stale = now - p2Beat > staleMs;
       if (p1Stale !== p2Stale && elapsed >= 3000) {
@@ -2533,7 +2533,7 @@ function pvpAdvanceByTime(room) {
       }
     }
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 15000;
+      const staleMs = 45000;
       const p1Stale = now - p1Beat > staleMs;
       const p2Stale = now - p2Beat > staleMs;
       if (p1Stale !== p2Stale && elapsed >= 3000) {
@@ -2681,7 +2681,7 @@ function pvpAdvanceByTime(room) {
       }
     }
     if ((s.phase === "placing_traps" || s.phase === "overtime_placing" || s.phase === "running" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 15000;
+      const staleMs = 45000;
       const p1Stale = now - p1Beat > staleMs;
       const p2Stale = now - p2Beat > staleMs;
       if (p1Stale !== p2Stale && elapsed >= 3000) {
@@ -2861,7 +2861,7 @@ function pvpAdvanceByTime(room) {
 
   // If one side stopped polling for long enough, end match by forfeit.
   if ((s.phase === "turn_input" || s.phase === "round_result" || s.phase === "game_over") && p1Beat > 0 && p2Beat > 0) {
-    const staleMs = 15000;
+    const staleMs = 45000;
     const p1Stale = now - p1Beat > staleMs;
     const p2Stale = now - p2Beat > staleMs;
     // Protect from false positives during brief network hiccups.
