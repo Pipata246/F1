@@ -38,6 +38,7 @@ let currentBalanceTon = 0;
 let bottomNoticeTimer = null;
 let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
+let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -419,6 +420,25 @@ function getPvpSides(room) {
     };
 }
 
+function stopAcceptTick() {
+    if (pvpAcceptTickInterval) { clearInterval(pvpAcceptTickInterval); pvpAcceptTickInterval = null; }
+}
+
+function startAcceptTick() {
+    stopAcceptTick();
+    function tick() {
+        var remaining = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000));
+        if ($('accept-timer')) $('accept-timer').textContent = remaining + 'с';
+        if (remaining <= 0) {
+            stopAcceptTick();
+            // Форсируем poll чтобы сразу получить новое состояние
+            pvpPollState();
+        }
+    }
+    tick(); // сразу обновляем
+    pvpAcceptTickInterval = setInterval(tick, 200); // обновляем каждые 200мс для плавности
+}
+
 function applyPvpRoomState(room) {
     if (!room) return;
     var s = room.state_json || {};
@@ -431,16 +451,18 @@ function applyPvpRoomState(room) {
                 (room.stake_ton != null ? (' · ' + Number(room.stake_ton) + ' TON') : '');
         }
         showScreen('waiting');
-        if ($('accept-timer')) $('accept-timer').textContent = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000)) + 'с';
+        startAcceptTick(); // локальный тик — обновляет таймер каждые 200мс
         if ($('accept-modal')) $('accept-modal').style.display = 'flex';
         return;
     }
     if (String(room.status) === 'waiting') {
+        stopAcceptTick();
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
         showScreen('waiting');
         return;
     }
+    stopAcceptTick();
     if ($('accept-modal')) $('accept-modal').style.display = 'none';
 
     var sides = getPvpSides(room);
@@ -848,6 +870,7 @@ function cancelWait() {
         window.location.href = '/';
         return;
     }
+    stopAcceptTick();
     stopPvpPolling();
     pvpLeaveRoomSafe().finally(function() { window.location.href = '/'; });
 }
