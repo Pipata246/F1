@@ -459,19 +459,7 @@ body.xray-mode .track-avatar {
     color: var(--warn);
 }
 .track-dot.mine-safe::after {
-    content: '\2713';
-    position: absolute;
-    top: -25px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 13px;
-    font-weight: 900;
-    color: var(--success);
-    pointer-events: none;
-    z-index: 4;
-    line-height: 1;
-    text-shadow: 0 0 8px rgba(46, 213, 115, 0.6);
+    content: none; /* галочка уже показывается внутри ячейки через dotIcon */
 }
 @keyframes mineExplode {
     0% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 165, 2, 0); }
