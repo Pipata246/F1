@@ -24,7 +24,7 @@ let trapsConfirmed = false;
 let trapTimerInterval = null;
 let myOvertimeTraps = [];
 let roundAnimating = false; // флаг: идёт анимация раунда, не обновляем счёт
-let gameOverShown = false; // флаг: экран результата уже показан
+let gameOverSoundPlayed = false; // флаг: звук конца игры уже сыгран
 let tgInitData = '';
 let localMatch = null;
 let matchSaved = false;
@@ -783,7 +783,7 @@ function startGame(vsBot) {
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
     trapsConfirmed = false; myOvertimeTraps = []; stopTrapTimer();
-    roundAnimating = false; gameOverShown = false;
+    roundAnimating = false; gameOverSoundPlayed = false;
     clearInterval(timerInterval);
     matchSaved = false;
     isBotMode = !!vsBot;
@@ -1865,19 +1865,18 @@ function showSabotageEffect() {
 }
 
 function showGameOver(winner, serverScores) {
-    if (gameOverShown) return; // защита от двойного вызова
-    gameOverShown = true;
+    const mi = playerIndex;
     const myScore = serverScores[mi];
     const oppScore = serverScores[1 - mi];
 
     if (winner === 'win') {
-        playSound('win');
+        if (!gameOverSoundPlayed) { playSound('win'); gameOverSoundPlayed = true; }
         $('result-emoji').textContent = '\uD83D\uDC51';
         $('result-title').textContent = '\u041F\u041E\u0411\u0415\u0414\u0410!';
         $('result-title').style.color = 'var(--success)';
         $('result-sub').textContent = '\u0422\u044B \u043E\u043A\u0430\u0437\u0430\u043B\u0441\u044F \u0445\u0438\u0442\u0440\u0435\u0435!';
     } else if (winner === 'lose') {
-        playSound('lose');
+        if (!gameOverSoundPlayed) { playSound('lose'); gameOverSoundPlayed = true; }
         $('result-emoji').textContent = '\uD83D\uDE14';
         $('result-title').textContent = '\u041F\u041E\u0420\u0410\u0416\u0415\u041D\u0418\u0415';
         $('result-title').style.color = 'var(--danger)';
