@@ -1195,13 +1195,7 @@ function onXrayResult(msg) {
 function onOppXray(msg) {
     // Reveal opponent ability
     oppAbility = 'xray';
-
-    // Показываем тост что соперник использовал рентген
-    var toast = document.createElement('div');
-    toast.className = 'ability-toast xray';
-    toast.innerHTML = '<span class="ability-toast-icon">👁</span><span>' + opponentName + ' использовал Рентген!</span>';
-    document.body.appendChild(toast);
-    setTimeout(function() { toast.remove(); }, 2200);
+    // Уведомление о рентгене показывается на экране результата хода (в onRoundResult)
 
     // Scan sweep animation on opponent track (track 1)
     var trackLine = $('tpoints-1') ? $('tpoints-1').parentElement : null;
@@ -1553,12 +1547,12 @@ async function onRoundResult(msg) {
         oppAbility = opp.usedAbility;
     }
 
-    // Показываем тост если соперник использовал умение
-    if (opp.usedAbility) {
+    // Показываем тост ТОЛЬКО если соперник использовал умение (не своё)
+    // Рентген показывается отдельно в onOppXray, здесь только double и sabotage
+    if (opp.usedAbility && opp.usedAbility !== 'xray') {
         var toastInfo = {
             double:   { icon: '⚡', text: opponentName + ' использовал Удвоение!', cls: 'double' },
             sabotage: { icon: '💀', text: opponentName + ' использовал Саботаж!', cls: 'sabotage' },
-            xray:     { icon: '👁', text: opponentName + ' использовал Рентген!', cls: 'xray' },
         }[opp.usedAbility];
         if (toastInfo) {
             var toast = document.createElement('div');
@@ -1566,21 +1560,6 @@ async function onRoundResult(msg) {
             toast.innerHTML = '<span class="ability-toast-icon">' + toastInfo.icon + '</span><span>' + toastInfo.text + '</span>';
             document.body.appendChild(toast);
             setTimeout(function() { toast.remove(); }, 2200);
-        }
-    }
-    // Показываем тост если ты сам использовал умение
-    if (my.usedAbility) {
-        var myToastInfo = {
-            double:   { icon: '⚡', text: 'Ты использовал Удвоение!', cls: 'double' },
-            sabotage: { icon: '💀', text: 'Ты использовал Саботаж!', cls: 'sabotage' },
-            xray:     { icon: '👁', text: 'Ты использовал Рентген!', cls: 'xray' },
-        }[my.usedAbility];
-        if (myToastInfo) {
-            var myToast = document.createElement('div');
-            myToast.className = 'ability-toast ' + myToastInfo.cls;
-            myToast.innerHTML = '<span class="ability-toast-icon">' + myToastInfo.icon + '</span><span>' + myToastInfo.text + '</span>';
-            document.body.appendChild(myToast);
-            setTimeout(function() { myToast.remove(); }, 2200);
         }
     }
 
@@ -1605,8 +1584,6 @@ async function onRoundResult(msg) {
     // Action text
     function actionStr(r) {
         let s = r.action === 'run' ? '\u25B6 \u0411\u0435\u0436\u0430\u0442\u044C' : '\u25B2 \u041F\u0440\u044B\u0433\u043D\u0443\u0442\u044C';
-        if (r.usedAbility === 'double') s = '\u26A1 ' + s;
-        if (r.usedAbility === 'sabotage') s = '\uD83D\uDC80 ' + s;
         return s;
     }
 
@@ -1654,12 +1631,21 @@ async function onRoundResult(msg) {
     $('reveal-opp-result').className = 'reveal-result ' + (isGood(opp) ? 'good' : 'bad');
     playSound(isGood(my) ? 'good' : 'bad');
 
+    // Рентген соперника — показываем уведомление здесь, на экране результата хода
+    if (opp.usedAbility === 'xray') {
+        var xrayToast = document.createElement('div');
+        xrayToast.className = 'ability-toast xray';
+        xrayToast.innerHTML = '<span class="ability-toast-icon">👁</span><span>' + opponentName + ' использовал Рентген!</span>';
+        document.body.appendChild(xrayToast);
+        setTimeout(function() { xrayToast.remove(); }, 2200);
+    }
+
         // Mark dots — enhanced with mine visuals
     // Иконки способностей вместо ✓/✗ когда способность использована
     function dotIcon(r) {
         if (r.usedAbility === 'double') return '⚡';
         if (r.usedAbility === 'sabotage') return '💀';
-        if (r.sabotaged) return '🚫'; // заблокировано саботажем соперника
+        if (r.sabotaged) return '💀'; // заблокировано саботажем — показываем череп
         return r.points > 0 ? '\u2713' : '\u2717';
     }
     if (myDot) {
