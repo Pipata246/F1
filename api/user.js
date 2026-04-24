@@ -2703,7 +2703,7 @@ function pvpAdvanceByTime(room) {
       }
     }
 
-    if (s.phase === "placing_traps" && elapsed >= 25000) {
+    if (s.phase === "placing_traps" && elapsed >= 22000) {
       const p1 = Array.isArray(asObj(s.traps).p1) ? asObj(s.traps).p1 : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3));
       const p2 = Array.isArray(asObj(s.traps).p2) ? asObj(s.traps).p2 : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3));
       next.traps = { p1, p2 };

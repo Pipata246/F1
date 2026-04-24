@@ -912,7 +912,7 @@ function startTrapTimer() {
     if (trapTimerInterval) return;
     stopTrapTimer();
     var maxTraps = overtimePlacing ? 1 : 3;
-    var totalSec = 30;
+    var totalSec = 20; // 20 секунд на расстановку
     var remaining = totalSec;
 
     // Создаём элемент таймера если нет
