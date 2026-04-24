@@ -156,7 +156,11 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshBalanceForStakePicker();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
-    $('btn-again').onclick = () => startGame(isBotMode);
+    $('btn-again').onclick = () => {
+        // Мгновенный отклик — сразу показываем экран ожидания
+        showScreen('waiting');
+        setTimeout(() => startGame(isBotMode), 50);
+    };
     $('btn-menu').onclick = () => window.location.href = '/';
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
@@ -292,7 +296,7 @@ function ensureStakePicker() {
     wrap.style.marginLeft = 'auto';
     wrap.style.marginRight = 'auto';
     wrap.innerHTML =
-        '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Выбери ставки TON</div>' +
+        '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
         '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
         '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>';
     mount.appendChild(wrap);
