@@ -835,6 +835,8 @@ function beginOnlineSearch() {
     selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
     stopPvpPolling();
     pvpRoomId = null;
+    // Сразу показываем экран ожидания — не ждём ответа от сервера
+    showScreen('waiting');
     syncMyNameFromServer(function() {
         connect(function() { pvpFindMatch(); });
     });
