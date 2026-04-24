@@ -1547,7 +1547,7 @@ async function onRoundResult(msg) {
     }
 
     // Показываем тост ТОЛЬКО если соперник использовал умение (не своё)
-    // Рентген показывается отдельно в onOppXray, здесь только double и sabotage
+    // Рентген показывается отдельно через oppUsedXrayThisRound
     if (opp.usedAbility && opp.usedAbility !== 'xray') {
         var toastInfo = {
             double:   { icon: '⚡', text: opponentName + ' использовал Удвоение!', cls: 'double' },
@@ -1560,6 +1560,14 @@ async function onRoundResult(msg) {
             document.body.appendChild(toast);
             setTimeout(function() { toast.remove(); }, 2200);
         }
+    }
+    // Рентген соперника — показываем сразу вместе с другими тостами
+    if (oppUsedXrayThisRound) {
+        var xrayToast = document.createElement('div');
+        xrayToast.className = 'ability-toast xray';
+        xrayToast.innerHTML = '<span class="ability-toast-icon">👁</span><span>' + opponentName + ' использовал Рентген!</span>';
+        document.body.appendChild(xrayToast);
+        setTimeout(function() { xrayToast.remove(); }, 2200);
     }
 
     // Track traps discovered on my track
@@ -1629,15 +1637,6 @@ async function onRoundResult(msg) {
     $('reveal-opp-result').textContent = resultStr(opp);
     $('reveal-opp-result').className = 'reveal-result ' + (isGood(opp) ? 'good' : 'bad');
     playSound(isGood(my) ? 'good' : 'bad');
-
-    // Рентген соперника — показываем уведомление здесь, на экране результата хода
-    if (oppUsedXrayThisRound) {
-        var xrayToast = document.createElement('div');
-        xrayToast.className = 'ability-toast xray';
-        xrayToast.innerHTML = '<span class="ability-toast-icon">👁</span><span>' + opponentName + ' использовал Рентген!</span>';
-        document.body.appendChild(xrayToast);
-        setTimeout(function() { xrayToast.remove(); }, 2200);
-    }
 
         // Mark dots — enhanced with mine visuals
     // Иконки способностей вместо ✓/✗ когда способность использована
