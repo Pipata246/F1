@@ -36,6 +36,8 @@ let currentStakeTon = null;
 const ALLOWED_STAKES = [0.1, 0.5, 1, 5, 10, 25];
 let currentBalanceTon = 0;
 let bottomNoticeTimer = null;
+let pvpServerSkewMs = 0;
+const TURN_MS = 12_000;
 let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
 let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
@@ -446,7 +448,8 @@ function stopAcceptTick() {
 function startAcceptTick() {
     stopAcceptTick();
     function tick() {
-        var remaining = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000));
+        var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+        var remaining = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - nowServer) / 1000));
         if ($('accept-timer')) $('accept-timer').textContent = remaining + 'с';
         if (remaining <= 0) {
             stopAcceptTick();
@@ -572,7 +575,7 @@ function applyPvpRoomState(room) {
             var abilityForRound = s.overtime
                 ? ((s.overtimeAbilities || {})[sides.mySide] || null)
                 : ((s.abilities || {})[sides.mySide] || null);
-            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime });
+            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) });
             return;
         }
         // Тот же раунд — если ход уже сделан, убеждаемся что быстрый polling активен
@@ -631,6 +634,9 @@ function pvpPollState() {
                 pvpFindMatch();
             }
             return;
+        }
+        if (typeof data.serverNowMs === 'number' && isFinite(Number(data.serverNowMs))) {
+            pvpServerSkewMs = Date.now() - Number(data.serverNowMs);
         }
         if (!data.room) return;
         applyPvpRoomState(data.room);
@@ -1164,7 +1170,7 @@ async function onRoundStart(msg) {
     }
 
     showActionButtons();
-    startTimer();
+    startTimer(msg && msg.phaseAtMs ? msg.phaseAtMs : null);
 }
 
 async function showAbilityReveal() {
@@ -1560,15 +1566,19 @@ function localResolveRound() {
     if (gameOver) m.ended = true;
 }
 
-function startTimer() {
+function startTimer(phaseAtMs) {
     const fill = $('timer-fill');
     fill.style.width = '100%';
     fill.classList.remove('urgent');
     clearInterval(timerInterval);
-    const start = Date.now();
-    const duration = 10000;
+    const nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+    const durationMs = isBotMode ? 10_000 : TURN_MS;
+    const startAt = Number(phaseAtMs || 0) > 0 ? Number(phaseAtMs || 0) : nowServer;
+    const endAt = startAt + durationMs;
     timerInterval = setInterval(() => {
-        const pct = Math.max(0, 100 - ((Date.now() - start) / duration) * 100);
+        const nowS = Date.now() - (Number(pvpServerSkewMs || 0));
+        const left = Math.max(0, endAt - nowS);
+        const pct = Math.max(0, (left / durationMs) * 100);
         fill.style.width = pct + '%';
         if (pct < 30) fill.classList.add('urgent');
         if (pct <= 0) {
@@ -1576,7 +1586,13 @@ function startTimer() {
             if (!moveChosen) {
                 if (xrayScanMode) exitXrayScanMode();
                 abilityActive = false;
-                makeMove(Math.random() < 0.5 ? 'run' : 'jump');
+                // Bot/demo: auto move. Online PvP: server will resolve by timeout.
+                if (isBotMode) makeMove(Math.random() < 0.5 ? 'run' : 'jump');
+                else {
+                    $('btn-run').disabled = true;
+                    $('btn-jump').disabled = true;
+                    $('move-wait').classList.remove('hidden');
+                }
             }
         }
     }, 50);
@@ -1839,7 +1855,7 @@ async function onRoundResult(msg) {
         highlightCurrentDot(msg.round);
         moveChosen = false;
         showActionButtons();
-        startTimer();
+        startTimer(msg && msg.phaseAtMs ? msg.phaseAtMs : null);
     }
 }
 
@@ -1880,7 +1896,7 @@ function onOvertimeStart(msg) {
     var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
     var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
     showActionButtons();
-    startTimer();
+    startTimer(msg && msg.phaseAtMs ? msg.phaseAtMs : null);
 }
 
 async function showOvertimeAnnouncement() {
