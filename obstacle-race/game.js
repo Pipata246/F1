@@ -47,6 +47,7 @@ let pvpLastXrayMarker = 0;
 let pvpLastStartKey = '';
 let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
+let pvpMoveWatchdogTimer = null; // повторяющийся watchdog пока ждём round_result
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 const PVP_POLL_MS = 900;
 const PVP_POLL_FAST_MS = 500; // Быстрый polling когда ждём результат хода
@@ -390,6 +391,24 @@ function stopPvpPolling() {
     if (pvpPollTimer) clearInterval(pvpPollTimer);
     pvpPollTimer = null;
     pvpPollInFlight = false;
+    stopMoveWatchdog();
+}
+
+function stopMoveWatchdog() {
+    if (pvpMoveWatchdogTimer) { clearInterval(pvpMoveWatchdogTimer); pvpMoveWatchdogTimer = null; }
+}
+
+function startMoveWatchdog() {
+    stopMoveWatchdog();
+    var ticks = 0;
+    pvpMoveWatchdogTimer = setInterval(function() {
+        if (!moveChosen || !pvpRoomId || !tgInitData) { stopMoveWatchdog(); return; }
+        ticks++;
+        // Каждые 3 сек форсируем poll пока ждём round_result
+        pvpPollState();
+        // После 30 сек (10 тиков) — переключаемся на нормальный polling (сервер сам разрешит по таймауту)
+        if (ticks >= 10) stopMoveWatchdog();
+    }, 3000);
 }
 
 function startPvpPolling() {
@@ -553,6 +572,11 @@ function applyPvpRoomState(room) {
             onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime });
             return;
         }
+        // Тот же раунд — если ход уже сделан, убеждаемся что быстрый polling активен
+        if (moveChosen && pvpPollTimer) {
+            // Уже ждём — watchdog сам форсирует poll, ничего не делаем
+        }
+        return;
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
@@ -760,12 +784,8 @@ function sendMsg(m) {
         // Переключаемся на быстрый polling пока ждём результат
         startPvpPollingFast();
 
-        // Watchdog: если через 8 сек нет round_result — форсируем poll
-        setTimeout(function() {
-            if (moveChosen && pvpRoomId && tgInitData) {
-                pvpPollState();
-            }
-        }, 8000);
+        // Watchdog: повторяем poll каждые 3 сек пока moveChosen=true
+        startMoveWatchdog();
     }
 }
 
@@ -811,6 +831,7 @@ function startGame(vsBot) {
     roundAnimating = false; gameOverSoundPlayed = false;
     clearInterval(timerInterval);
     matchSaved = false;
+    stopMoveWatchdog();
     isBotMode = !!vsBot;
     if (!isBotMode && !onlineModeSelected) {
         onlineModeSelected = true;
@@ -1560,6 +1581,7 @@ function startTimer() {
 
 async function onRoundResult(msg) {
     clearInterval(timerInterval);
+    stopMoveWatchdog(); // результат получен — watchdog больше не нужен
     roundAnimating = true; // блокируем обновление счёта в UI
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
