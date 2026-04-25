@@ -387,7 +387,7 @@ const GamePage = () => {
         setKeeperBottom('4');
         setRoleAnnounce({ role: msg.role, round: msg.round });
         setInputBlocked(true);
-        // Block input while role announcement is visible. Also don't burn timer during announcement.
+        // Block input while role announcement is visible. Timer starts AFTER announcement.
         setTimeout(() => {
           setRoleAnnounce(null);
           setInputBlocked(false);
@@ -412,7 +412,8 @@ const GamePage = () => {
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
-          if (playModeRef.current === 'bot') {
+          // Save match to backend only for PvP (not bot demo)
+          if (playModeRef.current === 'pvp' && !matchSavedRef.current) {
             saveMatchToBackend(msg.youWon, msg.scores, matchRef.current?.history || history);
           }
           if (msg.youWon) {
@@ -431,7 +432,7 @@ const GamePage = () => {
         setScreen('result');
         break;
     }
-  }, []);
+  }, [history]);
 
   const startTimer = () => {
     stopTimer();
@@ -533,6 +534,7 @@ const GamePage = () => {
 
     // Safety net: if server/client transition gets stuck after GOAL/SAVED,
     // force a state refresh and unlock controls so the match never freezes.
+    // Reduced from 5200ms to 3500ms for faster recovery
     roundStuckTimerRef.current = setTimeout(() => {
       if (!showingResultRef.current) return;
 
@@ -544,6 +546,7 @@ const GamePage = () => {
             .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
             .catch(() => {});
         }
+        // Reduced timeout for faster unlock
         setTimeout(() => {
           if (!showingResultRef.current) return;
           setShowingResult(false);
@@ -551,24 +554,15 @@ const GamePage = () => {
           setZoneLocked(false);
           setWaitingOpponent(false);
           setInputBlocked(false);
-          startTimer();
-        }, 1200);
+        }, 800);
         return;
       }
 
-      // Bot fallback: continue locally so demo never hangs.
-      const m = matchRef.current;
-      if (!m || m.finished) return;
+      // Bot mode removed - all logic goes through backend now
       setShowingResult(false);
       setResultMessage(null);
       setInputBlocked(false);
-      if (localShouldEndMatch(m)) {
-        m.finished = true;
-        handleServerMessage({ type: 'match_result', youWon: m.scores[0] > m.scores[1], scores: [...m.scores] });
-      } else {
-        localStartRound();
-      }
-    }, 5200);
+    }, 3500);
   };
 
   const stopPvpPolling = useCallback(() => {
@@ -730,6 +724,10 @@ const GamePage = () => {
       if (type === 'choose_zone') {
         const zone = Number(data.zone);
         if (![0, 1, 2, 3].includes(zone)) return;
+        
+        // Prevent duplicate submissions
+        if (zoneLocked) return;
+        
         setZoneLocked(true);
         setWaitingOpponent(true);
         stopTimer();
@@ -748,8 +746,10 @@ const GamePage = () => {
             } else if (penAttempts < 3) {
               setTimeout(submitPenMove, 800);
             } else {
+              // Failed after 3 attempts - unlock and allow retry
               setZoneLocked(false);
               setWaitingOpponent(false);
+              showBottomNotice('Ошибка отправки хода. Попробуй снова.');
             }
           }).catch(() => {
             if (penAttempts < 3) {
@@ -757,22 +757,24 @@ const GamePage = () => {
             } else {
               setZoneLocked(false);
               setWaitingOpponent(false);
+              showBottomNotice('Ошибка сети. Попробуй снова.');
             }
           });
         };
         submitPenMove();
 
-        // Watchdog: если через 8 сек нет round_result — форсируем poll
+        // Watchdog: reduced from 8s to 5s for faster recovery
         setTimeout(() => {
           if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
             apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
               .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
               .catch(() => {});
           }
-        }, 8000);
+        }, 5000);
 
         if (pvpOpponentIsBotRef.current) {
           clearWaitingBotMoveTimer();
+          // Reduced bot wait time from 4500ms to 3000ms
           waitingBotMoveTimerRef.current = setTimeout(() => {
             const rid = pvpRoomIdRef.current;
             const init = tgInitDataRef.current;
@@ -780,28 +782,16 @@ const GamePage = () => {
             apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
               .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
               .catch(() => {});
-          }, 4500);
+          }, 3000);
         }
       }
       return;
     }
-    if (playModeRef.current !== 'bot') return;
-    const m = matchRef.current;
-    if (!m || m.finished) return;
-    if (type === 'cancel_wait') {
-      matchRef.current = null;
+    
+    // Bot mode removed - all games go through backend now
+    if (playModeRef.current === 'bot') {
+      showBottomNotice('Режим бота больше не поддерживается. Используй PvP.');
       return;
-    }
-    if (type === 'choose_zone') {
-      const zone = Number(data.zone);
-      if (![0, 1, 2, 3].includes(zone)) return;
-      if (m.choices[0] !== null) return;
-      m.choices[0] = zone;
-      handleServerMessage({ type: 'zone_locked', zone });
-      if (m.choices[1] === null) {
-        m.choices[1] = Math.floor(Math.random() * 4);
-      }
-      localResolveRound();
     }
   };
 
@@ -872,35 +862,10 @@ const GamePage = () => {
   };
 
   const startSearchBot = () => {
-    const name = displayName.trim() || 'Player';
-    setCurrentStakeTon(null);
-    matchSavedRef.current = false;
-    stopPvpPolling();
-    if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
-    if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
-    matchRef.current = null;
-    playModeRef.current = 'bot';
-    setScreen('waiting');
-    localFindTimerRef.current = setTimeout(() => {
-      if (playModeRef.current !== 'bot') return;
-      matchRef.current = {
-        playerName: name,
-        opponentName: 'Бот 🤖',
-        tgUserId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null,
-        scores: [0, 0],
-        round: 0,
-        maxRounds: 10,
-        suddenDeath: false,
-        choices: [null, null],
-        history: [],
-        sdStart: 0,
-        kickerOverride: null,
-        finished: false,
-      };
-      handleServerMessage({ type: 'game_found', opponent: 'Бот 🤖', playerIndex: 0 });
-      localStartRound();
-      localFindTimerRef.current = null;
-    }, 650);
+    // Bot mode removed - redirect to online PvP with demo stakes
+    showBottomNotice('Демо режим теперь использует PvP с ботом');
+    setSelectedStakeOptions([0.1]); // Minimal stake for demo
+    setTimeout(() => startSearchOnline(), 500);
   };
 
 
@@ -940,34 +905,10 @@ const GamePage = () => {
   };
 
   const handlePlayAgain = () => {
-    if (playModeRef.current === 'bot') {
-      setMatchResult(null);
-      setHistory([]);
-      startSearchBot();
-      return;
-    }
-    if (playModeRef.current === 'pvp') {
-      setMatchResult(null);
-      setHistory([]);
-      startSearchOnline();
-      return;
-    }
-    if (pvpFindRetryTimerRef.current) {
-      clearTimeout(pvpFindRetryTimerRef.current);
-      pvpFindRetryTimerRef.current = null;
-    }
-    if (localFindTimerRef.current) {
-      clearTimeout(localFindTimerRef.current);
-      localFindTimerRef.current = null;
-    }
-    playModeRef.current = 'idle';
-    matchRef.current = null;
+    // Always use PvP mode (bot fallback handled by backend)
     setMatchResult(null);
     setHistory([]);
-    stopPvpPolling();
-    pvpRoomIdRef.current = null;
-    goHome();
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    startSearchOnline();
   };
   const handleExitToMenu = () => {
     if (pvpFindRetryTimerRef.current) {
@@ -988,91 +929,6 @@ const GamePage = () => {
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
   };
 
-  const getKickerIndex = (m) => {
-    if (m.suddenDeath && m.kickerOverride !== null) return m.kickerOverride;
-    return m.round % 2 === 0 ? 0 : 1;
-  };
-
-  const localStartRound = () => {
-    const m = matchRef.current;
-    if (!m || m.finished) return;
-    m.choices = [null, null];
-    if (m.suddenDeath) {
-      const sdRound = m.round - m.sdStart;
-      const pairNum = Math.floor(sdRound / 2);
-      const withinPair = sdRound % 2;
-      m.kickerOverride = (pairNum + withinPair) % 2;
-    }
-    const kickerIdx = getKickerIndex(m);
-    handleServerMessage({
-      type: 'round_start',
-      round: m.round + 1,
-      maxRounds: m.maxRounds,
-      role: kickerIdx === 0 ? 'kicker' : 'keeper',
-      scores: m.scores,
-      suddenDeath: m.suddenDeath,
-      history: m.history,
-    });
-  };
-
-  const localResolveRound = () => {
-    const m = matchRef.current;
-    if (!m || m.finished || m.choices[0] === null || m.choices[1] === null) return;
-    const kickerIdx = getKickerIndex(m);
-    const keeperIdx = 1 - kickerIdx;
-    const kickerZone = m.choices[kickerIdx];
-    const keeperZone = m.choices[keeperIdx];
-    const isGoal = kickerZone !== keeperZone;
-    if (isGoal) m.scores[kickerIdx] += 1;
-    m.history.push({ kickerIndex: kickerIdx, kickerZone, keeperZone, isGoal });
-    m.round += 1;
-    handleServerMessage({
-      type: 'round_result',
-      kickerZone,
-      keeperZone,
-      isGoal,
-      scores: [...m.scores],
-      round: m.round,
-      kickerIndex: kickerIdx,
-      history: [...m.history],
-    });
-    if (localShouldEndMatch(m)) {
-      setTimeout(() => {
-        if (!matchRef.current || matchRef.current.finished) return;
-        m.finished = true;
-        const youWon = m.scores[0] > m.scores[1];
-        handleServerMessage({ type: 'match_result', youWon, scores: [...m.scores] });
-      }, 2500);
-    } else {
-      setTimeout(() => localStartRound(), 2800);
-    }
-  };
-
-  const localShouldEndMatch = (m) => {
-    const [s0, s1] = m.scores;
-    const roundsPlayed = m.round;
-    if (m.suddenDeath) {
-      const sdRounds = roundsPlayed - m.sdStart;
-      if (sdRounds >= 2 && sdRounds % 2 === 0) return s0 !== s1;
-      return false;
-    }
-    if (roundsPlayed >= m.maxRounds) {
-      if (s0 === s1) {
-        m.suddenDeath = true;
-        m.sdStart = roundsPlayed;
-        return false;
-      }
-      return true;
-    }
-    // Досрочное завершение: отстающий не может догнать
-    const remaining = m.maxRounds - roundsPlayed;
-    const p1KicksLeft = Math.ceil(remaining / 2);
-    const p2KicksLeft = Math.floor(remaining / 2);
-    if (s0 > s1 && s0 - s1 > p2KicksLeft) return true;
-    if (s1 > s0 && s1 - s0 > p1KicksLeft) return true;
-    return false;
-  };
-
   const saveMatchToBackend = (youWon, finalScores, finalHistory) => {
     if (matchSavedRef.current || !tgInitDataRef.current) return;
     matchSavedRef.current = true;
@@ -1085,11 +941,11 @@ const GamePage = () => {
         initData: tgInitDataRef.current,
         payload: {
           gameKey: 'super_penalty',
-          mode: 'bot',
+          mode: 'pvp',
           winnerTgUserId: youWon ? tgUserId : null,
           players: [
             { tgUserId, name: displayName || 'Player', score: finalScores?.[0] || 0, isWinner: !!youWon, isBot: false },
-            { tgUserId: null, name: opponent || 'Бот 🤖', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: true },
+            { tgUserId: pvpOpponentTgIdRef.current || null, name: opponent || 'Opponent', score: finalScores?.[1] || 0, isWinner: !youWon, isBot: pvpOpponentIsBotRef.current },
           ],
           score: { left: finalScores?.[0] || 0, right: finalScores?.[1] || 0 },
           details: { roundsPlayed: finalHistory?.length || 0, suddenDeath },
@@ -1134,10 +990,10 @@ const GamePage = () => {
     return (
       <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
         <div className="z-10 w-full max-w-sm px-5 text-center">
-          <h1 className="text-3xl font-black text-white">ДЭМО РЕЖИМ</h1>
+          <h1 className="text-3xl font-black text-white">ПЕНАЛЬТИ</h1>
           <p className="text-gray-300 text-sm mt-3 leading-relaxed">
-            Тренировка против бота в стиле пенальти. Без TON-ставок:
-            можно спокойно тестировать тактику и тайминг ударов.
+            PvP режим с автоматическим подбором соперника. Если нет игроков онлайн — 
+            система подключит бота. Минимальная ставка 0.1 TON.
           </p>
           <button onClick={() => startSearchBot()} className="w-full mt-5 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
           <button onClick={() => goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
