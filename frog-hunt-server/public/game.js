@@ -93,32 +93,6 @@ async function apiPost(action, payload) {
   return await response.json();
 }
 
-// Poll for updates using filtered endpoint (secure)
-var pollInterval = null;
-
-function startPolling(roomId) {
-  stopPolling();
-  
-  pollInterval = setInterval(function() {
-    apiPost('pvpGetFilteredState', { roomId: roomId })
-      .then(function(data) {
-        if (data && data.ok && data.room) {
-          applyRoomState(data.room);
-        }
-      })
-      .catch(function(err) {
-        console.error('Poll error:', err);
-      });
-  }, 800); // Poll every 800ms
-}
-
-function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-}
-
 function applyRoomState(room) {
   if (!room) return;
   
