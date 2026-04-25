@@ -2934,6 +2934,7 @@ function pvpAdvanceByTime(room) {
       next.phaseAtMs = now;
       next.pending = { frogCell: null, hunterCells: [] };
       next.frogCell = s.nextFrogCell ?? s.frogCell ?? null;
+      next.moveSubmittedBy = {}; // Clear move tracking for new round
       delete next.roundHit;
       delete next.nextFrogCell;
     }
@@ -2954,6 +2955,7 @@ function pvpAdvanceByTime(room) {
       next.roles = { p1: s.roles?.p1 === "frog" ? "hunter" : "frog", p2: s.roles?.p2 === "frog" ? "hunter" : "frog" };
       next.frogCell = null;
       next.pending = { frogCell: null, hunterCells: [] };
+      next.moveSubmittedBy = {}; // Clear move tracking for new game
       next.phase = "switch_roles";
       next.phaseAtMs = now;
       next.markers = { ...(s.markers || {}), switch: Number(s?.markers?.switch || 0) + 1 };
@@ -2971,6 +2973,7 @@ function pvpAdvanceByTime(room) {
       next.roles = { p1: frog === "p1" ? "frog" : "hunter", p2: frog === "p2" ? "frog" : "hunter" };
       next.frogCell = null;
       next.pending = { frogCell: null, hunterCells: [] };
+      next.moveSubmittedBy = {}; // Clear move tracking for tiebreak
       next.phase = "tiebreak_start";
       next.phaseAtMs = now;
       next.markers = { ...(s.markers || {}), tiebreak: Number(s?.markers?.tiebreak || 0) + 1 };
@@ -2987,6 +2990,7 @@ function pvpAdvanceByTime(room) {
   if ((s.phase === "switch_roles" || s.phase === "tiebreak_start") && elapsed >= 1100) {
     next.phase = "turn_input";
     next.phaseAtMs = now;
+    next.moveSubmittedBy = {}; // Clear move tracking when starting turn
     next.updatedAt = new Date().toISOString();
     return { changed: true, state: next };
   }
@@ -3014,24 +3018,42 @@ function pvpApplyMove(room, tgId, move) {
   const hunterShots = Number(s.hunterShots || 1);
   const next = { ...s, pending: { ...(s.pending || {}) } };
 
+  // Track who submitted each move to prevent changes
+  if (!next.moveSubmittedBy) next.moveSubmittedBy = {};
+
   if (role === "frog") {
     const alreadyChosen =
       next?.pending?.frogCell !== null &&
       next?.pending?.frogCell !== undefined &&
       Number.isInteger(Number(next.pending.frogCell));
+    
+    // Check if move was already submitted by this player
     if (alreadyChosen) {
+      if (next.moveSubmittedBy.frog && next.moveSubmittedBy.frog !== tgId) {
+        throw new Error("Move already submitted by another player");
+      }
+      // Same player trying to resubmit - just return current state
       next.updatedAt = new Date().toISOString();
       return next;
     }
+    
     const frogCell = Number(move?.frogCell);
     if (!Number.isInteger(frogCell) || frogCell < 0 || frogCell >= totalCells) throw new Error("Invalid frog cell");
     next.pending.frogCell = frogCell;
+    next.moveSubmittedBy.frog = tgId;
   } else {
     const alreadyChosen = Array.isArray(next?.pending?.hunterCells) && next.pending.hunterCells.length === hunterShots;
+    
+    // Check if move was already submitted by this player
     if (alreadyChosen) {
+      if (next.moveSubmittedBy.hunter && next.moveSubmittedBy.hunter !== tgId) {
+        throw new Error("Move already submitted by another player");
+      }
+      // Same player trying to resubmit - just return current state
       next.updatedAt = new Date().toISOString();
       return next;
     }
+    
     const arr = Array.isArray(move?.hunterCells) ? move.hunterCells : [];
     const cells = [];
     for (const c of arr) {
@@ -3042,6 +3064,7 @@ function pvpApplyMove(room, tgId, move) {
     }
     if (cells.length !== hunterShots) throw new Error("Invalid hunter cells count");
     next.pending.hunterCells = cells;
+    next.moveSubmittedBy.hunter = tgId;
   }
 
   const hasFrog =
@@ -3307,6 +3330,36 @@ async function pvpGetRoomState(initData, roomId) {
     }
   }
   return finalizePvpRoomIfNeeded(nextRoom);
+}
+
+async function pvpGetFilteredState(initData, roomId) {
+  const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
+  if (!verified.ok) throw new Error(verified.error);
+  const tgId = String(verified.user.id);
+  touchPresenceTgId(tgId);
+  const id = Number(roomId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Invalid room id");
+
+  // Use the database function to get filtered state
+  const result = await sb("rpc/pvp_get_filtered_room_state", {
+    method: "POST",
+    body: { p_room_id: id, p_tg_user_id: tgId },
+  });
+
+  if (!result || result.error) {
+    throw new Error(result?.error || "Failed to get filtered state");
+  }
+
+  // Get the full room data but replace state_json with filtered version
+  const rows = await sb(`pvp_rooms?id=eq.${id}&select=id,status,game_key,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,stake_ton,stake_options_ton,stake_settled_at,created_at,updated_at`);
+  const room = rows?.[0];
+  if (!room) throw new Error("Room not found");
+  if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
+
+  // Replace state_json with filtered version
+  room.state_json = result;
+
+  return room;
 }
 
 async function pvpAcceptMatch(initData, roomId) {
@@ -3986,6 +4039,10 @@ module.exports = async (req, res) => {
     }
     if (action === "pvpGetRoomState") {
       const room = await pvpGetRoomState(req.body?.initData || "", req.body?.roomId || 0);
+      return res.status(200).json({ ok: true, room, serverNowMs: Date.now() });
+    }
+    if (action === "pvpGetFilteredState") {
+      const room = await pvpGetFilteredState(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, room, serverNowMs: Date.now() });
     }
     if (action === "pvpSubmitMove") {
