@@ -1944,12 +1944,23 @@ function formatTonCompact(n) {
 
 function onOpponentLeft() {
     clearInterval(timerInterval);
-    $('result-emoji').textContent = '\uD83D\uDEB6';
-    $('result-title').textContent = '\u0421\u043E\u043F\u0435\u0440\u043D\u0438\u043A \u0443\u0448\u0451\u043B';
-    $('result-title').style.color = 'var(--warn)';
-    $('result-sub').textContent = '\u0418\u0433\u0440\u0430 \u043F\u0440\u0435\u0440\u0432\u0430\u043D\u0430';
-    $('fs-name-0').textContent = ''; $('fs-val-0').textContent = '';
-    $('fs-name-1').textContent = ''; $('fs-val-1').textContent = '';
+    $('result-emoji').textContent = '🏆';
+    $('result-title').textContent = 'ПОБЕДА!';
+    $('result-title').style.color = 'var(--success)';
+    // Показываем выигрыш если была ставка
+    if (!isBotMode && Number.isFinite(Number(currentStakeTon)) && Number(currentStakeTon) > 0) {
+        var stake = Number(currentStakeTon);
+        $('result-sub').textContent = 'Соперник вышел · +' + formatTonCompact(stake * 2) + ' TON';
+        $('result-sub').style.color = 'var(--success)';
+    } else {
+        $('result-sub').textContent = 'Соперник вышел из игры';
+        $('result-sub').style.color = 'var(--warn)';
+    }
+    $('fs-name-0').textContent = myName;
+    $('fs-val-0').textContent = scores[0];
+    $('fs-name-1').textContent = opponentName;
+    $('fs-val-1').textContent = scores[1];
+    if (!gameOverSoundPlayed) { playSound('win'); gameOverSoundPlayed = true; }
     showScreen('result');
 }
 
