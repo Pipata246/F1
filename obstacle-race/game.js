@@ -7,7 +7,7 @@ function initSupabase() {
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
   
   if (typeof window.supabase === 'undefined') {
-    console.error('Supabase library not loaded!');
+    console.warn('Supabase library not loaded - WebSocket disabled');
     return;
   }
   
@@ -360,8 +360,13 @@ function refreshBalanceForStakePicker() {
 }
 
 function ensureStakePicker() {
-    var mount = $('screen-start');
-    if (!mount || $('stakePickerObstacle')) return;
+    var startScreen = $('screen-start');
+    if (!startScreen || $('stakePickerObstacle')) return;
+    var formDiv = startScreen.querySelector('.form');
+    if (!formDiv) {
+        console.error('Cannot find .form div in screen-start');
+        return;
+    }
     var wrap = document.createElement('div');
     wrap.id = 'stakePickerObstacle';
     wrap.style.marginTop = '12px';
@@ -372,7 +377,7 @@ function ensureStakePicker() {
         '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
         '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
         '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>';
-    mount.appendChild(wrap);
+    formDiv.appendChild(wrap);
     var grid = $('stakeGridObstacle');
     ALLOWED_STAKES.forEach(function(stake) {
         var b = document.createElement('button');
