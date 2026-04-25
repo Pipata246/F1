@@ -138,6 +138,7 @@ const GamePage = () => {
   const [history, setHistory] = useState([]);
 
   // Animation state
+  const [ballVisible, setBallVisible] = useState(true);
   const [ballStyle, setBallStyle] = useState({});
   const [keeperState, setKeeperState] = useState('idle');
   const [isKeeperMirrored, setIsKeeperMirrored] = useState(false);
@@ -148,6 +149,7 @@ const GamePage = () => {
 
   // Role announcement
   const [roleAnnounce, setRoleAnnounce] = useState(null);
+  const [inputBlocked, setInputBlocked] = useState(false);
 
   // Match result
   const [matchResult, setMatchResult] = useState(null);
@@ -377,14 +379,20 @@ const GamePage = () => {
         setWaitingOpponent(false);
         setShowingResult(false);
         setResultMessage(null);
+        setBallVisible(true);
         setBallStyle({});
         setKeeperState('idle');
         setIsKeeperMirrored(false);
         setKeeperX(0);
         setKeeperBottom('4');
         setRoleAnnounce({ role: msg.role, round: msg.round });
-        setTimeout(() => setRoleAnnounce(null), 1800);
-        startTimer();
+        setInputBlocked(true);
+        // Block input while role announcement is visible. Also don't burn timer during announcement.
+        setTimeout(() => {
+          setRoleAnnounce(null);
+          setInputBlocked(false);
+          startTimer();
+        }, 1100);
         break;
 
       case 'zone_locked':
@@ -464,6 +472,7 @@ const GamePage = () => {
     stopTimer();
     setWaitingOpponent(false);
     setShowingResult(true);
+    setInputBlocked(true);
     setScores(msg.scores);
     if (msg.history) setHistory(msg.history);
 
@@ -472,6 +481,7 @@ const GamePage = () => {
 
     // Ball flies to kicker's zone
     const target = targetPositions[kickerZone];
+    setBallVisible(true);
     setBallStyle({
       transform: `translate(${target.x}px, ${target.y}px) scale(0.55)`,
       transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -492,6 +502,11 @@ const GamePage = () => {
         setKeeperState('moved');
       }
     }, 150);
+
+    // If saved, hide the flying ball after it "reaches" the keeper.
+    setTimeout(() => {
+      if (!isGoal) setBallVisible(false);
+    }, 420);
 
     // Result text
     setTimeout(() => {
@@ -535,6 +550,7 @@ const GamePage = () => {
           setResultMessage(null);
           setZoneLocked(false);
           setWaitingOpponent(false);
+          setInputBlocked(false);
           startTimer();
         }, 1200);
         return;
@@ -545,6 +561,7 @@ const GamePage = () => {
       if (!m || m.finished) return;
       setShowingResult(false);
       setResultMessage(null);
+      setInputBlocked(false);
       if (localShouldEndMatch(m)) {
         m.finished = true;
         handleServerMessage({ type: 'match_result', youWon: m.scores[0] > m.scores[1], scores: [...m.scores] });
@@ -918,7 +935,7 @@ const GamePage = () => {
   };
 
   const handleChooseZone = (zone) => {
-    if (zoneLocked || showingResult) return;
+    if (zoneLocked || showingResult || inputBlocked || !!roleAnnounce) return;
     sendMessage('choose_zone', { zone });
   };
 
@@ -1387,16 +1404,20 @@ const GamePage = () => {
 
           {/* Ball */}
           <div className="absolute bottom-[-40px] left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-            <img src={`${ASSET_BASE}ball.png`} alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={ballStyle} />
+            {ballVisible && (
+              <img src={`${ASSET_BASE}ball.png`} alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={ballStyle} />
+            )}
           </div>
 
           {/* Zone buttons */}
-          <div className="absolute top-0 left-4 w-[calc(100%-2rem)] h-[85%] grid grid-cols-2 grid-rows-2 z-30">
+          <div
+            className={`absolute top-0 left-4 w-[calc(100%-2rem)] h-[85%] grid grid-cols-2 grid-rows-2 z-30 ${inputBlocked || !!roleAnnounce ? 'pointer-events-none' : ''}`}
+          >
             {[0, 1, 2, 3].map((zone) => (
               <button
                 key={zone}
                 onClick={() => handleChooseZone(zone)}
-                disabled={zoneLocked || showingResult}
+                disabled={zoneLocked || showingResult || inputBlocked || !!roleAnnounce}
                 className={`w-full h-full outline-none transition-colors rounded-lg ${
                   zoneLocked || showingResult ? 'cursor-default' : 'hover:bg-white/10 active:bg-white/20'
                 }`}

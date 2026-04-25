@@ -2556,7 +2556,7 @@ function pvpAdvanceByTime(room) {
       resolved.updatedAt = new Date().toISOString();
       return { changed: true, state: resolved };
     }
-    if (s.phase === "round_result" && elapsed >= 2400) {
+    if (s.phase === "round_result" && elapsed >= 1600) {
       const rr = asObj(s.lastRoundResult);
       if (rr.gameOver) {
         next.phase = "match_over";
