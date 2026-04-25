@@ -2545,7 +2545,7 @@ function pvpAdvanceByTime(room) {
         return { changed: true, state: next };
       }
     }
-    if (s.phase === "turn_input" && elapsed >= 12000) {
+    if (s.phase === "turn_input" && elapsed >= 11000) {
       // No random auto-moves until both humans have polled at least once (real PvP only).
       if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
       const choices = { ...asObj(s.choices) };
@@ -2556,7 +2556,7 @@ function pvpAdvanceByTime(room) {
       resolved.updatedAt = new Date().toISOString();
       return { changed: true, state: resolved };
     }
-    if (s.phase === "round_result" && elapsed >= 1600) {
+    if (s.phase === "round_result" && elapsed >= 800) {
       const rr = asObj(s.lastRoundResult);
       if (rr.gameOver) {
         next.phase = "match_over";
