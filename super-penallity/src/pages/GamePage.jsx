@@ -6,10 +6,10 @@ import { createClient } from '@supabase/supabase-js';
 const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 
-// Initialize Supabase client - keys will be injected at build time
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+// Initialize Supabase client with hardcoded values from .env
+const supabaseUrl = 'https://eolycsnxboeobasolczb.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 function appSettings() {
   try {
@@ -572,31 +572,18 @@ const GamePage = () => {
   };
 
   const stopRealtimeSubscription = useCallback(() => {
-    if (realtimeChannelRef.current && supabase) {
-      supabase.removeChannel(realtimeChannelRef.current);
+    if (realtimeChannelRef.current) {
+      if (realtimeChannelRef.current._interval) {
+        clearInterval(realtimeChannelRef.current._interval);
+      } else {
+        supabase.removeChannel(realtimeChannelRef.current);
+      }
       realtimeChannelRef.current = null;
     }
   }, []);
 
   const startRealtimeSubscription = useCallback((roomId) => {
     stopRealtimeSubscription();
-    
-    // Fallback to polling if Supabase not available
-    if (!supabase) {
-      console.warn('⚠️ Supabase not configured, using fallback polling');
-      // Single poll as fallback
-      if (tgInitDataRef.current) {
-        const pollFallback = () => {
-          apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId })
-            .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
-            .catch(() => {});
-        };
-        pollFallback();
-        const interval = setInterval(pollFallback, 1000);
-        realtimeChannelRef.current = { _interval: interval };
-      }
-      return;
-    }
     
     const channel = supabase
       .channel(`pvp_room_${roomId}`)
