@@ -2405,17 +2405,6 @@ function pvpAdvanceByTime(room) {
       const p2 = Number(asObj(s.scores).p2 || 0);
       if (phaseNum === 2) {
         const maxRounds = Number(s.maxRounds || 7);
-        const remainingRounds = Math.max(0, maxRounds - round);
-        // Last 2 rounds: if the gap is mathematically uncatchable, end early.
-        // Max swing per round is 3 points for the trailing side.
-        if (remainingRounds <= 2 && Math.abs(p1 - p2) > remainingRounds * 3) {
-          next.phase = "match_over";
-          next.phaseAtMs = now;
-          next.winnerSide = p1 > p2 ? "p1" : "p2";
-          next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
-          next.updatedAt = new Date().toISOString();
-          return { changed: true, state: next };
-        }
         if (round >= Number(s.maxRounds || 7)) {
           if (p1 !== p2) {
             next.phase = "match_over";

@@ -460,9 +460,21 @@ const GamePage = () => {
         setAnnounce(null);
         roundResolvingRef.current = true;
         setRoundResolving(true);
-        // Watchdog: если анимация зависла — форсируем завершение через 12 сек
+        // Watchdog: if animation stalls, re-sync from server.
         const rrWatchdog = setTimeout(() => {
           if (roundResolvingRef.current) {
+            if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
+              apiPost({
+                action: 'pvpGetRoomState',
+                initData: tgInitDataRef.current,
+                roomId: pvpRoomIdRef.current,
+              }).then((d) => {
+                if (typeof d?.serverNowMs === 'number' && Number.isFinite(d.serverNowMs)) {
+                  serverSkewMsRef.current = Date.now() - Number(d.serverNowMs);
+                }
+                if (d?.ok && d.room) applyPvpRoomState(d.room);
+              }).catch(() => {});
+            }
             roundResolvingRef.current = false;
             setRoundResolving(false);
           }
@@ -497,7 +509,13 @@ const GamePage = () => {
         }
         finalizeMatchResult(msg);
         break;
-      case 'opponent_left': setMatchResult({youWon:true,scores:[0,0],opponentLeft:true}); setScreen('result'); break;
+      case 'opponent_left':
+        // Legacy message type (ws/bot). In PvP we rely on backend state (endedByLeave + leaveKind).
+        if (playModeRef.current !== 'pvp') {
+          setMatchResult({youWon:true,scores:[0,0],opponentLeft:true});
+          setScreen('result');
+        }
+        break;
     }
   }, []);
 
@@ -1055,7 +1073,15 @@ const GamePage = () => {
             <p className="text-white text-lg uppercase tracking-wider">Матч найден</p>
             <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
             {acceptInfo.stake != null && <p className="text-emerald-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
-            <p className={`text-3xl font-black mt-2 ${Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) <= 3 ? 'text-rose-200' : 'text-emerald-200'}`}>{Math.max(0, Math.ceil((Number(acceptInfo.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0)}с</p>
+            {(() => {
+              const skew = Number(serverSkewMsRef.current || 0); // localNow - serverNow
+              const leftSec = Math.max(0, Math.ceil(((Number(acceptInfo.deadlineMs || 0) + skew) - Date.now()) / 1000));
+              return (
+                <p className={`text-3xl font-black mt-2 ${leftSec <= 3 ? 'text-rose-200' : 'text-emerald-200'}`}>
+                  {leftSec + (acceptTick * 0)}с
+                </p>
+              );
+            })()}
             <p className="mt-3 text-xs text-emerald-100/90 uppercase tracking-wider">Игра начнется автоматически</p>
           </div>
         </div>
