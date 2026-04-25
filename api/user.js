@@ -3402,7 +3402,8 @@ async function pvpSubmitMove(initData, roomId, move) {
     if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
     if (room.status !== "active") return room;
 
-    // Не вызываем pvpAdvanceByTime при сабмите — только применяем ход
+    // Apply move + heartbeat, then immediately tick the engine by time.
+    // This guarantees progression even if clients temporarily stop polling.
     const withHeartbeat = pvpHeartbeat(asObj(room.state_json), tgId).state;
     const nextState = pvpApplyMove({ ...room, state_json: withHeartbeat }, tgId, asObj(move));
     const patched = await sb(
@@ -3414,7 +3415,20 @@ async function pvpSubmitMove(initData, roomId, move) {
       }
     );
     if (patched?.length) {
-      return finalizePvpRoomIfNeeded(patched[0]);
+      let nextRoom = patched[0];
+      const advanced = pvpAdvanceByTime(nextRoom);
+      if (advanced.changed) {
+        const advancedPatch = await sb(
+          `pvp_rooms?id=eq.${id}&updated_at=eq.${encodeURIComponent(nextRoom.updated_at)}&status=eq.active`,
+          {
+            method: "PATCH",
+            body: { state_json: advanced.state, updated_at: new Date().toISOString() },
+            prefer: "return=representation",
+          }
+        );
+        if (advancedPatch?.length) nextRoom = advancedPatch[0];
+      }
+      return finalizePvpRoomIfNeeded(nextRoom);
     }
   }
   throw new Error("Room update conflict");
