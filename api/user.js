@@ -178,6 +178,37 @@ function rpcScalar(data) {
   if (data == null) return null;
   if (Array.isArray(data) && data.length && typeof data[0] === "object" && data[0] !== null) {
     const k = Object.keys(data[0])[0];
+
+async function sbBroadcast(channelName, event, payload) {
+  assertSupabaseEnv();
+  
+  // Supabase Realtime broadcast works through the client SDK
+  // We need to use the REST API endpoint for server-side broadcast
+  try {
+    const res = await fetch(`${SUPABASE_URL}/realtime/v1/channels/${encodeURIComponent(channelName)}/broadcast`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "broadcast",
+        event: event,
+        payload: payload,
+      }),
+    });
+    
+    if (!res.ok) {
+      const text = await res.text();
+      console.error("Broadcast failed:", res.status, text);
+    } else {
+      console.log("✅ Broadcast sent:", channelName, event);
+    }
+  } catch (err) {
+    console.error("Broadcast error:", err);
+  }
+}
     return k !== undefined ? data[0][k] : null;
   }
   return data;
@@ -3329,6 +3360,12 @@ async function pvpGetRoomState(initData, roomId) {
       if (patched?.length) nextRoom = patched[0];
     }
   }
+  
+  // Broadcast update if state changed
+  if (advanced.changed || hb.changed) {
+    await pvpBroadcastRoomUpdate(nextRoom);
+  }
+  
   return finalizePvpRoomIfNeeded(nextRoom);
 }
 
@@ -3429,6 +3466,43 @@ async function pvpDeclineAccept(initData, roomId) {
   return { declined: true };
 }
 
+async function pvpBroadcastRoomUpdate(room) {
+  if (!room || !room.id) return;
+  
+  const gameKey = String(room.game_key || "");
+  // Only broadcast for frog_hunt (other games can be added later)
+  if (gameKey !== "frog_hunt") return;
+  
+  const channelName = `frog_hunt_room_${room.id}`;
+  const p1TgId = String(room.player1_tg_user_id || "");
+  const p2TgId = String(room.player2_tg_user_id || "");
+  
+  // Get filtered state for each player
+  try {
+    // Player 1 filtered state
+    if (p1TgId) {
+      const p1Filtered = await sbRpc("pvp_get_filtered_room_state", {
+        p_room_id: room.id,
+        p_tg_user_id: p1TgId,
+      });
+      const p1Room = { ...room, state_json: p1Filtered };
+      await sbBroadcast(channelName, "state_update", { room: p1Room, forPlayer: p1TgId });
+    }
+    
+    // Player 2 filtered state
+    if (p2TgId) {
+      const p2Filtered = await sbRpc("pvp_get_filtered_room_state", {
+        p_room_id: room.id,
+        p_tg_user_id: p2TgId,
+      });
+      const p2Room = { ...room, state_json: p2Filtered };
+      await sbBroadcast(channelName, "state_update", { room: p2Room, forPlayer: p2TgId });
+    }
+  } catch (err) {
+    console.error("Broadcast error:", err);
+  }
+}
+
 async function pvpSubmitMove(initData, roomId, move) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -3471,6 +3545,10 @@ async function pvpSubmitMove(initData, roomId, move) {
         );
         if (advancedPatch?.length) nextRoom = advancedPatch[0];
       }
+      
+      // Broadcast filtered state to both players via WebSocket
+      await pvpBroadcastRoomUpdate(nextRoom);
+      
       return finalizePvpRoomIfNeeded(nextRoom);
     }
   }

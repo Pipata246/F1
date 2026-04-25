@@ -1,3 +1,69 @@
+// ==================== SUPABASE REALTIME ====================
+var supabase = null;
+var supabaseChannel = null;
+
+function initSupabase() {
+  var SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
+  
+  if (typeof window.supabase === 'undefined') {
+    console.error('Supabase library not loaded!');
+    return;
+  }
+  
+  try {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('✅ Supabase Realtime initialized');
+  } catch (err) {
+    console.error('Supabase init error:', err);
+  }
+}
+
+function stopRealtimeSubscription() {
+  if (supabaseChannel) {
+    supabase.removeChannel(supabaseChannel);
+    supabaseChannel = null;
+    console.log('Realtime subscription stopped');
+  }
+}
+
+function startRealtimeSubscription(roomId) {
+  stopRealtimeSubscription();
+  
+  if (!supabase || !roomId) {
+    console.error('Cannot start subscription: missing supabase or roomId');
+    return;
+  }
+  
+  console.log('🔌 Starting Realtime WebSocket for room:', roomId);
+  
+  var channelName = 'frog_hunt_room_' + roomId;
+  
+  supabaseChannel = supabase
+    .channel(channelName)
+    .on(
+      'broadcast',
+      { event: 'state_update' },
+      function(payload) {
+        console.log('📡 WebSocket update received:', payload);
+        if (payload.payload && payload.payload.room) {
+          var myTg = tgUserId;
+          var forPlayer = payload.payload.forPlayer;
+          // Only apply if this update is for me (or no filter)
+          if (!forPlayer || forPlayer === myTg) {
+            applyRoomState(payload.payload.room);
+          }
+        }
+      }
+    )
+    .subscribe(function(status) {
+      console.log('WebSocket status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ WebSocket connected!');
+      }
+    });
+}
+
 // ==================== API HELPERS ====================
 var tgInitData = '';
 
@@ -69,7 +135,7 @@ function applyRoomState(room) {
   
   // Match over
   if (status === 'finished' || status === 'cancelled' || s.phase === 'match_over') {
-    stopPolling();
+    stopRealtimeSubscription();
     pvpRoomId = null;
     
     var myTg = tgUserId;
@@ -306,6 +372,9 @@ function playSound(name) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Initialize Supabase Realtime
+  initSupabase();
+  
   if (window.Telegram && window.Telegram.WebApp) {
     var tg = window.Telegram.WebApp;
     tg.ready(); tg.expand();
@@ -338,7 +407,7 @@ function showScreen(name) {
 function cancelSearch() {
   if (pvpMode === 'pvp' && pvpRoomId) {
     apiPost('pvpCancelQueue', { roomId: pvpRoomId }).catch(function() {});
-    stopPolling();
+    stopRealtimeSubscription();
   }
   pvpMode = 'idle';
   pvpRoomId = null;
@@ -372,8 +441,8 @@ function startSearch(vsBot) {
     pvpRoomId = data.room.id;
     console.log('Room created:', pvpRoomId);
     
-    // Start polling with filtered endpoint (secure)
-    startPolling(pvpRoomId);
+    // Start Realtime WebSocket subscription (secure broadcast)
+    startRealtimeSubscription(pvpRoomId);
     
     // Initial state
     if (data.room) {
