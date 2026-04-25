@@ -1,16 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@supabase/supabase-js';
-
 const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
 const SETTINGS_KEY = "f1duel_global_settings_v1";
-
-// Initialize Supabase client with hardcoded values from .env
-const supabaseUrl = 'https://eolycsnxboeobasolczb.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 function appSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
@@ -174,10 +166,13 @@ const GamePage = () => {
   const matchRef = useRef(null);
   const tgInitDataRef = useRef('');
   const matchSavedRef = useRef(false);
+  /** Как в frog-hunt: только один из режимов — онлайн (pvp) или локальный бот, никогда оба сразу. */
   const playModeRef = useRef('idle');
   const pvpRoomIdRef = useRef(null);
   const pvpOpponentTgIdRef = useRef(null);
   const pvpOpponentIsBotRef = useRef(false);
+  const pvpPollTimerRef = useRef(null);
+  const pvpPollInFlightRef = useRef(false);
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
   const localFindTimerRef = useRef(null);
@@ -187,7 +182,6 @@ const GamePage = () => {
   const showingResultRef = useRef(false);
   const roundStuckTimerRef = useRef(null);
   const waitingBotMoveTimerRef = useRef(null);
-  const realtimeChannelRef = useRef(null); // WebSocket channel
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
@@ -336,17 +330,9 @@ const GamePage = () => {
           keepalive: true,
         }).catch(() => {});
       }
-      // Cleanup WebSocket channel
-      if (realtimeChannelRef.current) {
-        if (realtimeChannelRef.current._interval) {
-          clearInterval(realtimeChannelRef.current._interval);
-        } else if (supabase) {
-          supabase.removeChannel(realtimeChannelRef.current);
-        }
-        realtimeChannelRef.current = null;
-      }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       if (timerRef.current) clearInterval(timerRef.current);
+      if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
       if (roundStuckTimerRef.current) clearTimeout(roundStuckTimerRef.current);
@@ -547,12 +533,31 @@ const GamePage = () => {
     }, 400);
 
     // Safety net: if server/client transition gets stuck after GOAL/SAVED,
-    // WebSocket should handle updates automatically, but keep minimal fallback
+    // force a state refresh and unlock controls so the match never freezes.
+    // Aggressive polling during result phase
+    const resultPollInterval = setInterval(() => {
+      if (!showingResultRef.current) {
+        clearInterval(resultPollInterval);
+        return;
+      }
+      if (playModeRef.current === 'pvp') {
+        const rid = pvpRoomIdRef.current;
+        const init = tgInitDataRef.current;
+        if (rid && init) {
+          apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
+            .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
+            .catch(() => {});
+        }
+      }
+    }, 300);
+
+    // Reduced from 3500ms to 2500ms for faster recovery
     roundStuckTimerRef.current = setTimeout(() => {
+      clearInterval(resultPollInterval);
       if (!showingResultRef.current) return;
 
       if (playModeRef.current === 'pvp') {
-        // Force unlock if still stuck (WebSocket might have failed)
+        // Force unlock if still stuck
         setTimeout(() => {
           if (!showingResultRef.current) return;
           setShowingResult(false);
@@ -571,63 +576,11 @@ const GamePage = () => {
     }, 2500);
   };
 
-  const stopRealtimeSubscription = useCallback(() => {
-    if (realtimeChannelRef.current) {
-      if (realtimeChannelRef.current._interval) {
-        clearInterval(realtimeChannelRef.current._interval);
-      } else {
-        supabase.removeChannel(realtimeChannelRef.current);
-      }
-      realtimeChannelRef.current = null;
-    }
+  const stopPvpPolling = useCallback(() => {
+    if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
+    pvpPollTimerRef.current = null;
+    pvpPollInFlightRef.current = false;
   }, []);
-
-  const startRealtimeSubscription = useCallback((roomId) => {
-    stopRealtimeSubscription();
-    
-    const channel = supabase
-      .channel(`pvp_room_${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'pvp_rooms',
-          filter: `id=eq.${roomId}`,
-        },
-        (payload) => {
-          // Мгновенное обновление при изменении комнаты!
-          if (payload.new) {
-            applyPvpRoomState(payload.new);
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ WebSocket подключен к комнате', roomId);
-        }
-        if (status === 'CHANNEL_ERROR') {
-          console.error('❌ WebSocket ошибка, переподключение...');
-          // Fallback: одиночный poll при ошибке
-          setTimeout(() => {
-            if (pvpRoomIdRef.current && tgInitDataRef.current) {
-              apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
-                .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
-                .catch(() => {});
-            }
-          }, 1000);
-        }
-      });
-    
-    realtimeChannelRef.current = channel;
-    
-    // Первоначальная загрузка состояния
-    if (tgInitDataRef.current) {
-      apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId })
-        .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
-        .catch(() => {});
-    }
-  }, [applyPvpRoomState, stopRealtimeSubscription]);
 
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
@@ -729,7 +682,7 @@ const GamePage = () => {
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
-      stopRealtimeSubscription();
+      stopPvpPolling();
       pvpRoomIdRef.current = null;
       const scoresObj = s.scores || { p1: 0, p2: 0 };
       const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
@@ -743,9 +696,45 @@ const GamePage = () => {
       }
       handleServerMessage({ type: 'match_result', youWon, scores: arr });
     }
-  }, [handleServerMessage, stopRealtimeSubscription]);
+  }, [handleServerMessage, stopPvpPolling]);
 
+  const pvpPollState = useCallback(() => {
+    if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
+    pvpPollInFlightRef.current = true;
+    apiPost({
+      action: 'pvpGetRoomState',
+      initData: tgInitDataRef.current,
+      roomId: pvpRoomIdRef.current,
+    }).then((data) => {
+      if (!data?.ok) {
+        const err = String(data?.error || '');
+        if (err === 'ACCEPT_TIMEOUT') {
+          stopPvpPolling();
+          pvpRoomIdRef.current = null;
+          goHome();
+          return;
+        }
+        if (err === 'Room not found' && acceptInfo) {
+          pvpRoomIdRef.current = null;
+          setAcceptInfo(null);
+          setScreen('waiting');
+          showBottomNotice('Пользователь не принял матч');
+          startSearchOnline();
+        }
+        return;
+      }
+      if (data.room) applyPvpRoomState(data.room);
+    }).catch(() => {}).finally(() => {
+      pvpPollInFlightRef.current = false;
+    });
+  }, [apiPost, applyPvpRoomState, goHome, stopPvpPolling, acceptInfo]);
 
+  const startPvpPolling = useCallback(() => {
+    stopPvpPolling();
+    // Reduced from 900ms to 500ms for faster response
+    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 500);
+    pvpPollState();
+  }, [pvpPollState, stopPvpPolling]);
 
   const sendMessage = (type, data = {}) => {
     if (playModeRef.current === 'pvp') {
@@ -782,7 +771,8 @@ const GamePage = () => {
           }).then((data2) => {
             if (data2?.ok && data2.room) {
               applyPvpRoomState(data2.room);
-              // WebSocket автоматически получит обновление, дополнительный poll не нужен!
+              // Immediate poll after successful submit for faster response
+              setTimeout(() => pvpPollState(), 200);
             } else if (penAttempts < 3) {
               setTimeout(submitPenMove, 500);
             } else {
@@ -802,6 +792,45 @@ const GamePage = () => {
           });
         };
         submitPenMove();
+
+        // Aggressive polling while waiting for opponent
+        const aggressivePollInterval = setInterval(() => {
+          if (!zoneLocked || !pvpRoomIdRef.current) {
+            clearInterval(aggressivePollInterval);
+            return;
+          }
+          pvpPollState();
+        }, 300);
+
+        // Watchdog: reduced to 3s for faster recovery
+        setTimeout(() => {
+          clearInterval(aggressivePollInterval);
+          if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
+            apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
+              .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
+              .catch(() => {});
+          }
+        }, 3000);
+
+        if (pvpOpponentIsBotRef.current) {
+          clearWaitingBotMoveTimer();
+          // Aggressive polling for bot moves
+          waitingBotMoveTimerRef.current = setTimeout(() => {
+            const rid = pvpRoomIdRef.current;
+            const init = tgInitDataRef.current;
+            if (!rid || !init) return;
+            const botPollInterval = setInterval(() => {
+              if (!zoneLocked) {
+                clearInterval(botPollInterval);
+                return;
+              }
+              apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
+                .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
+                .catch(() => {});
+            }, 200);
+            setTimeout(() => clearInterval(botPollInterval), 5000);
+          }, 1500);
+        }
       }
       return;
     }
@@ -842,7 +871,7 @@ const GamePage = () => {
     pvpLastRoundMarkerRef.current = 0;
     pvpLastStartKeyRef.current = '';
     pvpRoomIdRef.current = null;
-    stopRealtimeSubscription();
+    stopPvpPolling();
     if (pvpFindRetryTimerRef.current) {
       clearTimeout(pvpFindRetryTimerRef.current);
       pvpFindRetryTimerRef.current = null;
@@ -871,7 +900,7 @@ const GamePage = () => {
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
       pvpRoomIdRef.current = data.room.id;
-      startRealtimeSubscription(data.room.id); // WebSocket вместо polling!
+      startPvpPolling();
     }).catch((err) => {
       playModeRef.current = 'idle';
       showBottomNotice(String(err?.message || '').trim() || 'Не удалось начать поиск. Попробуй снова.');
@@ -907,7 +936,7 @@ const GamePage = () => {
           roomId: rid,
         }).catch(() => {});
       }
-      stopRealtimeSubscription();
+      stopPvpPolling();
     }
     if (mode === 'bot') {
       matchRef.current = null;
@@ -941,7 +970,7 @@ const GamePage = () => {
     matchRef.current = null;
     setMatchResult(null);
     setHistory([]);
-    stopRealtimeSubscription();
+    stopPvpPolling();
     pvpRoomIdRef.current = null;
     goHome();
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
@@ -991,7 +1020,7 @@ const GamePage = () => {
         const stakeFromUrl = Number(params.get('stake') || 0);
         if (stakeFromUrl > 0) setSelectedStakeOptions([stakeFromUrl]);
         setScreen('waiting');
-        startRealtimeSubscription(Number(roomId)); // WebSocket вместо polling!
+        startPvpPolling();
       } else {
         setScreen('stake-online');
       }
