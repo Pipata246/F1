@@ -2386,6 +2386,7 @@ function pvpAdvanceByTime(room) {
         next.leftBy = String(asObj(next.players)[leftSide] || "");
         next.leftAt = new Date().toISOString();
         next.endedByLeave = true;
+        next.leaveKind = "stale_presence";
         next.scores = { ...asObj(next.scores) };
         if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
           next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
@@ -2544,6 +2545,7 @@ function pvpAdvanceByTime(room) {
         next.leftBy = String(asObj(next.players)[leftSide] || "");
         next.leftAt = new Date().toISOString();
         next.endedByLeave = true;
+        next.leaveKind = "stale_presence";
         next.scores = { ...asObj(next.scores) };
         if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
           next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
@@ -2692,6 +2694,7 @@ function pvpAdvanceByTime(room) {
         next.leftBy = String(asObj(next.players)[leftSide] || "");
         next.leftAt = new Date().toISOString();
         next.endedByLeave = true;
+        next.leaveKind = "stale_presence";
         next.scores = { ...asObj(next.scores) };
         if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
           next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
@@ -3532,6 +3535,7 @@ async function pvpLeaveRoom(initData, roomId) {
       leftBy: tgId,
       leftAt: new Date().toISOString(),
       endedByLeave: true,
+      leaveKind: "explicit",
       winnerSide: String(winner) === String(room.player1_tg_user_id) ? "p1" : "p2",
       scores: (gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball") ? { p1, p2 } : s.scores,
       matchScores: gameKey === "frog_hunt" ? { ...(asObj(s.matchScores)), p1, p2 } : s.matchScores,

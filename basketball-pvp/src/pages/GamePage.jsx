@@ -604,7 +604,7 @@ const GamePage = () => {
       let youWon = false;
       if (s.winnerSide) youWon = s.winnerSide === mySide;
       else if (arr[0] !== arr[1]) youWon = myIdx === 0 ? arr[0] > arr[1] : arr[1] > arr[0];
-      if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg) {
+      if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg && String(s.leaveKind || '') === 'explicit') {
         setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
         setScreen('result');
         return;
