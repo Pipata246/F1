@@ -544,11 +544,14 @@ function applyPvpRoomState(room) {
         var my = rr.result ? rr.result[sides.mySide] : null;
         var opp = rr.result ? rr.result[sides.oppSide] : null;
         if (my && opp) {
+            var rrScores = rr.scores || {};
             onRoundResult({
                 you: my,
                 opponent: opp,
                 step: Number(rr.step || 0),
-                scores: [Number((rr.scores || {}).p1 || 0), Number((rr.scores || {}).p2 || 0)],
+                // Передаём счёт напрямую — myScore/oppScore без индексирования
+                myScore: Number(rrScores[sides.mySide] || 0),
+                oppScore: Number(rrScores[sides.oppSide] || 0),
                 winner: rr.gameOver ? (rr.winnerSide === sides.mySide ? 'win' : 'lose') : null,
                 gameOver: !!rr.gameOver,
                 round: Number(rr.round || 0),
@@ -1749,9 +1752,16 @@ async function onRoundResult(msg) {
     myAv.classList.remove('shake', 'jump-anim');
     oppAv.classList.remove('shake', 'jump-anim');
 
-    // Update scores — используем playerIndex из сообщения чтобы избежать рассинхрона
-    const mi = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
-    scores = [msg.scores[mi], msg.scores[1 - mi]];
+    // Update scores — берём напрямую из myScore/oppScore (уже ориентированы правильно на бэке)
+    const myScoreVal = (msg.myScore !== undefined) ? msg.myScore : (() => {
+        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
+        return msg.scores ? msg.scores[mi2] : scores[0];
+    })();
+    const oppScoreVal = (msg.oppScore !== undefined) ? msg.oppScore : (() => {
+        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
+        return msg.scores ? msg.scores[1 - mi2] : scores[1];
+    })();
+    scores = [myScoreVal, oppScoreVal];
     const s0 = $('sb-score-0'); const s1 = $('sb-score-1');
     s0.textContent = scores[0]; s1.textContent = scores[1];
     roundAnimating = false; // разблокируем обновление счёта
