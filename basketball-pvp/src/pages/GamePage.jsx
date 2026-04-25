@@ -1073,7 +1073,7 @@ const GamePage = () => {
       : null;
     return (
       <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
-        {matchResult.opponentLeft?<h1 className="text-4xl text-emerald-400 uppercase tracking-widest">Соперник вышел</h1>
+        {matchResult.opponentLeft?<h1 className="text-4xl text-emerald-400 uppercase tracking-widest text-center w-full">Соперник вышел</h1>
           :matchResult.youWon
             ?<div className="text-center"><div className="text-8xl mb-2">🏆</div><h1 className="text-7xl uppercase text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-green-500">WIN!</h1></div>
             :<div className="text-center"><div className="text-8xl mb-2">😔</div><h1 className="text-6xl uppercase text-transparent bg-clip-text bg-gradient-to-b from-red-300 to-red-600">LOSE</h1></div>
