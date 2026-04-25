@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
     "canvas-confetti": "^1.9.3",
     "clsx": "^2.1.1",
     "express": "^4.21.0",
