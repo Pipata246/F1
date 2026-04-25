@@ -615,8 +615,13 @@ function applyPvpRoomState(room) {
     pvpAcceptTickTimer = setInterval(function() {
       var left = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000));
       if ($('accept-timer')) $('accept-timer').textContent = left + 'с';
-      if (left <= 0) { clearInterval(pvpAcceptTickTimer); pvpAcceptTickTimer = null; }
-    }, 500);
+      if (left <= 0) {
+        clearInterval(pvpAcceptTickTimer);
+        pvpAcceptTickTimer = null;
+        // Форсируем poll сразу — не ждём следующего интервала
+        pvpPollState();
+      }
+    }, 200); // 200мс для плавного и точного отсчёта
     return;
   }
   if ($('accept-modal')) $('accept-modal').style.display = 'none';
