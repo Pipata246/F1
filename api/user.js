@@ -2876,6 +2876,7 @@ function pvpAdvanceByTime(room) {
       next.endedByLeave = true;
       next.leftBy = String(next?.players?.[leftSide] || "");
       next.leftAt = new Date().toISOString();
+      next.leaveKind = "stale_presence";
       next.matchScores = { ...(s.matchScores || { p1: 0, p2: 0 }) };
       if (Number(next.matchScores.p1 || 0) === Number(next.matchScores.p2 || 0)) {
         next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;

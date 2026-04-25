@@ -28,6 +28,8 @@ var pvpPendingSubmit = false;
 var pvpPollInFlight = false;
 var PVP_POLL_MS = 800;
 var pvpRecovering = false;
+var pvpServerSkewMs = 0; // localNow - serverNow
+var TURN_MS = 16000;
 // Watchdog: если ход сделан но нет ответа — форсируем poll
 var pvpMoveWatchdogTimer = null;
 var roundAnimating = false; // флаг: идёт анимация раунда, не обновляем счёт
@@ -538,6 +540,9 @@ function pvpPollState() {
       }
       return;
     }
+    if (typeof data.serverNowMs === 'number' && isFinite(Number(data.serverNowMs))) {
+      pvpServerSkewMs = Date.now() - Number(data.serverNowMs);
+    }
     if (!data.room) return;
     applyPvpRoomState(data.room);
   }).catch(function() {
@@ -562,9 +567,9 @@ function applyPvpRoomState(room) {
       return;
     }
     stopPvpPolling();
-    if (s.leftBy && String(s.leftBy) !== String(tgUserId)) {
+    if (s.leftBy && String(s.leftBy) !== String(tgUserId) && String(s.leaveKind || '') === 'explicit') {
       onOpponentLeftVictory(room);
-    } else if (String(room.winner_tg_user_id || '') === String(tgUserId) && !!s.endedByLeave) {
+    } else if (String(room.winner_tg_user_id || '') === String(tgUserId) && !!s.endedByLeave && String(s.leaveKind || '') === 'explicit') {
       onOpponentLeftVictory(room);
     } else if (!s.endedByLeave) {
       var meIsP1Done = String(room.player1_tg_user_id) === String(tgUserId);
@@ -608,12 +613,14 @@ function applyPvpRoomState(room) {
     }
     $('hint-text').textContent = 'Подтверди матч';
     showScreen('waiting');
-    if ($('accept-timer')) $('accept-timer').textContent = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000)) + 'с';
+    var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+    if ($('accept-timer')) $('accept-timer').textContent = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - nowServer) / 1000)) + 'с';
     if ($('accept-modal')) $('accept-modal').style.display = 'flex';
     // Запускаем живой тикер таймера
     if (pvpAcceptTickTimer) clearInterval(pvpAcceptTickTimer);
     pvpAcceptTickTimer = setInterval(function() {
-      var left = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - Date.now()) / 1000));
+      var nowS = Date.now() - (Number(pvpServerSkewMs || 0));
+      var left = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - nowS) / 1000));
       if ($('accept-timer')) $('accept-timer').textContent = left + 'с';
       if (left <= 0) {
         clearInterval(pvpAcceptTickTimer);
@@ -674,14 +681,16 @@ function applyPvpRoomState(room) {
           round: currentRound,
           totalRounds: totalRounds,
           currentCell: s.frogCell,
-          isFinal: currentRound === totalRounds
+          isFinal: currentRound === totalRounds,
+          phaseAtMs: Number(s.phaseAtMs || 0)
         });
       } else {
         onHunterTurn({
           round: currentRound,
           totalRounds: totalRounds,
           hunterShots: hunterShots,
-          isFinal: currentRound === totalRounds
+          isFinal: currentRound === totalRounds,
+          phaseAtMs: Number(s.phaseAtMs || 0)
         });
       }
     } else if (moveChosen || pvpPendingSubmit) {
@@ -731,7 +740,7 @@ function applyPvpRoomState(room) {
   if (s.phase === 'match_over' && Number((s.markers || {}).match || 0) > pvpLastMatchMarker) {
     pvpLastMatchMarker = Number((s.markers || {}).match || 0);
     stopPvpPolling();
-    if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(tgUserId)) {
+    if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(tgUserId) && String(s.leaveKind || '') === 'explicit') {
       onOpponentLeftVictory(room);
       return;
     }
@@ -967,28 +976,53 @@ function startTimer(ms) {
   var bar = $('timer-bar');
   bar.style.width = '100%';
   bar.classList.remove('urgent');
-  var start = Date.now();
+  var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+  var maybePhaseAt = Number(ms || 0);
+  var startAt = maybePhaseAt > 1000000000000 ? maybePhaseAt : nowServer; // allow passing phaseAtMs
+  var duration = isBotMode ? 15000 : TURN_MS;
+  var endAt = startAt + duration;
 
   timerInterval = setInterval(function() {
-    var pct = Math.max(0, 1 - (Date.now() - start) / ms) * 100;
+    var nowS = Date.now() - (Number(pvpServerSkewMs || 0));
+    var left = Math.max(0, endAt - nowS);
+    var pct = Math.max(0, left / duration) * 100;
     bar.style.width = pct + '%';
     if (pct < 25) bar.classList.add('urgent');
     if (pct <= 0) {
       clearInterval(timerInterval);
       if (!moveChosen) {
-        if (myRole === 'frog') {
-          selectedCells = [Math.floor(Math.random() * Math.max(1, totalCells))];
-        } else {
-          var need = Math.max(1, Number(hunterShots || 1));
-          var pick = [];
-          var maxCell = Math.max(1, totalCells);
-          while (pick.length < need) {
-            var n = Math.floor(Math.random() * maxCell);
-            if (pick.indexOf(n) === -1) pick.push(n);
+        // Demo/bot: auto move locally. PvP: server resolves by timeout; we just lock UI.
+        if (isBotMode) {
+          if (myRole === 'frog') {
+            selectedCells = [Math.floor(Math.random() * Math.max(1, totalCells))];
+          } else {
+            var need = Math.max(1, Number(hunterShots || 1));
+            var pick = [];
+            var maxCell = Math.max(1, totalCells);
+            while (pick.length < need) {
+              var n = Math.floor(Math.random() * maxCell);
+              if (pick.indexOf(n) === -1) pick.push(n);
+            }
+            selectedCells = pick;
           }
-          selectedCells = pick;
+          confirmChoice();
+        } else {
+          // PvP: auto-submit a random move at the (server-synced) deadline.
+          // Server still has its own timeout auto-fill as a safety net.
+          if (myRole === 'frog') {
+            selectedCells = [Math.floor(Math.random() * Math.max(1, totalCells))];
+          } else {
+            var need2 = Math.max(1, Number(hunterShots || 1));
+            var pick2 = [];
+            var maxCell2 = Math.max(1, totalCells);
+            while (pick2.length < need2) {
+              var n2 = Math.floor(Math.random() * maxCell2);
+              if (pick2.indexOf(n2) === -1) pick2.push(n2);
+            }
+            selectedCells = pick2;
+          }
+          confirmChoice();
         }
-        confirmChoice();
       }
     }
   }, 50);
@@ -1072,7 +1106,7 @@ function onFrogTurn(msg) {
     ? 'ФИНАЛЬНЫЙ ХОД! Куда прячешься?'
     : 'Выбери кувшинку!';
 
-  startTimer(15000);
+  startTimer(Number(msg && msg.phaseAtMs) || 15000);
 }
 
 function onHunterTurn(msg) {
@@ -1097,7 +1131,7 @@ function onHunterTurn(msg) {
     $('hint-text').textContent += ' (выбери ' + hunterShots + ')';
   }
 
-  startTimer(15000);
+  startTimer(Number(msg && msg.phaseAtMs) || 15000);
 }
 
 function onRoundResult(msg) {

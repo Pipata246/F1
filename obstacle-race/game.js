@@ -37,7 +37,8 @@ const ALLOWED_STAKES = [0.1, 0.5, 1, 5, 10, 25];
 let currentBalanceTon = 0;
 let bottomNoticeTimer = null;
 let pvpServerSkewMs = 0;
-const TURN_MS = 12_000;
+// Obstacle race server forces moves after 15s in PvP; keep UI in sync.
+const TURN_MS = 15_000;
 let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
 let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
@@ -1586,13 +1587,11 @@ function startTimer(phaseAtMs) {
             if (!moveChosen) {
                 if (xrayScanMode) exitXrayScanMode();
                 abilityActive = false;
-                // Bot/demo: auto move. Online PvP: server will resolve by timeout.
+                // Auto move on timer expiry:
+                // - bot/demo: local move
+                // - PvP: submit move to backend (server-synced timer), server still has timeout safety net
                 if (isBotMode) makeMove(Math.random() < 0.5 ? 'run' : 'jump');
-                else {
-                    $('btn-run').disabled = true;
-                    $('btn-jump').disabled = true;
-                    $('move-wait').classList.remove('hidden');
-                }
+                else makeMove(Math.random() < 0.5 ? 'run' : 'jump');
             }
         }
     }, 50);
