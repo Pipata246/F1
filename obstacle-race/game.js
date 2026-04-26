@@ -120,6 +120,7 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 let pvpMoveWatchdogTimer = null;
 let pvpLastProcessedStateHash = '';
+let pvpProcessingRoundResult = false; // Флаг: сейчас обрабатывается результат раунда
 // Универсальный heartbeat — работает на КАЖДОМ этапе PvP игры
 let pvpHeartbeatTimer = null;
 const PVP_HEARTBEAT_MS = 2000; // каждые 2 секунды пока идёт PvP
@@ -695,6 +696,11 @@ function applyPvpRoomState(room) {
     var rr = s.lastRoundResult || {};
     var roundMarker = Number(rr.marker || 0);
     if (roundMarker > 0 && roundMarker > pvpLastRoundMarker) {
+        // ЗАЩИТА: если уже обрабатываем результат - пропускаем дубль
+        if (pvpProcessingRoundResult) {
+            console.log('⚠️ Round result already processing, skipping duplicate');
+            return;
+        }
         pvpLastRoundMarker = roundMarker;
         var my = rr.result ? rr.result[sides.mySide] : null;
         var opp = rr.result ? rr.result[sides.oppSide] : null;
@@ -1018,6 +1024,7 @@ function startGame(vsBot) {
     myUsedXrayThisRound = false; oppUsedXrayThisRound = false;
     trapsConfirmed = false; myOvertimeTraps = []; stopTrapTimer();
     roundAnimating = false; gameOverSoundPlayed = false;
+    pvpProcessingRoundResult = false; // Сбрасываем флаг обработки
     clearInterval(timerInterval);
     matchSaved = false;
     stopMoveWatchdog();
@@ -1297,6 +1304,7 @@ async function onRoundStart(msg) {
     myUsedXrayThisRound = false;
     oppUsedXrayThisRound = false;
     roundAnimating = false;
+    pvpProcessingRoundResult = false; // Сбрасываем флаг обработки
 
     if (msg.overtime) isOvertime = true;
 
@@ -1321,8 +1329,9 @@ async function onRoundStart(msg) {
     if (currentStep === 0 && !isOvertime) {
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
-        $('sb-score-0').textContent = String(scores[0] || 0);
-        $('sb-score-1').textContent = String(scores[1] || 0);
+        // Показываем текущий счёт (уже обновлён в onRoundResult)
+        $('sb-score-0').textContent = String(scores[0]);
+        $('sb-score-1').textContent = String(scores[1]);
         $('tname-0').textContent = myName;
         $('tname-1').textContent = opponentName;
         $('round-num').textContent = '\u0420\u0430\u0443\u043D\u0434';
@@ -1341,8 +1350,8 @@ async function onRoundStart(msg) {
         if (!myAbility) abilityUsed = true; else abilityUsed = false;
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
-        $('sb-score-0').textContent = String(scores[0] || 0);
-        $('sb-score-1').textContent = String(scores[1] || 0);
+        $('sb-score-0').textContent = String(scores[0]);
+        $('sb-score-1').textContent = String(scores[1]);
         $('tname-0').textContent = myName;
         $('tname-1').textContent = opponentName;
         $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
@@ -1805,10 +1814,15 @@ function startTimer(phaseAtMs) {
 }
 
 async function onRoundResult(msg) {
+    // КРИТИЧЕСКАЯ ЗАЩИТА: блокируем параллельную обработку
+    if (pvpProcessingRoundResult) {
+        console.warn('⚠️ onRoundResult already running, ignoring duplicate call');
+        return;
+    }
+    pvpProcessingRoundResult = true;
+    
     clearInterval(timerInterval);
     stopMoveWatchdog();
-    
-    // Устанавливаем флаг анимации
     roundAnimating = true;
     
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1816,7 +1830,7 @@ async function onRoundResult(msg) {
     const my = msg.you;
     const opp = msg.opponent;
 
-    // СРАЗУ обновляем счёт из сервера (до анимации)
+    // АТОМАРНОЕ обновление счёта - один раз в начале
     const myScoreVal = (msg.myScore !== undefined) ? msg.myScore : (() => {
         const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
         return msg.scores ? msg.scores[mi2] : scores[0];
@@ -1825,9 +1839,11 @@ async function onRoundResult(msg) {
         const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
         return msg.scores ? msg.scores[1 - mi2] : scores[1];
     })();
-    scores = [myScoreVal, oppScoreVal];
+    
+    // Обновляем глобальный счёт СРАЗУ
+    scores[0] = myScoreVal;
+    scores[1] = oppScoreVal;
 
-    // Reveal opponent ability when they use it
     if (opp.usedAbility && !oppAbility) {
         oppAbility = opp.usedAbility;
     }
@@ -1988,9 +2004,10 @@ async function onRoundResult(msg) {
     myAv.classList.remove('shake', 'jump-anim');
     oppAv.classList.remove('shake', 'jump-anim');
 
-    // Update scores — используем уже обновлённые значения из начала функции
+    // Обновляем UI счёта (данные уже в scores)
     const s0 = $('sb-score-0'); const s1 = $('sb-score-1');
-    s0.textContent = scores[0]; s1.textContent = scores[1];
+    s0.textContent = scores[0]; 
+    s1.textContent = scores[1];
 
     if (my.points > 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '+' + my.points, true); }
     else if (my.points < 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '' + my.points, false); }
@@ -2029,11 +2046,12 @@ async function onRoundResult(msg) {
 
     if (msg.gameOver) {
         roundAnimating = false;
+        pvpProcessingRoundResult = false;
         await delay(300);
-        var finalArr = [scores[0], scores[1]];
-        showGameOver(msg.winner, finalArr);
+        showGameOver(msg.winner, [scores[0], scores[1]]);
     } else if (msg.startOvertime) {
         roundAnimating = false;
+        pvpProcessingRoundResult = false;
         await showOvertimeAnnouncement();
         isOvertime = true;
         revealedPoints = {};
@@ -2062,6 +2080,7 @@ async function onRoundResult(msg) {
         }
     } else {
         roundAnimating = false;
+        pvpProcessingRoundResult = false;
         if (isBotMode) {
             currentStep = msg.round;
             highlightCurrentDot(msg.round);
