@@ -181,6 +181,7 @@ const GamePage = () => {
   const pvpPollInFlightRef = useRef(false);
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
+  const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
@@ -188,7 +189,7 @@ const GamePage = () => {
   const showingResultRef = useRef(false);
   const roundStuckTimerRef = useRef(null);
   const waitingBotMoveTimerRef = useRef(null);
-  // Supabase Realtime
+  // Supabase Realtime - НЕ ИСПОЛЬЗУЕМ, только HTTP polling
   const realtimeChannelRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
@@ -594,47 +595,30 @@ const GamePage = () => {
     pvpPollInFlightRef.current = false;
   }, []);
 
-  // ==================== SUPABASE REALTIME ====================
+  // ==================== HTTP POLLING (КАК В FROG HUNT) ====================
   const stopRealtimeSubscription = useCallback(() => {
-    if (realtimeChannelRef.current) {
-      supabaseClient.removeChannel(realtimeChannelRef.current);
-      realtimeChannelRef.current = null;
-      console.log('[Realtime] Subscription stopped');
-    }
+    // Пустая функция - не используем WebSocket
   }, []);
 
   const startRealtimeSubscription = useCallback((roomId) => {
-    stopRealtimeSubscription();
-    if (!roomId) return;
+    // Пустая функция - не используем WebSocket
+  }, []);
 
-    const channelName = `super_penalty_room_${roomId}`;
-    console.log('[Realtime] Subscribing to', channelName);
+  const stopPvpPolling = useCallback(() => {
+    if (pvpPollTimerRef.current) {
+      clearInterval(pvpPollTimerRef.current);
+      pvpPollTimerRef.current = null;
+    }
+    pvpPollInFlightRef.current = false;
+  }, []);
 
-    const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
-
-    realtimeChannelRef.current = supabaseClient
-      .channel(channelName)
-      .on('broadcast', { event: 'state_update' }, (payload) => {
-        console.log('[Realtime] Update received:', payload?.payload?.phase);
-        const data = payload?.payload;
-        if (!data?.room) return;
-        // Фильтр: только для меня или broadcast
-        if (data.forPlayer && data.forPlayer !== myTg) return;
-        applyPvpRoomState(data.room);
-      })
-      .subscribe((status) => {
-        console.log('[Realtime] Status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('[Realtime] ✅ WebSocket connected!');
-          // Остановить polling — WebSocket работает
-          stopPvpPolling();
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn('[Realtime] ⚠️ WebSocket error, falling back to polling');
-          // Fallback на polling если WebSocket упал
-          startPvpPolling();
-        }
-      });
-  }, [stopRealtimeSubscription, stopPvpPolling]); // eslint-disable-line
+  const startPvpPolling = useCallback(() => {
+    stopPvpPolling();
+    pvpPollTimerRef.current = setInterval(() => {
+      pvpPollState();
+    }, PVP_POLL_MS);
+    pvpPollState(); // Сразу первый запрос
+  }, [stopPvpPolling]); // eslint-disable-line
 
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
@@ -955,8 +939,8 @@ const GamePage = () => {
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
       pvpRoomIdRef.current = data.room.id;
-      // Запускаем Realtime WebSocket, polling — только fallback
-      startRealtimeSubscription(data.room.id);
+      // Запускаем HTTP polling как в Frog Hunt
+      startPvpPolling();
       // Сразу применяем начальное состояние
       if (data.room) applyPvpRoomState(data.room);
       // Polling как страховка пока WebSocket не подключился
