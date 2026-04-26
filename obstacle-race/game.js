@@ -50,7 +50,13 @@ function startRealtimeSubscription(roomId) {
           var myTg = String(window._tgUserId || '');
           var forPlayer = payload.payload.forPlayer;
           if (!forPlayer || forPlayer === myTg) {
+            // DEBOUNCE: защита от "шторма" обновлений
+            // Применяем обновление сразу, но блокируем повторные на 100мс
+            if (pvpStateUpdateDebounce) clearTimeout(pvpStateUpdateDebounce);
             applyPvpRoomState(payload.payload.room);
+            pvpStateUpdateDebounce = setTimeout(function() {
+              pvpStateUpdateDebounce = null;
+            }, 100);
           }
         }
       }
@@ -110,8 +116,8 @@ let pvpServerSkewMs = 0;
 const TURN_MS = 15_000;
 let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
-let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
-let pvpWaitingFallbackTimer = null; // резерв (не используется)
+let pvpAcceptTickInterval = null;
+let pvpWaitingFallbackTimer = null;
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -120,11 +126,13 @@ let pvpLastXrayMarker = 0;
 let pvpLastStartKey = '';
 let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
-let pvpMoveWatchdogTimer = null; // повторяющийся watchdog пока ждём round_result
+let pvpMoveWatchdogTimer = null;
+let pvpLastProcessedStateHash = ''; // Хеш последнего обработанного состояния для дедупликации
+let pvpStateUpdateDebounce = null; // Debounce таймер для WebSocket обновлений
+// Универсальный heartbeat — работает на КАЖДОМ этапе PvP игры
+let pvpHeartbeatTimer = null;
+const PVP_HEARTBEAT_MS = 2000; // каждые 2 секунды пока идёт PvP
 const SETTINGS_KEY = "f1duel_global_settings_v1";
-// Legacy constants (not used with WebSocket)
-// const PVP_POLL_MS = 900;
-// const PVP_POLL_FAST_MS = 500;
 
 const OT_ROUNDS = 3;
 
@@ -472,6 +480,10 @@ function stopPvpPolling() {
     stopMoveWatchdog();
     stopWaitingCheck();
     stopTrapsCheck();
+    if (pvpStateUpdateDebounce) {
+        clearTimeout(pvpStateUpdateDebounce);
+        pvpStateUpdateDebounce = null;
+    }
 }
 
 function stopWaitingFallbackPolling() {}
@@ -516,6 +528,7 @@ function resetPvpMarkers() {
     pvpLastRoundMarker = 0;
     pvpLastXrayMarker = 0;
     pvpLastStartKey = '';
+    pvpLastProcessedStateHash = ''; // Сбрасываем хеш при новой игре
 }
 
 function getPvpSides(room) {
@@ -562,6 +575,20 @@ function applyPvpRoomState(room) {
     var s = room.state_json || {};
     var status = String(room.status || '');
     var phase = String((s || {}).phase || '');
+
+    // ДЕДУПЛИКАЦИЯ: создаём хеш состояния для защиты от повторной обработки
+    var stateHash = status + ':' + phase + ':' + 
+                    (s.currentStep || 0) + ':' + (s.overtimeRound || 0) + ':' +
+                    ((s.lastRoundResult || {}).marker || 0) + ':' +
+                    ((s.lastXray || {}).marker || 0);
+    
+    // Если это точно такое же состояние — пропускаем (защита от дублей WebSocket + HTTP)
+    if (stateHash === pvpLastProcessedStateHash && phase !== 'accept_match') {
+        console.log('⏭️ Skipping duplicate state:', stateHash);
+        return;
+    }
+    console.log('✅ Processing new state:', stateHash, 'phase:', phase, 'status:', status);
+    pvpLastProcessedStateHash = stateHash;
 
     // ── ACCEPT MATCH ──────────────────────────────────────────────────────────
     if (status === 'active' && phase === 'accept_match') {
@@ -682,28 +709,31 @@ function applyPvpRoomState(room) {
     // ── ROUND RESULT ──────────────────────────────────────────────────────────
     var rr = s.lastRoundResult || {};
     var roundMarker = Number(rr.marker || 0);
-    if (roundMarker > pvpLastRoundMarker) {
+    if (roundMarker > 0 && roundMarker > pvpLastRoundMarker) {
         pvpLastRoundMarker = roundMarker;
         var my = rr.result ? rr.result[sides.mySide] : null;
         var opp = rr.result ? rr.result[sides.oppSide] : null;
         if (my && opp) {
             var rrScores = rr.scores || {};
-            onRoundResult({
-                you: my,
-                opponent: opp,
-                step: Number(rr.step || 0),
-                myScore: Number(rrScores[sides.mySide] || 0),
-                oppScore: Number(rrScores[sides.oppSide] || 0),
-                winner: rr.gameOver ? (rr.winnerSide === sides.mySide ? 'win' : 'lose') : null,
-                gameOver: !!rr.gameOver,
-                round: Number(rr.round || 0),
-                totalRounds: 7,
-                playerIndex: sides.playerIndex,
-                overtime: !!rr.overtime,
-                startOvertime: !!rr.startOvertime,
-                // phaseAtMs НЕ передаём — следующий раунд придёт через WebSocket с правильным phaseAtMs
-                phaseAtMs: null,
-            });
+            // ЗАЩИТА: не обрабатываем результат если уже идёт анимация этого раунда
+            if (!roundAnimating) {
+                onRoundResult({
+                    you: my,
+                    opponent: opp,
+                    step: Number(rr.step || 0),
+                    myScore: Number(rrScores[sides.mySide] || 0),
+                    oppScore: Number(rrScores[sides.oppSide] || 0),
+                    winner: rr.gameOver ? (rr.winnerSide === sides.mySide ? 'win' : 'lose') : null,
+                    gameOver: !!rr.gameOver,
+                    round: Number(rr.round || 0),
+                    totalRounds: 7,
+                    playerIndex: sides.playerIndex,
+                    overtime: !!rr.overtime,
+                    startOvertime: !!rr.startOvertime,
+                    // phaseAtMs НЕ передаём — следующий раунд придёт через WebSocket с правильным phaseAtMs
+                    phaseAtMs: null,
+                });
+            }
             return;
         }
     }
@@ -712,10 +742,10 @@ function applyPvpRoomState(room) {
     if (phase === 'running') {
         var step = s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0);
         var startKey = String(!!s.overtime) + ':' + String(step);
-        if (startKey !== pvpLastStartKey) {
+        // ЗАЩИТА: не начинаем новый раунд если идёт анимация предыдущего
+        if (startKey !== pvpLastStartKey && !roundAnimating) {
             pvpLastStartKey = startKey;
             moveChosen = false;
-            roundAnimating = false;
             var abilityForRound = s.overtime
                 ? ((s.overtimeAbilities || {})[sides.mySide] || null)
                 : ((s.abilities || {})[sides.mySide] || null);
@@ -1286,6 +1316,7 @@ async function onRoundStart(msg) {
     abilityActive = false;
     myUsedXrayThisRound = false;  // сбрасываем флаги рентгена на каждый раунд
     oppUsedXrayThisRound = false;
+    roundAnimating = false; // ВАЖНО: сбрасываем флаг анимации при старте нового раунда
     // Возвращаем нормальный WebSocket режим — быстрый больше не нужен
     // WebSocket уже работает, дополнительных действий не требуется
 
@@ -1313,7 +1344,7 @@ async function onRoundStart(msg) {
     if (currentStep === 0 && !isOvertime) {
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
-        // Не обновляем счёт пока идёт анимация предыдущего раунда
+        // ЗАЩИТА: обновляем счёт только если не идёт анимация
         if (!roundAnimating) {
             $('sb-score-0').textContent = String(scores[0] || 0);
             $('sb-score-1').textContent = String(scores[1] || 0);
@@ -1337,8 +1368,11 @@ async function onRoundStart(msg) {
         if (!myAbility) abilityUsed = true; else abilityUsed = false;
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
-        $('sb-score-0').textContent = String(scores[0] || 0);
-        $('sb-score-1').textContent = String(scores[1] || 0);
+        // ЗАЩИТА: обновляем счёт только если не идёт анимация
+        if (!roundAnimating) {
+            $('sb-score-0').textContent = String(scores[0] || 0);
+            $('sb-score-1').textContent = String(scores[1] || 0);
+        }
         $('tname-0').textContent = myName;
         $('tname-1').textContent = opponentName;
         $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
@@ -1804,11 +1838,29 @@ function startTimer(phaseAtMs) {
 async function onRoundResult(msg) {
     clearInterval(timerInterval);
     stopMoveWatchdog(); // результат получен — watchdog больше не нужен
-    roundAnimating = true; // блокируем обновление счёта в UI
+    
+    // КРИТИЧЕСКАЯ ЗАЩИТА: блокируем повторную обработку этого же результата
+    if (roundAnimating) {
+        console.warn('Round animation already in progress, skipping duplicate result');
+        return;
+    }
+    roundAnimating = true; // устанавливаем флаг СРАЗУ
+    
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
     const my = msg.you;
     const opp = msg.opponent;
+
+    // СРАЗУ обновляем счёт из сервера (до анимации) чтобы избежать рассинхрона
+    const myScoreVal = (msg.myScore !== undefined) ? msg.myScore : (() => {
+        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
+        return msg.scores ? msg.scores[mi2] : scores[0];
+    })();
+    const oppScoreVal = (msg.oppScore !== undefined) ? msg.oppScore : (() => {
+        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
+        return msg.scores ? msg.scores[1 - mi2] : scores[1];
+    })();
+    scores = [myScoreVal, oppScoreVal];
 
     // Reveal opponent ability when they use it
     if (opp.usedAbility && !oppAbility) {
@@ -1971,19 +2023,9 @@ async function onRoundResult(msg) {
     myAv.classList.remove('shake', 'jump-anim');
     oppAv.classList.remove('shake', 'jump-anim');
 
-    // Update scores — берём напрямую из myScore/oppScore (уже ориентированы правильно на бэке)
-    const myScoreVal = (msg.myScore !== undefined) ? msg.myScore : (() => {
-        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
-        return msg.scores ? msg.scores[mi2] : scores[0];
-    })();
-    const oppScoreVal = (msg.oppScore !== undefined) ? msg.oppScore : (() => {
-        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
-        return msg.scores ? msg.scores[1 - mi2] : scores[1];
-    })();
-    scores = [myScoreVal, oppScoreVal];
+    // Update scores — используем уже обновлённые значения из начала функции
     const s0 = $('sb-score-0'); const s1 = $('sb-score-1');
     s0.textContent = scores[0]; s1.textContent = scores[1];
-    roundAnimating = false; // разблокируем обновление счёта
 
     if (my.points > 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '+' + my.points, true); }
     else if (my.points < 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '' + my.points, false); }
@@ -2024,12 +2066,13 @@ async function onRoundResult(msg) {
     // WebSocket уже работает, дополнительных действий не требуется
 
     if (msg.gameOver) {
+        roundAnimating = false; // разблокируем перед завершением игры
         await delay(300);
-        // Финальный счёт — берём из myScore/oppScore (уже ориентированы на нас)
-        var finalArr = [msg.myScore !== undefined ? msg.myScore : scores[0],
-                        msg.oppScore !== undefined ? msg.oppScore : scores[1]];
+        // Финальный счёт — берём из уже обновлённых scores
+        var finalArr = [scores[0], scores[1]];
         showGameOver(msg.winner, finalArr);
     } else if (msg.startOvertime) {
+        roundAnimating = false; // разблокируем перед овертаймом
         await showOvertimeAnnouncement();
         isOvertime = true;
         revealedPoints = {};
@@ -2060,6 +2103,7 @@ async function onRoundResult(msg) {
         }
         // В PvP — ждём WebSocket broadcast с overtime_placing
     } else {
+        roundAnimating = false; // разблокируем перед следующим раундом
         // Следующий раунд — в PvP ждём WebSocket broadcast с running фазой
         // В боте — запускаем напрямую
         if (isBotMode) {
