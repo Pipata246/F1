@@ -161,6 +161,7 @@ function playSound(name) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOMContentLoaded fired');
     // Initialize Supabase Realtime
     initSupabase();
     
@@ -252,13 +253,16 @@ document.addEventListener('DOMContentLoaded', () => {
     generateGameTracks(7);
 
     const launchMode = String(urlParams.get('launch') || '').toLowerCase();
+    console.log('Launch mode:', launchMode);
     if (launchMode === 'demo') {
         // Дэмо режим - показываем приветственный экран
+        console.log('Showing demo screen');
         showScreen('demo');
     } else if (launchMode === 'play') {
         const directRoomId = urlParams.get('roomId');
         if (directRoomId) {
             // Случайная игра — подключаемся напрямую к комнате
+            console.log('Direct room connection');
             setTimeout(function() {
                 isBotMode = false;
                 pvpRoomId = String(directRoomId);
@@ -274,10 +278,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 0);
         } else {
             // Обычная игра - показываем экран выбора ставки
+            console.log('Showing start screen (play mode)');
             showScreen('start');
         }
     } else {
         // По умолчанию показываем экран выбора ставки
+        console.log('Showing start screen (default)');
         showScreen('start');
     }
 });
