@@ -470,6 +470,8 @@ function stopPvpPolling() {
     pvpPollTimer = null;
     pvpPollInFlight = false;
     stopMoveWatchdog();
+    stopWaitingCheck();
+    stopTrapsCheck();
 }
 
 function stopWaitingFallbackPolling() {}
@@ -647,6 +649,7 @@ function applyPvpRoomState(room) {
     if (trapsConfirmed) {
         trapsConfirmed = false;
         stopTrapTimer();
+        stopTrapsCheck();
     }
 
     // ── MATCH OVER / FINISHED ─────────────────────────────────────────────────
@@ -1190,6 +1193,35 @@ function confirmTraps() {
         p.style.pointerEvents = 'none';
         p.style.opacity = '0.6';
     });
+    // После подтверждения ловушек ждём соперника.
+    // Если broadcast пропал — делаем retry запросы пока не выйдем с экрана ловушек
+    scheduleTrapsCheck(1500);
+}
+
+var trapsCheckTimer = null;
+var trapsCheckCount = 0;
+var MAX_TRAPS_CHECKS = 15;
+
+function scheduleTrapsCheck(delayMs) {
+    if (trapsCheckTimer) clearTimeout(trapsCheckTimer);
+    trapsCheckTimer = setTimeout(function() {
+        trapsCheckTimer = null;
+        if (!pvpRoomId || !tgInitData) return;
+        // Если уже вышли с экрана ловушек — останавливаемся
+        var trapsScreen = document.getElementById('screen-traps');
+        if (!trapsScreen || !trapsScreen.classList.contains('active')) return;
+        trapsCheckCount++;
+        pvpPollState();
+        if (trapsCheckCount < MAX_TRAPS_CHECKS) {
+            var nextDelay = Math.min(1500 + trapsCheckCount * 300, 3000);
+            scheduleTrapsCheck(nextDelay);
+        }
+    }, delayMs);
+}
+
+function stopTrapsCheck() {
+    if (trapsCheckTimer) { clearTimeout(trapsCheckTimer); trapsCheckTimer = null; }
+    trapsCheckCount = 0;
 }
 
 function generateGameTracks(n) {
