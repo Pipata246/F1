@@ -220,12 +220,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('focus', presencePing);
     startPresenceLoop();
 
-    if ($('btn-find')) $('btn-find').onclick = () => startGame(false);
-    if ($('btn-bot')) $('btn-bot').onclick = () => openDemoIntro();
     if ($('btn-demo-play')) $('btn-demo-play').onclick = () => startGame(true);
     if ($('btn-demo-back')) $('btn-demo-back').onclick = () => window.location.href = '/';
     ensureStakePicker();
-    setStakePickerVisible(false);
     refreshBalanceForStakePicker();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
@@ -376,7 +373,8 @@ function ensureStakePicker() {
     wrap.innerHTML =
         '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
         '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
-        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>';
+        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>' +
+        '<button type="button" id="btn-bot" class="btn secondary" style="margin-top:8px">Играть с ботом</button>';
     formDiv.appendChild(wrap);
     var grid = $('stakeGridObstacle');
     ALLOWED_STAKES.forEach(function(stake) {
@@ -403,13 +401,9 @@ function ensureStakePicker() {
     });
     var playBtn = $('stakePlayBtnObstacle');
     if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
+    var botBtn = $('btn-bot');
+    if (botBtn) botBtn.onclick = function(){ openDemoIntro(); };
     renderStakePicker();
-}
-
-function setStakePickerVisible(v) {
-    var wrap = $('stakePickerObstacle');
-    if (!wrap) return;
-    wrap.style.display = v ? 'block' : 'none';
 }
 
 function renderStakePicker() {
@@ -813,12 +807,6 @@ function showScreen(name) {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
     }
-    if (name === 'start') {
-        onlineModeSelected = false;
-        if ($('btn-find')) $('btn-find').style.display = '';
-        if ($('btn-bot')) $('btn-bot').style.display = '';
-        setStakePickerVisible(false);
-    }
 }
 
 function startGame(vsBot) {
@@ -832,21 +820,7 @@ function startGame(vsBot) {
     clearInterval(timerInterval);
     matchSaved = false;
     isBotMode = !!vsBot;
-    if (!isBotMode && !onlineModeSelected) {
-        onlineModeSelected = true;
-        if ($('btn-find')) $('btn-find').style.display = 'none';
-        if ($('btn-bot')) $('btn-bot').style.display = 'none';
-        setStakePickerVisible(true);
-        refreshBalanceForStakePicker();
-        showBottomNotice('Выбери ставку и нажми "Играть"');
-        return;
-    }
-    if (isBotMode) {
-        onlineModeSelected = false;
-        if ($('btn-find')) $('btn-find').style.display = '';
-        if ($('btn-bot')) $('btn-bot').style.display = '';
-        setStakePickerVisible(false);
-    }
+    
     currentStakeTon = null;
     if (!isBotMode) return beginOnlineSearch();
     stopRealtimeSubscription();
