@@ -3470,33 +3470,39 @@ async function pvpBroadcastRoomUpdate(room) {
   if (!room || !room.id) return;
   
   const gameKey = String(room.game_key || "");
-  // Only broadcast for frog_hunt (other games can be added later)
-  if (gameKey !== "frog_hunt") return;
+  // Only broadcast for frog_hunt and obstacle_race
+  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race") return;
   
-  const channelName = `frog_hunt_room_${room.id}`;
+  const channelName = `${gameKey}_room_${room.id}`;
   const p1TgId = String(room.player1_tg_user_id || "");
   const p2TgId = String(room.player2_tg_user_id || "");
   
   // Get filtered state for each player
   try {
-    // Player 1 filtered state
-    if (p1TgId) {
-      const p1Filtered = await sbRpc("pvp_get_filtered_room_state", {
-        p_room_id: room.id,
-        p_tg_user_id: p1TgId,
-      });
-      const p1Room = { ...room, state_json: p1Filtered };
-      await sbBroadcast(channelName, "state_update", { room: p1Room, forPlayer: p1TgId });
-    }
-    
-    // Player 2 filtered state
-    if (p2TgId) {
-      const p2Filtered = await sbRpc("pvp_get_filtered_room_state", {
-        p_room_id: room.id,
-        p_tg_user_id: p2TgId,
-      });
-      const p2Room = { ...room, state_json: p2Filtered };
-      await sbBroadcast(channelName, "state_update", { room: p2Room, forPlayer: p2TgId });
+    // For obstacle_race, we'll add filtering later - for now send full state
+    if (gameKey === "obstacle_race") {
+      // Send same state to both players (will be filtered in next stage)
+      const payload = { room: room };
+      await sbBroadcast(channelName, "state_update", payload);
+    } else {
+      // Frog hunt filtering (existing code)
+      if (p1TgId) {
+        const p1Filtered = await sbRpc("pvp_get_filtered_room_state", {
+          p_room_id: room.id,
+          p_tg_user_id: p1TgId,
+        });
+        const p1Room = { ...room, state_json: p1Filtered };
+        await sbBroadcast(channelName, "state_update", { room: p1Room, forPlayer: p1TgId });
+      }
+      
+      if (p2TgId) {
+        const p2Filtered = await sbRpc("pvp_get_filtered_room_state", {
+          p_room_id: room.id,
+          p_tg_user_id: p2TgId,
+        });
+        const p2Room = { ...room, state_json: p2Filtered };
+        await sbBroadcast(channelName, "state_update", { room: p2Room, forPlayer: p2TgId });
+      }
     }
   } catch (err) {
     console.error("Broadcast error:", err);

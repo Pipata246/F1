@@ -1,0 +1,14 @@
+{
+  "name": "obstacle-race",
+  "version": "1.0.0",
+  "description": "Obstacle Race PvP Game",
+  "main": "game.js",
+  "scripts": {
+    "build": "echo 'Static files ready'",
+    "start": "echo 'Static files served'"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
+}

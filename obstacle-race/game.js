@@ -1,3 +1,65 @@
+// ==================== SUPABASE REALTIME ====================
+var supabase = null;
+var supabaseChannel = null;
+
+function initSupabase() {
+  var SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
+  
+  if (typeof window.supabase === 'undefined') {
+    console.error('Supabase library not loaded!');
+    return;
+  }
+  
+  try {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('✅ Supabase Realtime initialized for Obstacle Race');
+  } catch (err) {
+    console.error('Supabase init error:', err);
+  }
+}
+
+function stopRealtimeSubscription() {
+  if (supabaseChannel) {
+    supabase.removeChannel(supabaseChannel);
+    supabaseChannel = null;
+    console.log('Realtime subscription stopped');
+  }
+}
+
+function startRealtimeSubscription(roomId) {
+  stopRealtimeSubscription();
+  
+  if (!supabase || !roomId) {
+    console.error('Cannot start subscription: missing supabase or roomId');
+    return;
+  }
+  
+  console.log('🔌 Starting Realtime WebSocket for obstacle race room:', roomId);
+  
+  var channelName = 'obstacle_race_room_' + roomId;
+  
+  supabaseChannel = supabase
+    .channel(channelName)
+    .on(
+      'broadcast',
+      { event: 'state_update' },
+      function(payload) {
+        console.log('📡 WebSocket update received:', payload);
+        if (payload.payload && payload.payload.room) {
+          applyPvpRoomState(payload.payload.room);
+        }
+      }
+    )
+    .subscribe(function(status) {
+      console.log('WebSocket status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ WebSocket connected!');
+      }
+    });
+}
+
+// ==================== GAME VARIABLES ====================
 let ws = null;
 let playerIndex = -1;
 let opponentName = '';
@@ -99,6 +161,9 @@ function playSound(name) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize Supabase Realtime
+    initSupabase();
+    
     initSounds();
     if (window.Telegram && window.Telegram.WebApp) {
         const tg = window.Telegram.WebApp;
@@ -222,6 +287,7 @@ function openDemoIntro() {
 }
 
 function connect(cb) {
+    // WebSocket connection is handled by Supabase Realtime, no need for manual connection
     if (cb) cb();
 }
 
@@ -391,7 +457,8 @@ function beaconPvpLeaveRoom(roomId) {
 }
 
 function stopPvpPolling() {
-    if (pvpPollTimer) clearInterval(pvpPollTimer);
+    // Stop WebSocket subscription instead of polling
+    stopRealtimeSubscription();
     pvpPollTimer = null;
     pvpPollInFlight = false;
     stopMoveWatchdog();
@@ -407,23 +474,27 @@ function startMoveWatchdog() {
     pvpMoveWatchdogTimer = setInterval(function() {
         if (!moveChosen || !pvpRoomId || !tgInitData) { stopMoveWatchdog(); return; }
         ticks++;
-        // Каждые 3 сек форсируем poll пока ждём round_result
-        pvpPollState();
-        // После 30 сек (10 тиков) — переключаемся на нормальный polling (сервер сам разрешит по таймауту)
+        // Каждые 3 сек делаем fallback запрос пока ждём round_result (на случай если WebSocket не работает)
+        if (ticks % 3 === 0) {
+            pvpPollState();
+        }
+        // После 30 сек (10 тиков) — переключаемся на нормальный режим
         if (ticks >= 10) stopMoveWatchdog();
     }, 3000);
 }
 
 function startPvpPolling() {
-    stopPvpPolling();
-    pvpPollTimer = setInterval(function() { pvpPollState(); }, PVP_POLL_MS);
-    pvpPollState();
+    // Start WebSocket subscription instead of polling
+    if (pvpRoomId) {
+        startRealtimeSubscription(pvpRoomId);
+    }
 }
 
 function startPvpPollingFast() {
-    stopPvpPolling();
-    pvpPollTimer = setInterval(function() { pvpPollState(); }, PVP_POLL_FAST_MS);
-    pvpPollState();
+    // WebSocket is already fast, no need for separate fast polling
+    if (pvpRoomId && !supabaseChannel) {
+        startRealtimeSubscription(pvpRoomId);
+    }
 }
 
 function resetPvpMarkers() {
@@ -454,7 +525,7 @@ function startAcceptTick() {
         if ($('accept-timer')) $('accept-timer').textContent = remaining + 'с';
         if (remaining <= 0) {
             stopAcceptTick();
-            // Форсируем poll чтобы сразу получить новое состояние
+            // WebSocket should handle updates, but fallback API call for safety
             pvpPollState();
         }
     }
@@ -791,8 +862,8 @@ function sendMsg(m) {
 
         submitMove();
 
-        // Переключаемся на быстрый polling пока ждём результат
-        startPvpPollingFast();
+        // Переключаемся на WebSocket режим (уже активен)
+        // WebSocket обеспечивает моментальные обновления
 
         // Watchdog: повторяем poll каждые 3 сек пока moveChosen=true
         startMoveWatchdog();
@@ -1088,8 +1159,8 @@ async function onRoundStart(msg) {
     abilityActive = false;
     myUsedXrayThisRound = false;  // сбрасываем флаги рентгена на каждый раунд
     oppUsedXrayThisRound = false;
-    // Возвращаем нормальный polling — быстрый больше не нужен
-    if (!isBotMode && pvpRoomId) startPvpPolling();
+    // Возвращаем нормальный WebSocket режим — быстрый больше не нужен
+    // WebSocket уже работает, дополнительных действий не требуется
 
     if (msg.overtime) isOvertime = true;
 
@@ -1816,8 +1887,8 @@ async function onRoundResult(msg) {
         $('round-val').textContent = Math.min(msg.round + 1, totalRounds) + '/' + totalRounds;
     }
 
-    // Возвращаем нормальный polling — результат получен, быстрый больше не нужен
-    if (!isBotMode && pvpRoomId) startPvpPolling();
+    // Возвращаем нормальный WebSocket режим — результат получен, быстрый больше не нужен
+    // WebSocket уже работает, дополнительных действий не требуется
 
     if (msg.gameOver) {
         await delay(300);
