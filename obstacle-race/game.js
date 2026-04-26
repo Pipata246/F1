@@ -109,6 +109,7 @@ const TURN_MS = 15_000;
 let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
 let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
+let pvpWaitingFallbackTimer = null; // быстрый polling пока ждём соперника
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -468,6 +469,28 @@ function stopPvpPolling() {
     pvpPollTimer = null;
     pvpPollInFlight = false;
     stopMoveWatchdog();
+    stopWaitingFallbackPolling();
+}
+
+function stopWaitingFallbackPolling() {
+    if (pvpWaitingFallbackTimer) { clearInterval(pvpWaitingFallbackTimer); pvpWaitingFallbackTimer = null; }
+}
+
+// Быстрый polling (500ms) пока игрок в фазе waiting/accept_match.
+// Нужен потому что WebSocket подключается с задержкой ~1-2с и может пропустить
+// broadcast о том что матч найден. Останавливается как только игра началась.
+function startWaitingFallbackPolling() {
+    stopWaitingFallbackPolling();
+    pvpWaitingFallbackTimer = setInterval(function() {
+        if (!pvpRoomId) { stopWaitingFallbackPolling(); return; }
+        // Останавливаем как только вышли из экрана waiting
+        var waitingScreen = document.getElementById('screen-waiting');
+        if (!waitingScreen || !waitingScreen.classList.contains('active')) {
+            stopWaitingFallbackPolling();
+            return;
+        }
+        pvpPollState();
+    }, 500);
 }
 
 function stopMoveWatchdog() {
@@ -564,6 +587,7 @@ function applyPvpRoomState(room) {
     }
     stopAcceptTick();
     if ($('accept-modal')) $('accept-modal').style.display = 'none';
+    stopWaitingFallbackPolling(); // Игра началась — быстрый polling больше не нужен
 
     var sides = getPvpSides(room);
     playerIndex = sides.playerIndex;
@@ -741,9 +765,13 @@ function pvpFindMatch() {
     }).then(function(data) {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
+        // Запускаем WebSocket подписку
         startPvpPolling();
-        // Применяем состояние сразу — applyPvpRoomState покажет нужный экран
+        // Применяем состояние сразу
         applyPvpRoomState(data.room);
+        // Запускаем быстрый polling (500ms) пока WebSocket не подключился
+        // и пока мы в фазе waiting/accept_match — чтобы не пропустить переход
+        startWaitingFallbackPolling();
     }).catch(function() {
         showScreen('start');
     });
