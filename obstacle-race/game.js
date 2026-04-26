@@ -252,16 +252,17 @@ document.addEventListener('DOMContentLoaded', () => {
     generateTrapTrack();
     generateGameTracks(7);
 
-    // Check for direct room connection (from "Play Again" or notification)
+    // Check URL parameters
     const urlParams = new URLSearchParams(window.location.search);
+    const launchMode = urlParams.get('launch');
     const directRoomId = urlParams.get('roomId');
+    
     if (directRoomId) {
         // Direct room connection - join immediately
         console.log('Direct room connection:', directRoomId);
         setTimeout(function() {
             isBotMode = false;
             pvpRoomId = String(directRoomId);
-            // Restore stake from URL for "Play Again" button
             const stakeFromUrl = Number(urlParams.get('stake') || 0);
             if (stakeFromUrl > 0 && selectedStakeOptions.indexOf(stakeFromUrl) < 0) {
                 selectedStakeOptions = [stakeFromUrl];
@@ -271,8 +272,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 startRealtimeSubscription(pvpRoomId);
             });
         }, 0);
+    } else if (launchMode === 'demo') {
+        // Show demo screen
+        showScreen('demo');
+    } else if (launchMode === 'play') {
+        // Show stake picker screen
+        showScreen('start');
+    } else {
+        // No launch parameter - redirect to main menu
+        window.location.href = '/';
     }
-    // Otherwise, show start screen (already active in HTML)
 });
 
 function openDemoIntro() {
@@ -353,25 +362,18 @@ function refreshBalanceForStakePicker() {
 }
 
 function ensureStakePicker() {
-    var startScreen = $('screen-start');
-    if (!startScreen || $('stakePickerObstacle')) return;
-    var formDiv = startScreen.querySelector('.form');
-    if (!formDiv) {
-        console.error('Cannot find .form div in screen-start');
-        return;
-    }
+    var container = $('stakePickerContainer');
+    if (!container || $('stakePickerObstacle')) return;
+    
     var wrap = document.createElement('div');
     wrap.id = 'stakePickerObstacle';
-    wrap.style.marginTop = '12px';
-    wrap.style.maxWidth = '360px';
-    wrap.style.marginLeft = 'auto';
-    wrap.style.marginRight = 'auto';
+    wrap.style.width = '100%';
     wrap.innerHTML =
-        '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
-        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
-        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>' +
-        '<button type="button" id="btn-bot" class="btn secondary" style="margin-top:8px">Играть с ботом</button>';
-    formDiv.appendChild(wrap);
+        '<div style="font-size:12px;color:#aab1bf;margin-bottom:12px;text-transform:uppercase;letter-spacing:.08em;text-align:center">Выбери ставки TON</div>' +
+        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px"></div>' +
+        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="width:100%;margin-bottom:8px">Играть</button>' +
+        '<button type="button" id="btn-bot" class="btn secondary" style="width:100%">Играть с ботом</button>';
+    container.appendChild(wrap);
     var grid = $('stakeGridObstacle');
     ALLOWED_STAKES.forEach(function(stake) {
         var b = document.createElement('button');
