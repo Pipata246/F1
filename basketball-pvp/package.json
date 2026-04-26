@@ -6,17 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "node server.js",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
     "canvas-confetti": "^1.9.3",
-    "express": "^4.21.0",
     "framer-motion": "^12.34.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.13.0",
-    "ws": "^8.18.0"
+    "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",

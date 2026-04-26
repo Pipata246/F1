@@ -6,13 +6,17 @@ export default defineConfig({
   base: '/basketball-pvp/',
   publicDir: false,
   build: {
-    outDir: '.',
-    assetsDir: '',
-    emptyOutDir: false,
+    outDir: 'dist',
+    assetsDir: 'assets',
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: undefined,
+      },
+    },
   },
   server: {
-    proxy: {
-      '/api': 'http://localhost:3002',
-    },
+    port: 3002,
+    host: true,
   },
 })
