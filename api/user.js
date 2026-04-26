@@ -1498,7 +1498,9 @@ async function pvpTryJoinWaitingWithStake(room, tgId, safeName, state, stakeTon)
   const joinedRoom = rows?.[0] || null;
   // Уведомляем player1 через WebSocket что соперник нашёлся
   if (joinedRoom) {
-    pvpBroadcastRoomUpdate(joinedRoom).catch(() => {});
+    pvpBroadcastRoomUpdate(joinedRoom).catch((e) => {
+      console.error("[pvpTryJoinWaitingWithStake] broadcast error:", e?.message || e);
+    });
   }
   return joinedRoom;
 }

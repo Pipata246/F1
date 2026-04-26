@@ -578,6 +578,7 @@ function applyPvpRoomState(room) {
     // ── ACCEPT TIMEOUT / отмена ───────────────────────────────────────────────
     if (status === 'cancelled' || (status === 'active' && phase === 'accept_timeout')) {
         stopPvpPolling();
+        stopWaitingCheck();
         pvpRoomId = null;
         pvpAcceptDeadlineMs = 0;
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
@@ -589,6 +590,7 @@ function applyPvpRoomState(room) {
 
     // ── Игра активна ──────────────────────────────────────────────────────────
     stopAcceptTick();
+    stopWaitingCheck(); // Вышли из waiting — останавливаем проверки
     if ($('accept-modal')) $('accept-modal').style.display = 'none';
 
     var sides = getPvpSides(room);
@@ -764,11 +766,49 @@ function pvpFindMatch() {
     }).then(function(data) {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
+        // Подписываемся на WebSocket
         startPvpPolling();
+        // Применяем начальное состояние сразу
         applyPvpRoomState(data.room);
+        // Если комната в статусе waiting — запускаем watchdog:
+        // проверяем состояние через 1.5с, 3с, 6с пока не выйдем из waiting
+        // (на случай если broadcast пришёл до подключения WebSocket)
+        if (String(data.room.status || '') === 'waiting') {
+            scheduleWaitingCheck(1500);
+        }
     }).catch(function() {
         showScreen('start');
     });
+}
+
+// Одноразовые проверки состояния пока в статусе waiting
+// Не polling — просто несколько retry с задержкой
+var waitingCheckTimer = null;
+var waitingCheckCount = 0;
+var MAX_WAITING_CHECKS = 20; // до 20 проверок (покрывает 25-40 сек бот-фоллбэка)
+
+function scheduleWaitingCheck(delayMs) {
+    if (waitingCheckTimer) clearTimeout(waitingCheckTimer);
+    waitingCheckTimer = setTimeout(function() {
+        waitingCheckTimer = null;
+        if (!pvpRoomId || !tgInitData) return;
+        // Если уже вышли из waiting — останавливаемся
+        var waitingScreen = document.getElementById('screen-waiting');
+        if (!waitingScreen || !waitingScreen.classList.contains('active')) return;
+        waitingCheckCount++;
+        pvpPollState();
+        // Продолжаем если ещё не достигли лимита
+        if (waitingCheckCount < MAX_WAITING_CHECKS) {
+            // Интервал: 1.5с → 2с → 2.5с → ... → 3с (стабилизируется)
+            var nextDelay = Math.min(1500 + waitingCheckCount * 200, 3000);
+            scheduleWaitingCheck(nextDelay);
+        }
+    }, delayMs);
+}
+
+function stopWaitingCheck() {
+    if (waitingCheckTimer) { clearTimeout(waitingCheckTimer); waitingCheckTimer = null; }
+    waitingCheckCount = 0;
 }
 
 function pvpLeaveRoomSafe() {
@@ -1018,6 +1058,7 @@ function cancelWait() {
         return;
     }
     stopAcceptTick();
+    stopWaitingCheck();
     stopPvpPolling();
     pvpLeaveRoomSafe().finally(function() { window.location.href = '/'; });
 }
