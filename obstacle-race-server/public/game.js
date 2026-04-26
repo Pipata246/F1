@@ -12,6 +12,9 @@ let timerInterval = null;
 let isOvertime = false;
 let trackDots = 7;
 let tgUserId = null;
+let balanceTon = 0;
+let selectedStakeOptions = [];
+let playMode = 'idle'; // 'idle', 'bot', 'pvp'
 
 // Abilities
 let myAbility = null;
@@ -71,21 +74,116 @@ document.addEventListener('DOMContentLoaded', () => {
         const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
         if (user && user.first_name) $('player-name').value = user.first_name;
         if (user && user.id) tgUserId = String(user.id);
+        
+        // Fetch user balance
+        const initData = tg.initData || '';
+        if (initData) {
+            fetch('/api/user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'authSession', initData: initData })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data?.ok && data.user) {
+                    balanceTon = Number(data.user.balance || 0);
+                    updateBalanceDisplay();
+                }
+            })
+            .catch(() => {});
+        }
     }
 
-    $('btn-find').onclick = () => startGame(false);
-    $('btn-bot').onclick = () => startGame(true);
+    $('btn-find').onclick = () => showStakeScreen();
+    $('btn-bot').onclick = () => showDemoIntro();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
-    $('btn-again').onclick = () => startGame(true);
+    $('btn-again').onclick = () => showDemoIntro();
     $('btn-menu').onclick = () => showScreen('start');
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
     $('btn-ability').onclick = toggleAbility;
-
+    
+    // Demo intro buttons
+    $('btn-demo-play').onclick = () => startGame(true);
+    $('btn-demo-back').onclick = () => showScreen('start');
+    
+    // Stake screen buttons
+    $('btn-stake-back').onclick = () => showScreen('start');
+    $('btn-stake-play').onclick = () => startGameOnline();
+    
+    generateStakeGrid();
     generateTrapTrack();
     generateGameTracks(7);
 });
+
+function showDemoIntro() {
+    playSound('click');
+    showScreen('demo-intro');
+}
+
+function showStakeScreen() {
+    playSound('click');
+    selectedStakeOptions = [];
+    updateStakeGrid();
+    showScreen('stake');
+}
+
+function generateStakeGrid() {
+    const stakes = [0.1, 0.5, 1, 5, 10, 25];
+    const grid = $('stake-grid');
+    grid.innerHTML = '';
+    
+    stakes.forEach(stake => {
+        const btn = document.createElement('button');
+        btn.className = 'stake-option';
+        btn.textContent = stake + ' TON';
+        btn.dataset.stake = stake;
+        btn.onclick = () => toggleStakeOption(stake);
+        grid.appendChild(btn);
+    });
+}
+
+function updateBalanceDisplay() {
+    const el = $('balance-display');
+    if (el) el.textContent = balanceTon.toFixed(2);
+}
+
+function toggleStakeOption(stake) {
+    playSound('tap');
+    const idx = selectedStakeOptions.indexOf(stake);
+    if (idx >= 0) {
+        selectedStakeOptions.splice(idx, 1);
+    } else {
+        if (balanceTon < stake) {
+            // Can't select - insufficient balance
+            return;
+        }
+        selectedStakeOptions.push(stake);
+    }
+    updateStakeGrid();
+}
+
+function updateStakeGrid() {
+    const buttons = document.querySelectorAll('.stake-option');
+    buttons.forEach(btn => {
+        const stake = Number(btn.dataset.stake);
+        const selected = selectedStakeOptions.includes(stake);
+        const blocked = balanceTon < stake;
+        
+        btn.classList.toggle('selected', selected);
+        btn.classList.toggle('blocked', blocked);
+    });
+}
+
+function startGameOnline() {
+    if (selectedStakeOptions.length === 0) {
+        alert('Выбери хотя бы одну ставку');
+        return;
+    }
+    playMode = 'pvp';
+    startGame(false);
+}
 
 // ===== WEBSOCKET =====
 function connect(cb) {
@@ -130,6 +228,8 @@ function startGame(vsBot) {
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
     clearInterval(timerInterval);
+    
+    playMode = vsBot ? 'bot' : 'pvp';
 
     if (ws && ws.readyState === 1) {
         sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId });

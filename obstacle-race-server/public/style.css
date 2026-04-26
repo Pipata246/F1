@@ -88,6 +88,65 @@ body {
     border: 1px solid rgba(151, 229, 205, 0.22);
 }
 
+.btn-back {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 14px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    transition: color 0.2s;
+}
+.btn-back:hover { color: var(--accent); }
+
+/* STAKE GRID */
+.stake-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto;
+}
+.stake-option {
+    aspect-ratio: 1;
+    border-radius: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.stake-option:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.stake-option.selected {
+    background: rgba(99, 230, 190, 0.15);
+    border-color: #63e6be;
+    color: #8ff0cf;
+    box-shadow: 0 0 14px rgba(99, 230, 190, 0.3);
+}
+.stake-option.blocked {
+    background: rgba(255, 59, 78, 0.15);
+    border-color: #ff3b4e;
+    color: #ff8a95;
+    cursor: not-allowed;
+}
+.stake-option:active:not(.blocked) {
+    transform: scale(0.95);
+}
+
 /* START SCREEN */
 .logo {
     text-align: center;
