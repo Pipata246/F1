@@ -1,70 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@supabase/supabase-js';
-
 const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
-
-// ==================== SUPABASE REALTIME ====================
-const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
-
-let supabase = null;
-let supabaseChannel = null;
-
-function initSupabase() {
-  try {
-    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    console.log('✅ Supabase Realtime initialized');
-  } catch (err) {
-    console.error('Supabase init error:', err);
-  }
-}
-
-function stopRealtimeSubscription() {
-  if (supabaseChannel && supabase) {
-    supabase.removeChannel(supabaseChannel);
-    supabaseChannel = null;
-    console.log('Realtime subscription stopped');
-  }
-}
-
-function startRealtimeSubscription(roomId, onStateUpdate) {
-  stopRealtimeSubscription();
-  
-  if (!supabase || !roomId) {
-    console.error('Cannot start subscription: missing supabase or roomId');
-    return;
-  }
-  
-  console.log('🔌 Starting Realtime WebSocket for room:', roomId);
-  
-  const channelName = `super_penalty_room_${roomId}`;
-  
-  supabaseChannel = supabase
-    .channel(channelName)
-    .on(
-      'broadcast',
-      { event: 'state_update' },
-      function(payload) {
-        console.log('📡 WebSocket update received:', payload);
-        if (payload.payload && payload.payload.room) {
-          const myTg = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-          const forPlayer = payload.payload.forPlayer;
-          // Only apply if this update is for me (or no filter)
-          if (!forPlayer || String(forPlayer) === String(myTg)) {
-            onStateUpdate(payload.payload.room);
-          }
-        }
-      }
-    )
-    .subscribe(function(status) {
-      console.log('WebSocket status:', status);
-      if (status === 'SUBSCRIBED') {
-        console.log('✅ WebSocket connected!');
-      }
-    });
-}
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 function appSettings() {
   try {
@@ -248,14 +185,6 @@ const GamePage = () => {
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
-
-  // Initialize Supabase on component mount
-  useEffect(() => {
-    initSupabase();
-    return () => {
-      stopRealtimeSubscription();
-    };
-  }, []);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -604,12 +533,14 @@ const GamePage = () => {
     }, 400);
 
     // Safety net: if server/client transition gets stuck after GOAL/SAVED,
-    // WebSocket should handle updates instantly, but keep a simple safety net
-    roundStuckTimerRef.current = setTimeout(() => {
-      if (!showingResultRef.current) return;
-
+    // force a state refresh and unlock controls so the match never freezes.
+    // Aggressive polling during result phase
+    const resultPollInterval = setInterval(() => {
+      if (!showingResultRef.current) {
+        clearInterval(resultPollInterval);
+        return;
+      }
       if (playModeRef.current === 'pvp') {
-        // Single fallback check if WebSocket missed something
         const rid = pvpRoomIdRef.current;
         const init = tgInitDataRef.current;
         if (rid && init) {
@@ -617,8 +548,16 @@ const GamePage = () => {
             .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
             .catch(() => {});
         }
-        
-        // Force unlock if still stuck after WebSocket + fallback
+      }
+    }, 300);
+
+    // Reduced from 3500ms to 2500ms for faster recovery
+    roundStuckTimerRef.current = setTimeout(() => {
+      clearInterval(resultPollInterval);
+      if (!showingResultRef.current) return;
+
+      if (playModeRef.current === 'pvp') {
+        // Force unlock if still stuck
         setTimeout(() => {
           if (!showingResultRef.current) return;
           setShowingResult(false);
@@ -626,7 +565,7 @@ const GamePage = () => {
           setZoneLocked(false);
           setWaitingOpponent(false);
           setInputBlocked(false);
-        }, 1000);
+        }, 500);
         return;
       }
 
@@ -634,36 +573,25 @@ const GamePage = () => {
       setShowingResult(false);
       setResultMessage(null);
       setInputBlocked(false);
-    }, 3000); // Increased timeout since WebSocket should be faster
+    }, 2500);
   };
 
   const stopPvpPolling = useCallback(() => {
-    // WebSocket version - stop subscription instead of polling
-    stopRealtimeSubscription();
+    if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
+    pvpPollTimerRef.current = null;
     pvpPollInFlightRef.current = false;
   }, []);
 
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
     const s = room.state_json || {};
-    
-    console.log('Applying room state:', { 
-      status: room.status, 
-      phase: s.phase, 
-      round: s.round,
-      player1: room.player1_tg_user_id,
-      player2: room.player2_tg_user_id,
-      player2_name: room.player2_name,
-      botMatch: s.botMatch
-    });
-    
     if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
       const am = s.acceptMatch || {};
       const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
       const meIsP1Accept = String(room.player1_tg_user_id || '') === myTgAccept;
       const deadlineMs = Number(am.deadlineMs || 0);
       
-      // Check if timer expired - if yes, wait for next update to get turn_input phase
+      // Check if timer expired - if yes, wait for next poll to get turn_input phase
       if (deadlineMs > 0 && Date.now() >= deadlineMs) {
         // Timer expired but still in accept_match - wait for backend to transition
         setScreen('waiting');
@@ -754,7 +682,7 @@ const GamePage = () => {
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
-      stopRealtimeSubscription();
+      stopPvpPolling();
       pvpRoomIdRef.current = null;
       const scoresObj = s.scores || { p1: 0, p2: 0 };
       const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
@@ -768,7 +696,7 @@ const GamePage = () => {
       }
       handleServerMessage({ type: 'match_result', youWon, scores: arr });
     }
-  }, [handleServerMessage]);
+  }, [handleServerMessage, stopPvpPolling]);
 
   const pvpPollState = useCallback(() => {
     if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
@@ -802,13 +730,11 @@ const GamePage = () => {
   }, [apiPost, applyPvpRoomState, goHome, stopPvpPolling, acceptInfo]);
 
   const startPvpPolling = useCallback(() => {
-    // WebSocket version - start subscription instead of polling
-    if (pvpRoomIdRef.current) {
-      startRealtimeSubscription(pvpRoomIdRef.current, applyPvpRoomState);
-      // Initial state fetch
-      pvpPollState();
-    }
-  }, [applyPvpRoomState, pvpPollState]);
+    stopPvpPolling();
+    // Reduced from 900ms to 500ms for faster response
+    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 500);
+    pvpPollState();
+  }, [pvpPollState, stopPvpPolling]);
 
   const sendMessage = (type, data = {}) => {
     if (playModeRef.current === 'pvp') {
@@ -867,28 +793,43 @@ const GamePage = () => {
         };
         submitPenMove();
 
-        // WebSocket will provide instant updates, no need for aggressive polling
-        // Just a simple watchdog for safety
+        // Aggressive polling while waiting for opponent
+        const aggressivePollInterval = setInterval(() => {
+          if (!zoneLocked || !pvpRoomIdRef.current) {
+            clearInterval(aggressivePollInterval);
+            return;
+          }
+          pvpPollState();
+        }, 300);
+
+        // Watchdog: reduced to 3s for faster recovery
         setTimeout(() => {
+          clearInterval(aggressivePollInterval);
           if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
-            // Fallback check if WebSocket missed something
             apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
               .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
               .catch(() => {});
           }
-        }, 5000); // Increased timeout since WebSocket should handle updates
+        }, 3000);
 
-        // WebSocket handles bot moves instantly too
         if (pvpOpponentIsBotRef.current) {
           clearWaitingBotMoveTimer();
-          // Simple timeout for bot move safety net
+          // Aggressive polling for bot moves
           waitingBotMoveTimerRef.current = setTimeout(() => {
-            if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
-              apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
+            const rid = pvpRoomIdRef.current;
+            const init = tgInitDataRef.current;
+            if (!rid || !init) return;
+            const botPollInterval = setInterval(() => {
+              if (!zoneLocked) {
+                clearInterval(botPollInterval);
+                return;
+              }
+              apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
                 .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
                 .catch(() => {});
-            }
-          }, 3000);
+            }, 200);
+            setTimeout(() => clearInterval(botPollInterval), 5000);
+          }, 1500);
         }
       }
       return;
