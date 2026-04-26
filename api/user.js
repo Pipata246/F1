@@ -2118,6 +2118,19 @@ function pvpApplyObstacleMove(room, tgId, move) {
   const m = asObj(move);
 
   if (next.phase === "placing_traps" || next.phase === "overtime_placing") {
+    // Check if room is full (both players connected)
+    const roomStatus = String(room?.status || "");
+    if (roomStatus !== "active") {
+      throw new Error("Room is not active yet");
+    }
+    
+    // Check if both players are in the room
+    const p1Id = String(room?.player1_tg_user_id || "");
+    const p2Id = String(room?.player2_tg_user_id || "");
+    if (!p1Id || !p2Id) {
+      throw new Error("Waiting for opponent to join");
+    }
+    
     const expected = next.phase === "placing_traps" ? Number(next.trapsPerMain || 3) : Number(next.trapsPerOvertime || 1);
     const total = next.phase === "placing_traps" ? Number(next.mainRounds || 7) : Number(next.overtimeRounds || 3);
     const traps = pvpNormalizeTrapList(m.traps, total, expected);

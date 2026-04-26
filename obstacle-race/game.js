@@ -119,8 +119,9 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 let pvpMoveWatchdogTimer = null; // повторяющийся watchdog пока ждём round_result
 const SETTINGS_KEY = "f1duel_global_settings_v1";
-const PVP_POLL_MS = 900;
-const PVP_POLL_FAST_MS = 500; // Быстрый polling когда ждём результат хода
+// Legacy constants (not used with WebSocket)
+// const PVP_POLL_MS = 900;
+// const PVP_POLL_FAST_MS = 500;
 
 const OT_ROUNDS = 3;
 
@@ -791,14 +792,31 @@ function sendMsg(m) {
                     $('traps-wait').classList.add('hidden');
                     showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
                 }
-            }).catch(function() {
-                if (trapAttempts < 3) {
-                    setTimeout(submitTraps, 800);
+            }).catch(function(err) {
+                var errorMsg = String((err && err.message) || '');
+                
+                // Check if error is about waiting for opponent
+                if (errorMsg.includes('Waiting for opponent') || errorMsg.includes('Room is not active')) {
+                    // Show waiting message and keep trying
+                    showBottomNotice('Ждем соперника...');
+                    if (trapAttempts < 10) { // Increase retry limit for waiting
+                        setTimeout(submitTraps, 2000); // Longer delay when waiting
+                    } else {
+                        trapsConfirmed = false;
+                        $('btn-traps-ok').classList.remove('hidden');
+                        $('traps-wait').classList.add('hidden');
+                        showBottomNotice('Соперник не подключился. Попробуй ещё раз.');
+                    }
                 } else {
-                    trapsConfirmed = false;
-                    $('btn-traps-ok').classList.remove('hidden');
-                    $('traps-wait').classList.add('hidden');
-                    showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
+                    // Other errors - normal retry logic
+                    if (trapAttempts < 3) {
+                        setTimeout(submitTraps, 800);
+                    } else {
+                        trapsConfirmed = false;
+                        $('btn-traps-ok').classList.remove('hidden');
+                        $('traps-wait').classList.add('hidden');
+                        showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
+                    }
                 }
             });
         }
