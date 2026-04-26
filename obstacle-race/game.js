@@ -288,7 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
     generateGameTracks(7);
 
     // Check URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
     const launchMode = urlParams.get('launch');
     const directRoomId = urlParams.get('roomId');
     
@@ -849,7 +848,6 @@ function handleMessage(msg) {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
     }
-}
 
 function startGame(vsBot) {
     selectedTraps = []; scores = [0, 0]; currentStep = 0;
@@ -2040,3 +2038,4 @@ function saveMatchToBackend(winner, myScore, oppScore) {
         })
     }).catch(() => { matchSaved = false; });
 }
+// Конец файла - проверяем что все закрыто правильно
