@@ -7,7 +7,7 @@ function initSupabase() {
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
   
   if (typeof window.supabase === 'undefined') {
-    console.warn('Supabase library not loaded - WebSocket disabled');
+    console.error('Supabase library not loaded!');
     return;
   }
   

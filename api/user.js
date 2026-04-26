@@ -2093,7 +2093,6 @@ function pvpResolveObstacleRound(state) {
   s.phase = "round_result";
   s.phaseAtMs = Date.now();
   s.pendingMoves = { p1: null, p2: null };
-  s.moveSubmittedBy = {}; // Clear move tracking for next round
   s.lastRoundResult = {
     marker: Number(asObj(s.markers).round || 0) + 1,
     step,
@@ -2121,25 +2120,8 @@ function pvpApplyObstacleMove(room, tgId, move) {
     const expected = next.phase === "placing_traps" ? Number(next.trapsPerMain || 3) : Number(next.trapsPerOvertime || 1);
     const total = next.phase === "placing_traps" ? Number(next.mainRounds || 7) : Number(next.overtimeRounds || 3);
     const traps = pvpNormalizeTrapList(m.traps, total, expected);
-    
-    // Track who submitted traps to prevent changes
-    if (!next.trapsSubmittedBy) next.trapsSubmittedBy = {};
-    const trapKey = next.phase === "placing_traps" ? "main" : "overtime";
-    
-    // Check if traps already submitted by this player
-    if (next.trapsSubmittedBy[side + "_" + trapKey]) {
-      if (next.trapsSubmittedBy[side + "_" + trapKey] !== tgId) {
-        throw new Error("Traps already submitted by another player");
-      }
-      // Same player trying to resubmit - just return current state
-      next.updatedAt = new Date().toISOString();
-      return next;
-    }
-    
     if (next.phase === "placing_traps") next.traps = { ...asObj(next.traps), [side]: traps };
     else next.overtimeTraps = { ...asObj(next.overtimeTraps), [side]: traps };
-    next.trapsSubmittedBy[side + "_" + trapKey] = tgId;
-    
     const bothReady = next.phase === "placing_traps"
       ? Array.isArray(asObj(next.traps).p1) && Array.isArray(asObj(next.traps).p2)
       : Array.isArray(asObj(next.overtimeTraps).p1) && Array.isArray(asObj(next.overtimeTraps).p2);
@@ -2147,7 +2129,6 @@ function pvpApplyObstacleMove(room, tgId, move) {
       next.phase = "running";
       next.phaseAtMs = Date.now();
       next.pendingMoves = { p1: null, p2: null };
-      next.moveSubmittedBy = {}; // Clear for new round
     } else {
       next.updatedAt = new Date().toISOString();
     }
@@ -2155,7 +2136,6 @@ function pvpApplyObstacleMove(room, tgId, move) {
   }
 
   if (next.phase !== "running") return next;
-  
   if (m.type === "xray_scan" || Number.isInteger(Number(m.point))) {
     const point = Number(m.point);
     if (!Number.isInteger(point)) throw new Error("Invalid xray point");
@@ -2184,25 +2164,10 @@ function pvpApplyObstacleMove(room, tgId, move) {
 
   const action = String(m.action || "");
   if (action !== "run" && action !== "jump") throw new Error("Invalid move action");
-  
-  // Track who submitted moves to prevent changes
-  if (!next.moveSubmittedBy) next.moveSubmittedBy = {};
-  
   const pending = { ...asObj(next.pendingMoves) };
-  
-  // Check if move already submitted
-  if (pending[side]) {
-    if (next.moveSubmittedBy[side] && next.moveSubmittedBy[side] !== tgId) {
-      throw new Error("Move already submitted by another player");
-    }
-    // Same player trying to resubmit - just return current state
-    next.updatedAt = new Date().toISOString();
-    return next;
-  }
-  
+  if (pending[side]) return next;
   pending[side] = { action, useAbility: !!m.useAbility };
   next.pendingMoves = pending;
-  next.moveSubmittedBy[side] = tgId;
 
   if (!pending.p1 || !pending.p2) {
     next.updatedAt = new Date().toISOString();
@@ -2768,7 +2733,6 @@ function pvpAdvanceByTime(room) {
       next.phase = "running";
       next.phaseAtMs = now;
       next.pendingMoves = { p1: null, p2: null };
-      next.moveSubmittedBy = {}; // Clear move tracking
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
     }
@@ -2780,7 +2744,6 @@ function pvpAdvanceByTime(room) {
       next.phase = "running";
       next.phaseAtMs = now;
       next.pendingMoves = { p1: null, p2: null };
-      next.moveSubmittedBy = {}; // Clear move tracking
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
     }
@@ -2826,13 +2789,11 @@ function pvpAdvanceByTime(room) {
         next.abilityUsed = { p1: false, p2: false };
         next.phase = "overtime_placing";
         next.phaseAtMs = now;
-        next.trapsSubmittedBy = {}; // Clear traps tracking for overtime
         next.markers = { ...asObj(s.markers), overtime: Number(asObj(s.markers).overtime || 0) + 1 };
       } else {
         next.phase = "running";
         next.phaseAtMs = now;
         next.pendingMoves = { p1: null, p2: null };
-        next.moveSubmittedBy = {}; // Clear move tracking for new round
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
@@ -3509,22 +3470,18 @@ async function pvpBroadcastRoomUpdate(room) {
   if (!room || !room.id) return;
   
   const gameKey = String(room.game_key || "");
-  // Support frog_hunt and obstacle_race
-  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race") return;
+  // Only broadcast for frog_hunt (other games can be added later)
+  if (gameKey !== "frog_hunt") return;
   
-  const channelName = `${gameKey}_room_${room.id}`;
+  const channelName = `frog_hunt_room_${room.id}`;
   const p1TgId = String(room.player1_tg_user_id || "");
   const p2TgId = String(room.player2_tg_user_id || "");
   
   // Get filtered state for each player
   try {
-    const rpcFunction = gameKey === "frog_hunt" 
-      ? "pvp_get_filtered_room_state" 
-      : "pvp_get_filtered_obstacle_state";
-    
     // Player 1 filtered state
     if (p1TgId) {
-      const p1Filtered = await sbRpc(rpcFunction, {
+      const p1Filtered = await sbRpc("pvp_get_filtered_room_state", {
         p_room_id: room.id,
         p_tg_user_id: p1TgId,
       });
@@ -3534,7 +3491,7 @@ async function pvpBroadcastRoomUpdate(room) {
     
     // Player 2 filtered state
     if (p2TgId) {
-      const p2Filtered = await sbRpc(rpcFunction, {
+      const p2Filtered = await sbRpc("pvp_get_filtered_room_state", {
         p_room_id: room.id,
         p_tg_user_id: p2TgId,
       });

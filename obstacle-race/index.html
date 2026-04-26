@@ -5,26 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Obstacle Race</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- DEBUG INFO -->
-    <div id="debug-info" style="position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: #fff; padding: 8px; border-radius: 4px; font-size: 12px; z-index: 9999; max-width: 300px;">
-        Загрузка...
-    </div>
-
-    <!-- STAKE PICKER SCREEN -->
-    <div id="screen-start" class="screen">
+    <!-- START -->
+    <div id="screen-start" class="screen active">
         <a href="/" class="back-link">← Назад</a>
-        <div class="logo-container" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:400px;padding:20px">
-            <h1 style="font-size:48px;font-weight:900;letter-spacing:0.05em;margin:40px 0 10px;text-align:center;line-height:1.1;color:#8ef0b2">OBSTACLE<br>RACE</h1>
-            <p style="font-size:13px;color:#8b92a8;margin-bottom:30px;text-align:center;letter-spacing:0.05em">Преодолей барьеры. Обмани соперника.</p>
-            <p style="font-size:13px;color:#8b92a8;margin-bottom:16px;text-align:center;text-transform:uppercase;letter-spacing:0.08em;width:100%">ВЫБЕРИ СТАВКИ TON</p>
-            <div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%;margin-bottom:12px"></div>
-            <button type="button" id="stakePlayBtnObstacle" class="btn primary" style="width:100%;margin-bottom:8px">Играть</button>
-            <button type="button" id="btn-bot" class="btn secondary" style="width:100%">Играть с ботом</button>
+        <div class="logo">
+            <div class="logo-runner">
+                <svg viewBox="0 0 40 58" xmlns="http://www.w3.org/2000/svg" style="width:50px;height:68px;display:block;overflow:visible">
+                    <circle cx="20" cy="6" r="5" fill="none" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="20" y1="14" x2="20" y2="36" stroke-width="2.5" stroke-linecap="round"/>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="-30,20,14;40,20,14;-30,20,14" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,14 20,23 28,23" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="40,20,14;-30,20,14;40,20,14" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,14 20,23 28,23" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="20,20,36;-45,20,36;20,20,36" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,36 20,47 10,47" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                    <g>
+                        <animateTransform attributeName="transform" type="rotate" values="-45,20,36;20,20,36;-45,20,36" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
+                        <polyline points="20,36 20,47 10,47" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </g>
+                </svg>
+            </div>
+            <h1>OBSTACLE<br>RACE</h1>
+            <p class="subtitle">Преодолей барьеры. Обмани соперника.</p>
+        </div>
+        <div class="form">
+        </div>
+        <div class="rules-hint">
+            <details>
+                <summary>Как играть?</summary>
+                <div class="rules-text">
+                    <p><b>1.</b> Расставь 3 барьера на дорожке соперника</p>
+                    <p><b>2.</b> Каждый раунд выбирай: бежать или прыгнуть</p>
+                    <p><b>3.</b> Бежать + нет барьера = +1 очко</p>
+                    <p><b>4.</b> Прыгнуть + есть барьер = +1 очко</p>
+                    <p><b>5.</b> Первый до 5 очков — победитель</p>
+                    <p style="margin-top:10px"><b>Способности</b> — в начале игры оба игрока получают по одной случайной способности. Способность соперника скрыта, пока он её не использует. Используй 1 раз за игру — нажми кнопку способности до выбора хода:</p>
+                    <p><b>Рентген</b> — выбери точку на своей дорожке и узнай, есть ли там барьер соперника. Полезно перед принятием решения.</p>
+                    <p><b>Удвоение</b> — ставишь всё на кон. Успешный ход = +2 очка. Попал на барьер = −1 очко вместо 0.</p>
+                    <p><b>Саботаж</b> — отменяет очко соперника в этом раунде (включая удвоенные). Если он и так попал на барьер — промах, но без штрафа.</p>
+                    <p style="margin-top:10px"><b>Овертайм</b> — при ничьей после 7 раундов начинается овертайм: 5 дополнительных раундов. Каждый расставляет по 2 барьера. Способности в овертайме не действуют.</p>
+                </div>
+            </details>
         </div>
     </div>
 
@@ -200,7 +231,6 @@
         </div>
     </div>
 
-    <!-- <script src="test.js"></script> -->
     <script src="game.js"></script>
 </body>
 </html>

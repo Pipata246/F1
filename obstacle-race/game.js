@@ -1,70 +1,3 @@
-// ==================== SUPABASE REALTIME ====================
-let supabase = null;
-let supabaseChannel = null;
-
-function initSupabase() {
-  const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
-  
-  if (typeof window.supabase === 'undefined') {
-    console.warn('Supabase library not loaded - WebSocket disabled');
-    return;
-  }
-  
-  try {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    console.log('✅ Supabase Realtime initialized');
-  } catch (err) {
-    console.error('Supabase init error:', err);
-  }
-}
-
-function stopRealtimeSubscription() {
-  if (supabaseChannel) {
-    supabase.removeChannel(supabaseChannel);
-    supabaseChannel = null;
-    console.log('Realtime subscription stopped');
-  }
-}
-
-function startRealtimeSubscription(roomId) {
-  stopRealtimeSubscription();
-  
-  if (!supabase || !roomId) {
-    console.error('Cannot start subscription: missing supabase or roomId');
-    return;
-  }
-  
-  console.log('🔌 Starting Realtime WebSocket for room:', roomId);
-  
-  const channelName = 'obstacle_race_room_' + roomId;
-  
-  supabaseChannel = supabase
-    .channel(channelName)
-    .on(
-      'broadcast',
-      { event: 'state_update' },
-      function(payload) {
-        console.log('📡 WebSocket update received:', payload);
-        if (payload.payload && payload.payload.room) {
-          const myTg = window._tgUserId;
-          const forPlayer = payload.payload.forPlayer;
-          // Only apply if this update is for me (or no filter)
-          if (!forPlayer || forPlayer === myTg) {
-            applyPvpRoomState(payload.payload.room);
-          }
-        }
-      }
-    )
-    .subscribe(function(status) {
-      console.log('WebSocket status:', status);
-      if (status === 'SUBSCRIBED') {
-        console.log('✅ WebSocket connected!');
-      }
-    });
-}
-
-// ==================== GAME STATE ====================
 let ws = null;
 let playerIndex = -1;
 let opponentName = '';
@@ -110,12 +43,17 @@ let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
 let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
 let pvpRoomId = null;
+let pvpPollTimer = null;
+let pvpPollInFlight = false;
 let pvpLastRoundMarker = 0;
 let pvpLastXrayMarker = 0;
 let pvpLastStartKey = '';
 let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
+let pvpMoveWatchdogTimer = null; // повторяющийся watchdog пока ждём round_result
 const SETTINGS_KEY = "f1duel_global_settings_v1";
+const PVP_POLL_MS = 900;
+const PVP_POLL_FAST_MS = 500; // Быстрый polling когда ждём результат хода
 
 const OT_ROUNDS = 3;
 
@@ -126,28 +64,6 @@ const ABILITIES = {
 };
 
 const $ = (id) => document.getElementById(id);
-
-function debugLog(msg) {
-    const debug = $('debug-info');
-    if (debug) {
-        debug.innerHTML += '<br>' + msg;
-        console.log(msg);
-    }
-}
-
-function showScreen(name) {
-    debugLog('showScreen: ' + name);
-    const screens = document.querySelectorAll('.screen');
-    debugLog('Found ' + screens.length + ' screens');
-    screens.forEach((s) => s.classList.remove('active'));
-    const targetScreen = $('screen-' + name);
-    if (targetScreen) {
-        targetScreen.classList.add('active');
-        debugLog('Activated screen-' + name);
-    } else {
-        debugLog('ERROR: Screen not found: screen-' + name);
-    }
-}
 
 const SFX = {};
 function initSounds() {
@@ -183,23 +99,6 @@ function playSound(name) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    debugLog('DOM loaded');
-    
-    // Проверяем экраны
-    const screens = document.querySelectorAll('.screen');
-    debugLog('Screens found: ' + screens.length);
-    screens.forEach((s, i) => {
-        debugLog('Screen ' + i + ': ' + s.id);
-    });
-    
-    // Initialize Supabase Realtime
-    try {
-        initSupabase();
-        debugLog('Supabase initialized');
-    } catch (e) {
-        debugLog('Supabase error: ' + e.message);
-    }
-    
     initSounds();
     if (window.Telegram && window.Telegram.WebApp) {
         const tg = window.Telegram.WebApp;
@@ -256,9 +155,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('focus', presencePing);
     startPresenceLoop();
 
+    if ($('btn-find')) $('btn-find').onclick = () => startGame(false);
+    if ($('btn-bot')) $('btn-bot').onclick = () => openDemoIntro();
     if ($('btn-demo-play')) $('btn-demo-play').onclick = () => startGame(true);
     if ($('btn-demo-back')) $('btn-demo-back').onclick = () => window.location.href = '/';
     ensureStakePicker();
+    setStakePickerVisible(false);
     refreshBalanceForStakePicker();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
@@ -287,43 +189,32 @@ document.addEventListener('DOMContentLoaded', () => {
     generateTrapTrack();
     generateGameTracks(7);
 
-    // Check URL parameters
-    const launchMode = urlParams.get('launch');
-    const directRoomId = urlParams.get('roomId');
-    
-    debugLog('Launch mode: ' + launchMode);
-    debugLog('Room ID: ' + directRoomId);
-    
-    if (directRoomId) {
-        // Direct room connection - join immediately
-        debugLog('Direct room connection: ' + directRoomId);
-        setTimeout(function() {
-            isBotMode = false;
-            pvpRoomId = String(directRoomId);
-            const stakeFromUrl = Number(urlParams.get('stake') || 0);
-            if (stakeFromUrl > 0 && selectedStakeOptions.indexOf(stakeFromUrl) < 0) {
-                selectedStakeOptions = [stakeFromUrl];
-            }
-            syncMyNameFromServer(function() {
-                showScreen('waiting');
-                startRealtimeSubscription(pvpRoomId);
-            });
-        }, 0);
-    } else if (launchMode === 'demo') {
-        // Show demo screen
-        debugLog('Showing demo screen');
-        showScreen('demo');
+    const launchMode = String(urlParams.get('launch') || '').toLowerCase();
+    if (launchMode === 'demo') {
+        setTimeout(() => openDemoIntro(), 0);
+    } else if (launchMode === 'play') {
+        const directRoomId = urlParams.get('roomId');
+        if (directRoomId) {
+            // Случайная игра — подключаемся напрямую к комнате
+            setTimeout(function() {
+                isBotMode = false;
+                pvpRoomId = String(directRoomId);
+                // Восстанавливаем ставку из URL для кнопки "Играть снова"
+                const stakeFromUrl = Number(urlParams.get('stake') || 0);
+                if (stakeFromUrl > 0 && selectedStakeOptions.indexOf(stakeFromUrl) < 0) {
+                    selectedStakeOptions = [stakeFromUrl];
+                }
+                syncMyNameFromServer(function() {
+                    showScreen('waiting');
+                    startPvpPolling();
+                });
+            }, 0);
+        } else {
+            setTimeout(() => startGame(false), 0);
+        }
     } else {
-        // Show stake picker screen (default for 'play' or no parameter)
-        debugLog('Showing start screen');
-        showScreen('start');
+        window.location.href = '/';
     }
-    
-    // Скрываем отладку через 5 секунд
-    setTimeout(() => {
-        const debug = $('debug-info');
-        if (debug) debug.style.display = 'none';
-    }, 5000);
 });
 
 function openDemoIntro() {
@@ -404,26 +295,29 @@ function refreshBalanceForStakePicker() {
 }
 
 function ensureStakePicker() {
+    var mount = $('screen-start');
+    if (!mount || $('stakePickerObstacle')) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'stakePickerObstacle';
+    wrap.style.marginTop = '12px';
+    wrap.style.maxWidth = '360px';
+    wrap.style.marginLeft = 'auto';
+    wrap.style.marginRight = 'auto';
+    wrap.innerHTML =
+        '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
+        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
+        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>';
+    mount.appendChild(wrap);
     var grid = $('stakeGridObstacle');
-    if (!grid) return;
-    
-    // Clear grid first
-    grid.innerHTML = '';
-    
     ALLOWED_STAKES.forEach(function(stake) {
         var b = document.createElement('button');
         b.type = 'button';
         b.className = 'btn ghost';
         b.dataset.stake = String(stake);
-        b.style.height = '74px';
-        b.style.padding = '0 6px';
+        b.style.aspectRatio = '1/1';
+        b.style.padding = '0';
         b.style.fontWeight = '900';
         b.style.fontSize = '13px';
-        b.style.display = 'flex';
-        b.style.alignItems = 'center';
-        b.style.justifyContent = 'center';
-        b.style.whiteSpace = 'nowrap';
-        b.style.borderRadius = '14px';
         b.textContent = stake + ' TON';
         b.onclick = function() {
             var n = Number(b.dataset.stake);
@@ -431,22 +325,21 @@ function ensureStakePicker() {
                 showBottomNotice('У вас недостаточно денег на балансе');
                 return;
             }
-            if (selectedStakeOptions.indexOf(n) >= 0) {
-                selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
-            } else {
-                selectedStakeOptions.push(n);
-            }
+            if (selectedStakeOptions.indexOf(n) >= 0) selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
+            else selectedStakeOptions.push(n);
             renderStakePicker();
         };
         grid.appendChild(b);
     });
-    
     var playBtn = $('stakePlayBtnObstacle');
     if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
-    var botBtn = $('btn-bot');
-    if (botBtn) botBtn.onclick = function(){ showScreen('demo'); };
-    
     renderStakePicker();
+}
+
+function setStakePickerVisible(v) {
+    var wrap = $('stakePickerObstacle');
+    if (!wrap) return;
+    wrap.style.display = v ? 'block' : 'none';
 }
 
 function renderStakePicker() {
@@ -497,6 +390,42 @@ function beaconPvpLeaveRoom(roomId) {
     }).catch(function() {});
 }
 
+function stopPvpPolling() {
+    if (pvpPollTimer) clearInterval(pvpPollTimer);
+    pvpPollTimer = null;
+    pvpPollInFlight = false;
+    stopMoveWatchdog();
+}
+
+function stopMoveWatchdog() {
+    if (pvpMoveWatchdogTimer) { clearInterval(pvpMoveWatchdogTimer); pvpMoveWatchdogTimer = null; }
+}
+
+function startMoveWatchdog() {
+    stopMoveWatchdog();
+    var ticks = 0;
+    pvpMoveWatchdogTimer = setInterval(function() {
+        if (!moveChosen || !pvpRoomId || !tgInitData) { stopMoveWatchdog(); return; }
+        ticks++;
+        // Каждые 3 сек форсируем poll пока ждём round_result
+        pvpPollState();
+        // После 30 сек (10 тиков) — переключаемся на нормальный polling (сервер сам разрешит по таймауту)
+        if (ticks >= 10) stopMoveWatchdog();
+    }, 3000);
+}
+
+function startPvpPolling() {
+    stopPvpPolling();
+    pvpPollTimer = setInterval(function() { pvpPollState(); }, PVP_POLL_MS);
+    pvpPollState();
+}
+
+function startPvpPollingFast() {
+    stopPvpPolling();
+    pvpPollTimer = setInterval(function() { pvpPollState(); }, PVP_POLL_FAST_MS);
+    pvpPollState();
+}
+
 function resetPvpMarkers() {
     pvpLastRoundMarker = 0;
     pvpLastXrayMarker = 0;
@@ -525,7 +454,8 @@ function startAcceptTick() {
         if ($('accept-timer')) $('accept-timer').textContent = remaining + 'с';
         if (remaining <= 0) {
             stopAcceptTick();
-            // WebSocket will send update automatically
+            // Форсируем poll чтобы сразу получить новое состояние
+            pvpPollState();
         }
     }
     tick(); // сразу обновляем
@@ -649,14 +579,16 @@ function applyPvpRoomState(room) {
             onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) });
             return;
         }
-        // WebSocket handles updates automatically
-        return;
+        // Тот же раунд — если ход уже сделан, убеждаемся что быстрый polling активен
+        if (moveChosen && pvpPollTimer) {
+            // Уже ждём — watchdog сам форсирует poll, ничего не делаем
+        }
         return;
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
         if (String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
-            stopRealtimeSubscription();
+            stopPvpPolling();
             pvpRoomId = null;
             pvpAcceptDeadlineMs = 0;
             if ($('accept-modal')) $('accept-modal').style.display = 'none';
@@ -665,7 +597,7 @@ function applyPvpRoomState(room) {
             pvpFindMatch();
             return;
         }
-        stopRealtimeSubscription();
+        stopPvpPolling();
         if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(window._tgUserId || '')) {
             onOpponentLeft();
             return;
@@ -677,6 +609,43 @@ function applyPvpRoomState(room) {
         else if (finalScores[0] !== finalScores[1]) winner = (sides.meIsP1 ? finalScores[0] > finalScores[1] : finalScores[1] > finalScores[0]) ? 'win' : 'lose';
         showGameOver(winner, finalScores);
     }
+}
+
+function pvpPollState() {
+    if (!pvpRoomId || !tgInitData || pvpPollInFlight) return;
+    pvpPollInFlight = true;
+    apiPost({
+        action: 'pvpGetRoomState',
+        initData: tgInitData,
+        roomId: pvpRoomId
+    }).then(function(data) {
+        if (!data || !data.ok) {
+            var err = String((data && data.error) || '');
+            if (err === 'ACCEPT_TIMEOUT') {
+                stopPvpPolling();
+                pvpRoomId = null;
+                window.location.href = '/';
+                return;
+            }
+            if (err === 'Room not found' && pvpAcceptDeadlineMs > 0) {
+                pvpRoomId = null;
+                pvpAcceptDeadlineMs = 0;
+                showScreen('waiting');
+                showBottomNotice('Пользователь не принял матч');
+                pvpFindMatch();
+            }
+            return;
+        }
+        if (typeof data.serverNowMs === 'number' && isFinite(Number(data.serverNowMs))) {
+            pvpServerSkewMs = Date.now() - Number(data.serverNowMs);
+        }
+        if (!data.room) return;
+        applyPvpRoomState(data.room);
+    }).catch(function() {
+        // При ошибке сети — не спамим, просто ждём следующего интервала
+    }).finally(function() {
+        pvpPollInFlight = false;
+    });
 }
 
 function pvpFindMatch() {
@@ -695,7 +664,7 @@ function pvpFindMatch() {
     }).then(function(data) {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
-        startRealtimeSubscription(pvpRoomId);
+        startPvpPolling();
         // Применяем состояние сразу — applyPvpRoomState покажет нужный экран
         applyPvpRoomState(data.room);
     }).catch(function() {
@@ -822,7 +791,11 @@ function sendMsg(m) {
 
         submitMove();
 
-        // WebSocket will handle updates automatically
+        // Переключаемся на быстрый polling пока ждём результат
+        startPvpPollingFast();
+
+        // Watchdog: повторяем poll каждые 3 сек пока moveChosen=true
+        startMoveWatchdog();
     }
 }
 
@@ -843,11 +816,20 @@ function handleMessage(msg) {
     }
 }
 
-
+function showScreen(name) {
+    document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
+    $('screen-' + name).classList.add('active');
     if (name !== 'waiting') {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
     }
+    if (name === 'start') {
+        onlineModeSelected = false;
+        if ($('btn-find')) $('btn-find').style.display = '';
+        if ($('btn-bot')) $('btn-bot').style.display = '';
+        setStakePickerVisible(false);
+    }
+}
 
 function startGame(vsBot) {
     selectedTraps = []; scores = [0, 0]; currentStep = 0;
@@ -859,11 +841,26 @@ function startGame(vsBot) {
     roundAnimating = false; gameOverSoundPlayed = false;
     clearInterval(timerInterval);
     matchSaved = false;
+    stopMoveWatchdog();
     isBotMode = !!vsBot;
-    
+    if (!isBotMode && !onlineModeSelected) {
+        onlineModeSelected = true;
+        if ($('btn-find')) $('btn-find').style.display = 'none';
+        if ($('btn-bot')) $('btn-bot').style.display = 'none';
+        setStakePickerVisible(true);
+        refreshBalanceForStakePicker();
+        showBottomNotice('Выбери ставку и нажми "Играть"');
+        return;
+    }
+    if (isBotMode) {
+        onlineModeSelected = false;
+        if ($('btn-find')) $('btn-find').style.display = '';
+        if ($('btn-bot')) $('btn-bot').style.display = '';
+        setStakePickerVisible(false);
+    }
     currentStakeTon = null;
     if (!isBotMode) return beginOnlineSearch();
-    stopRealtimeSubscription();
+    stopPvpPolling();
     pvpRoomId = null;
     syncMyNameFromServer(function() {
         connect(function() {
@@ -889,7 +886,7 @@ function beginOnlineSearch() {
         return;
     }
     selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
-    stopRealtimeSubscription();
+    stopPvpPolling();
     pvpRoomId = null;
     // Сразу показываем экран ожидания — не ждём ответа от сервера
     showScreen('waiting');
@@ -905,7 +902,7 @@ function cancelWait() {
         return;
     }
     stopAcceptTick();
-    stopRealtimeSubscription();
+    stopPvpPolling();
     pvpLeaveRoomSafe().finally(function() { window.location.href = '/'; });
 }
 
@@ -1092,7 +1089,7 @@ async function onRoundStart(msg) {
     myUsedXrayThisRound = false;  // сбрасываем флаги рентгена на каждый раунд
     oppUsedXrayThisRound = false;
     // Возвращаем нормальный polling — быстрый больше не нужен
-    // WebSocket handles updates automatically
+    if (!isBotMode && pvpRoomId) startPvpPolling();
 
     if (msg.overtime) isOvertime = true;
 
@@ -1602,7 +1599,7 @@ function startTimer(phaseAtMs) {
 
 async function onRoundResult(msg) {
     clearInterval(timerInterval);
-    // WebSocket handles updates automatically
+    stopMoveWatchdog(); // результат получен — watchdog больше не нужен
     roundAnimating = true; // блокируем обновление счёта в UI
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -1819,7 +1816,8 @@ async function onRoundResult(msg) {
         $('round-val').textContent = Math.min(msg.round + 1, totalRounds) + '/' + totalRounds;
     }
 
-    // WebSocket handles updates automatically
+    // Возвращаем нормальный polling — результат получен, быстрый больше не нужен
+    if (!isBotMode && pvpRoomId) startPvpPolling();
 
     if (msg.gameOver) {
         await delay(300);
@@ -2038,4 +2036,3 @@ function saveMatchToBackend(winner, myScore, oppScore) {
         })
     }).catch(() => { matchSaved = false; });
 }
-// Конец файла - проверяем что все закрыто правильно
