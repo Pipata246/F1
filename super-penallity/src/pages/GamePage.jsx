@@ -604,14 +604,12 @@ const GamePage = () => {
     }, 400);
 
     // Safety net: if server/client transition gets stuck after GOAL/SAVED,
-    // force a state refresh and unlock controls so the match never freezes.
-    // Aggressive polling during result phase
-    const resultPollInterval = setInterval(() => {
-      if (!showingResultRef.current) {
-        clearInterval(resultPollInterval);
-        return;
-      }
+    // WebSocket should handle updates instantly, but keep a simple safety net
+    roundStuckTimerRef.current = setTimeout(() => {
+      if (!showingResultRef.current) return;
+
       if (playModeRef.current === 'pvp') {
+        // Single fallback check if WebSocket missed something
         const rid = pvpRoomIdRef.current;
         const init = tgInitDataRef.current;
         if (rid && init) {
@@ -619,16 +617,8 @@ const GamePage = () => {
             .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
             .catch(() => {});
         }
-      }
-    }, 300);
-
-    // Reduced from 3500ms to 2500ms for faster recovery
-    roundStuckTimerRef.current = setTimeout(() => {
-      clearInterval(resultPollInterval);
-      if (!showingResultRef.current) return;
-
-      if (playModeRef.current === 'pvp') {
-        // Force unlock if still stuck
+        
+        // Force unlock if still stuck after WebSocket + fallback
         setTimeout(() => {
           if (!showingResultRef.current) return;
           setShowingResult(false);
@@ -636,7 +626,7 @@ const GamePage = () => {
           setZoneLocked(false);
           setWaitingOpponent(false);
           setInputBlocked(false);
-        }, 500);
+        }, 1000);
         return;
       }
 
@@ -644,12 +634,12 @@ const GamePage = () => {
       setShowingResult(false);
       setResultMessage(null);
       setInputBlocked(false);
-    }, 2500);
+    }, 3000); // Increased timeout since WebSocket should be faster
   };
 
   const stopPvpPolling = useCallback(() => {
-    if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
-    pvpPollTimerRef.current = null;
+    // WebSocket version - stop subscription instead of polling
+    stopRealtimeSubscription();
     pvpPollInFlightRef.current = false;
   }, []);
 
@@ -812,11 +802,13 @@ const GamePage = () => {
   }, [apiPost, applyPvpRoomState, goHome, stopPvpPolling, acceptInfo]);
 
   const startPvpPolling = useCallback(() => {
-    stopPvpPolling();
-    // Reduced from 900ms to 500ms for faster response
-    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 500);
-    pvpPollState();
-  }, [pvpPollState, stopPvpPolling]);
+    // WebSocket version - start subscription instead of polling
+    if (pvpRoomIdRef.current) {
+      startRealtimeSubscription(pvpRoomIdRef.current, applyPvpRoomState);
+      // Initial state fetch
+      pvpPollState();
+    }
+  }, [applyPvpRoomState, pvpPollState]);
 
   const sendMessage = (type, data = {}) => {
     if (playModeRef.current === 'pvp') {
@@ -875,43 +867,28 @@ const GamePage = () => {
         };
         submitPenMove();
 
-        // Aggressive polling while waiting for opponent
-        const aggressivePollInterval = setInterval(() => {
-          if (!zoneLocked || !pvpRoomIdRef.current) {
-            clearInterval(aggressivePollInterval);
-            return;
-          }
-          pvpPollState();
-        }, 300);
-
-        // Watchdog: reduced to 3s for faster recovery
+        // WebSocket will provide instant updates, no need for aggressive polling
+        // Just a simple watchdog for safety
         setTimeout(() => {
-          clearInterval(aggressivePollInterval);
           if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
+            // Fallback check if WebSocket missed something
             apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
               .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
               .catch(() => {});
           }
-        }, 3000);
+        }, 5000); // Increased timeout since WebSocket should handle updates
 
+        // WebSocket handles bot moves instantly too
         if (pvpOpponentIsBotRef.current) {
           clearWaitingBotMoveTimer();
-          // Aggressive polling for bot moves
+          // Simple timeout for bot move safety net
           waitingBotMoveTimerRef.current = setTimeout(() => {
-            const rid = pvpRoomIdRef.current;
-            const init = tgInitDataRef.current;
-            if (!rid || !init) return;
-            const botPollInterval = setInterval(() => {
-              if (!zoneLocked) {
-                clearInterval(botPollInterval);
-                return;
-              }
-              apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
+            if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
+              apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
                 .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
                 .catch(() => {});
-            }, 200);
-            setTimeout(() => clearInterval(botPollInterval), 5000);
-          }, 1500);
+            }
+          }, 3000);
         }
       }
       return;
