@@ -253,7 +253,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const launchMode = String(urlParams.get('launch') || '').toLowerCase();
     if (launchMode === 'demo') {
-        setTimeout(() => openDemoIntro(), 0);
+        // Дэмо режим - показываем приветственный экран
+        showScreen('demo');
     } else if (launchMode === 'play') {
         const directRoomId = urlParams.get('roomId');
         if (directRoomId) {
@@ -272,10 +273,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }, 0);
         } else {
-            setTimeout(() => startGame(false), 0);
+            // Обычная игра - показываем экран выбора ставки
+            showScreen('start');
         }
     } else {
-        window.location.href = '/';
+        // По умолчанию показываем экран выбора ставки
+        showScreen('start');
     }
 });
 
@@ -402,7 +405,7 @@ function ensureStakePicker() {
     var playBtn = $('stakePlayBtnObstacle');
     if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
     var botBtn = $('btn-bot');
-    if (botBtn) botBtn.onclick = function(){ openDemoIntro(); };
+    if (botBtn) botBtn.onclick = function(){ showScreen('demo'); };
     renderStakePicker();
 }
 
