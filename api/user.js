@@ -3518,8 +3518,8 @@ async function pvpBroadcastRoomUpdate(room) {
   if (!room || !room.id) return;
   
   const gameKey = String(room.game_key || "");
-  // Only broadcast for frog_hunt and obstacle_race
-  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race") return;
+  // Broadcast for frog_hunt, obstacle_race and super_penalty
+  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race" && gameKey !== "super_penalty") return;
   
   const channelName = `${gameKey}_room_${room.id}`;
   const p1TgId = String(room.player1_tg_user_id || "");

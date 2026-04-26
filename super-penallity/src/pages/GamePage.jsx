@@ -1,6 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
+const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 function appSettings() {
@@ -182,6 +188,8 @@ const GamePage = () => {
   const showingResultRef = useRef(false);
   const roundStuckTimerRef = useRef(null);
   const waitingBotMoveTimerRef = useRef(null);
+  // Supabase Realtime
+  const realtimeChannelRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
@@ -337,6 +345,10 @@ const GamePage = () => {
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
       if (roundStuckTimerRef.current) clearTimeout(roundStuckTimerRef.current);
       if (waitingBotMoveTimerRef.current) clearTimeout(waitingBotMoveTimerRef.current);
+      if (realtimeChannelRef.current) {
+        supabaseClient.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
     };
   }, []);
 
@@ -582,6 +594,48 @@ const GamePage = () => {
     pvpPollInFlightRef.current = false;
   }, []);
 
+  // ==================== SUPABASE REALTIME ====================
+  const stopRealtimeSubscription = useCallback(() => {
+    if (realtimeChannelRef.current) {
+      supabaseClient.removeChannel(realtimeChannelRef.current);
+      realtimeChannelRef.current = null;
+      console.log('[Realtime] Subscription stopped');
+    }
+  }, []);
+
+  const startRealtimeSubscription = useCallback((roomId) => {
+    stopRealtimeSubscription();
+    if (!roomId) return;
+
+    const channelName = `super_penalty_room_${roomId}`;
+    console.log('[Realtime] Subscribing to', channelName);
+
+    const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+
+    realtimeChannelRef.current = supabaseClient
+      .channel(channelName)
+      .on('broadcast', { event: 'state_update' }, (payload) => {
+        console.log('[Realtime] Update received:', payload?.payload?.phase);
+        const data = payload?.payload;
+        if (!data?.room) return;
+        // Фильтр: только для меня или broadcast
+        if (data.forPlayer && data.forPlayer !== myTg) return;
+        applyPvpRoomState(data.room);
+      })
+      .subscribe((status) => {
+        console.log('[Realtime] Status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('[Realtime] ✅ WebSocket connected!');
+          // Остановить polling — WebSocket работает
+          stopPvpPolling();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[Realtime] ⚠️ WebSocket error, falling back to polling');
+          // Fallback на polling если WebSocket упал
+          startPvpPolling();
+        }
+      });
+  }, [stopRealtimeSubscription, stopPvpPolling]); // eslint-disable-line
+
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
     const s = room.state_json || {};
@@ -683,6 +737,7 @@ const GamePage = () => {
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
       stopPvpPolling();
+      stopRealtimeSubscription();
       pvpRoomIdRef.current = null;
       const scoresObj = s.scores || { p1: 0, p2: 0 };
       const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
@@ -731,8 +786,8 @@ const GamePage = () => {
 
   const startPvpPolling = useCallback(() => {
     stopPvpPolling();
-    // Reduced from 900ms to 500ms for faster response
-    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 500);
+    // Polling — fallback если WebSocket не работает (2000ms)
+    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 2000);
     pvpPollState();
   }, [pvpPollState, stopPvpPolling]);
 
@@ -900,6 +955,11 @@ const GamePage = () => {
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
       pvpRoomIdRef.current = data.room.id;
+      // Запускаем Realtime WebSocket, polling — только fallback
+      startRealtimeSubscription(data.room.id);
+      // Сразу применяем начальное состояние
+      if (data.room) applyPvpRoomState(data.room);
+      // Polling как страховка пока WebSocket не подключился
       startPvpPolling();
     }).catch((err) => {
       playModeRef.current = 'idle';
@@ -943,6 +1003,7 @@ const GamePage = () => {
     }
     playModeRef.current = 'idle';
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    stopRealtimeSubscription();
     goHome();
   };
 

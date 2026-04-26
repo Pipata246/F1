@@ -92,6 +92,28 @@ BEGIN
       END IF;
     END;
     
+  ELSIF v_game_key = 'super_penalty' THEN
+    -- Super Penalty filtering: hide opponent's zone choice during turn_input
+    DECLARE
+      v_opponent_side text;
+      v_phase text;
+      v_choices jsonb;
+    BEGIN
+      v_opponent_side := CASE WHEN v_side = 'p1' THEN 'p2' ELSE 'p1' END;
+      v_phase := coalesce(v_state->>'phase', '');
+      
+      -- During turn_input: hide opponent's choice so neither player can cheat
+      IF v_phase = 'turn_input' THEN
+        v_choices := coalesce(v_state->'choices', '{}'::jsonb);
+        -- Remove opponent's choice, keep only my choice
+        v_choices := jsonb_build_object(
+          v_side, coalesce(v_choices->v_side, 'null'::jsonb),
+          v_opponent_side, 'null'::jsonb
+        );
+        v_state := jsonb_set(v_state, '{choices}', v_choices);
+      END IF;
+    END;
+    
   ELSIF v_game_key = 'obstacle_race' THEN
     -- Obstacle Race filtering
     DECLARE
