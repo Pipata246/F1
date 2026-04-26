@@ -2117,6 +2117,7 @@ function pvpResolveObstacleRound(state) {
     startOvertime,
     winnerSide: winnerSide || null,
     gameOver: !!winnerSide,
+    phaseAtMs: s.phaseAtMs, // СИНХРОНИЗАЦИЯ: время когда результат стал доступен
   };
   s.markers = { ...asObj(s.markers), round: s.lastRoundResult.marker };
   s.updatedAt = new Date().toISOString();
@@ -2845,8 +2846,10 @@ function pvpAdvanceByTime(room) {
         next.phaseAtMs = now;
         next.markers = { ...asObj(s.markers), overtime: Number(asObj(s.markers).overtime || 0) + 1 };
       } else {
+        // СИНХРОНИЗАЦИЯ: добавляем задержку 3 секунды для анимации результата
+        const ANIMATION_DELAY_MS = 3000;
         next.phase = "running";
-        next.phaseAtMs = now;
+        next.phaseAtMs = now + ANIMATION_DELAY_MS;
         next.pendingMoves = { p1: null, p2: null };
         next.moveSubmittedBy = {}; // Clear move tracking
       }

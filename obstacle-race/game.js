@@ -696,7 +696,6 @@ function applyPvpRoomState(room) {
     var rr = s.lastRoundResult || {};
     var roundMarker = Number(rr.marker || 0);
     if (roundMarker > 0 && roundMarker > pvpLastRoundMarker) {
-        // ЗАЩИТА: если уже обрабатываем результат - пропускаем дубль
         if (pvpProcessingRoundResult) {
             console.log('⚠️ Round result already processing, skipping duplicate');
             return;
@@ -706,6 +705,7 @@ function applyPvpRoomState(room) {
         var opp = rr.result ? rr.result[sides.oppSide] : null;
         if (my && opp) {
             var rrScores = rr.scores || {};
+            // СИНХРОНИЗАЦИЯ: передаём phaseAtMs для одновременного старта анимации
             onRoundResult({
                 you: my,
                 opponent: opp,
@@ -719,7 +719,7 @@ function applyPvpRoomState(room) {
                 playerIndex: sides.playerIndex,
                 overtime: !!rr.overtime,
                 startOvertime: !!rr.startOvertime,
-                phaseAtMs: null,
+                phaseAtMs: Number(rr.phaseAtMs || 0), // ВАЖНО: время когда результат стал доступен
             });
             return;
         }
@@ -732,11 +732,26 @@ function applyPvpRoomState(room) {
         if (startKey !== pvpLastStartKey) {
             pvpLastStartKey = startKey;
             moveChosen = false;
-            roundAnimating = false; // сбрасываем флаг при старте нового раунда
+            roundAnimating = false;
             var abilityForRound = s.overtime
                 ? ((s.overtimeAbilities || {})[sides.mySide] || null)
                 : ((s.abilities || {})[sides.mySide] || null);
-            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) });
+            
+            // СИНХРОНИЗАЦИЯ: Ждём пока не наступит время старта раунда
+            var phaseAtMs = Number(s.phaseAtMs || 0);
+            if (!isBotMode && phaseAtMs > 0) {
+                var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+                var waitMs = Math.max(0, phaseAtMs - nowServer);
+                if (waitMs > 0 && waitMs < 10000) {
+                    console.log('⏳ Waiting', waitMs, 'ms for synchronized round start');
+                    setTimeout(function() {
+                        onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: phaseAtMs });
+                    }, waitMs);
+                    return;
+                }
+            }
+            
+            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: phaseAtMs });
         }
         return;
     }
@@ -1814,7 +1829,6 @@ function startTimer(phaseAtMs) {
 }
 
 async function onRoundResult(msg) {
-    // КРИТИЧЕСКАЯ ЗАЩИТА: блокируем параллельную обработку
     if (pvpProcessingRoundResult) {
         console.warn('⚠️ onRoundResult already running, ignoring duplicate call');
         return;
@@ -1830,7 +1844,7 @@ async function onRoundResult(msg) {
     const my = msg.you;
     const opp = msg.opponent;
 
-    // АТОМАРНОЕ обновление счёта - один раз в начале
+    // АТОМАРНОЕ обновление счёта
     const myScoreVal = (msg.myScore !== undefined) ? msg.myScore : (() => {
         const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
         return msg.scores ? msg.scores[mi2] : scores[0];
@@ -1840,13 +1854,25 @@ async function onRoundResult(msg) {
         return msg.scores ? msg.scores[1 - mi2] : scores[1];
     })();
     
-    // Обновляем глобальный счёт СРАЗУ
     scores[0] = myScoreVal;
     scores[1] = oppScoreVal;
 
     if (opp.usedAbility && !oppAbility) {
         oppAbility = opp.usedAbility;
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // СИНХРОНИЗАЦИЯ: Ждём пока не наступит время показа анимации
+    // ═══════════════════════════════════════════════════════════════════════
+    if (!isBotMode && msg.phaseAtMs && msg.phaseAtMs > 0) {
+        const nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+        const waitMs = Math.max(0, msg.phaseAtMs - nowServer);
+        if (waitMs > 0 && waitMs < 5000) { // Ждём максимум 5 секунд
+            console.log('⏳ Waiting', waitMs, 'ms for synchronized animation start');
+            await delay(waitMs);
+        }
+    }
+    // ═══════════════════════════════════════════════════════════════════════
 
     // Показываем тост ТОЛЬКО если соперник использовал умение (не своё)
     // Рентген показывается отдельно через oppUsedXrayThisRound
