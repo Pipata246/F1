@@ -257,6 +257,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const launchMode = urlParams.get('launch');
     const directRoomId = urlParams.get('roomId');
     
+    console.log('Launch mode:', launchMode, 'Room ID:', directRoomId);
+    
     if (directRoomId) {
         // Direct room connection - join immediately
         console.log('Direct room connection:', directRoomId);
@@ -274,13 +276,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 0);
     } else if (launchMode === 'demo') {
         // Show demo screen
+        console.log('Showing demo screen');
         showScreen('demo');
-    } else if (launchMode === 'play') {
-        // Show stake picker screen
-        showScreen('start');
     } else {
-        // No launch parameter - redirect to main menu
-        window.location.href = '/';
+        // Show stake picker screen (default for 'play' or no parameter)
+        console.log('Showing start screen');
+        showScreen('start');
     }
 });
 
