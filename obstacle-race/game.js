@@ -532,13 +532,23 @@ function stopAcceptTick() {
 
 function startAcceptTick() {
     stopAcceptTick();
+    var expiredFired = false;
     function tick() {
         var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
         var remaining = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - nowServer) / 1000));
         if ($('accept-timer')) $('accept-timer').textContent = remaining + 'с';
-        if (remaining <= 0) {
+        if (remaining <= 0 && !expiredFired) {
+            expiredFired = true;
             stopAcceptTick();
-            // WebSocket принесёт следующую фазу — ничего не делаем
+            // Таймер истёк — запрашиваем состояние сразу и ещё раз через 800мс
+            // (бэкенд может чуть запаздывать с переходом фазы)
+            pvpPollState();
+            setTimeout(function() {
+                if (pvpRoomId) pvpPollState();
+            }, 800);
+            setTimeout(function() {
+                if (pvpRoomId) pvpPollState();
+            }, 1800);
         }
     }
     tick();
