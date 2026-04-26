@@ -1,67 +1,18 @@
-// ==================== SUPABASE REALTIME ====================
-var supabase = null;
-var supabaseChannel = null;
+// ==================== HTTP POLLING (КАК В FROG HUNT) ====================
+var supabase = null; // Не используем
+var supabaseChannel = null; // Не используем
 
+// Убираем WebSocket, используем только HTTP polling как в Frog Hunt
 function initSupabase() {
-  var SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
-  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
-  
-  if (typeof window.supabase === 'undefined') {
-    console.error('Supabase library not loaded!');
-    return;
-  }
-  
-  try {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    console.log('✅ Supabase Realtime initialized for Obstacle Race');
-  } catch (err) {
-    console.error('Supabase init error:', err);
-  }
+  // Пустая функция - не нужен WebSocket
 }
 
 function stopRealtimeSubscription() {
-  if (supabaseChannel) {
-    supabase.removeChannel(supabaseChannel);
-    supabaseChannel = null;
-    console.log('Realtime subscription stopped');
-  }
+  // Пустая функция - не нужен WebSocket
 }
 
 function startRealtimeSubscription(roomId) {
-  stopRealtimeSubscription();
-  
-  if (!supabase || !roomId) {
-    console.error('Cannot start subscription: missing supabase or roomId');
-    return;
-  }
-  
-  console.log('🔌 Starting Realtime WebSocket for obstacle race room:', roomId);
-  
-  var channelName = 'obstacle_race_room_' + roomId;
-  
-  supabaseChannel = supabase
-    .channel(channelName)
-    .on(
-      'broadcast',
-      { event: 'state_update' },
-      function(payload) {
-        console.log('📡 WebSocket update received:', payload);
-        if (payload.payload && payload.payload.room) {
-          var myTg = String(window._tgUserId || '');
-          var forPlayer = payload.payload.forPlayer;
-          if (!forPlayer || forPlayer === myTg) {
-            applyPvpRoomState(payload.payload.room);
-          }
-        }
-      }
-    )
-    .subscribe(function(status) {
-      console.log('WebSocket status:', status);
-      if (status === 'SUBSCRIBED') {
-        console.log('✅ WebSocket connected! Fetching current state...');
-        pvpPollState();
-      }
-    });
+  // Пустая функция - не нужен WebSocket
 }
 
 // ==================== GAME VARIABLES ====================
@@ -120,10 +71,10 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 let pvpMoveWatchdogTimer = null;
 let pvpLastProcessedStateHash = '';
-let pvpProcessingRoundResult = false; // Флаг: сейчас обрабатывается результат раунда
-// Универсальный heartbeat — работает на КАЖДОМ этапе PvP игры
+let pvpProcessingRoundResult = false;
+const PVP_POLL_MS = 800; // Polling каждые 800мс как в Frog Hunt
 let pvpHeartbeatTimer = null;
-const PVP_HEARTBEAT_MS = 2000; // каждые 2 секунды пока идёт PvP
+const PVP_HEARTBEAT_MS = 2000;
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 
 const OT_ROUNDS = 3;
@@ -467,6 +418,7 @@ function beaconPvpLeaveRoom(roomId) {
 
 function stopPvpPolling() {
     stopRealtimeSubscription();
+    if (pvpPollTimer) clearInterval(pvpPollTimer);
     pvpPollTimer = null;
     pvpPollInFlight = false;
     stopMoveWatchdog();
@@ -499,17 +451,16 @@ function startMoveWatchdog() {
 }
 
 function startPvpPolling() {
-    // Start WebSocket subscription instead of polling
-    if (pvpRoomId) {
-        startRealtimeSubscription(pvpRoomId);
-    }
+    stopPvpPolling();
+    pvpPollTimer = setInterval(function() {
+        pvpPollState();
+    }, PVP_POLL_MS);
+    pvpPollState(); // Сразу первый запрос
 }
 
 function startPvpPollingFast() {
-    // WebSocket is already fast, no need for separate fast polling
-    if (pvpRoomId && !supabaseChannel) {
-        startRealtimeSubscription(pvpRoomId);
-    }
+    // Не нужно - используем один интервал
+    startPvpPolling();
 }
 
 function resetPvpMarkers() {
@@ -737,21 +688,7 @@ function applyPvpRoomState(room) {
                 ? ((s.overtimeAbilities || {})[sides.mySide] || null)
                 : ((s.abilities || {})[sides.mySide] || null);
             
-            // СИНХРОНИЗАЦИЯ: Ждём пока не наступит время старта раунда
-            var phaseAtMs = Number(s.phaseAtMs || 0);
-            if (!isBotMode && phaseAtMs > 0) {
-                var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
-                var waitMs = Math.max(0, phaseAtMs - nowServer);
-                if (waitMs > 0 && waitMs < 10000) {
-                    console.log('⏳ Waiting', waitMs, 'ms for synchronized round start');
-                    setTimeout(function() {
-                        onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: phaseAtMs });
-                    }, waitMs);
-                    return;
-                }
-            }
-            
-            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: phaseAtMs });
+            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) });
         }
         return;
     }
@@ -1830,7 +1767,6 @@ function startTimer(phaseAtMs) {
 
 async function onRoundResult(msg) {
     if (pvpProcessingRoundResult) {
-        console.warn('⚠️ onRoundResult already running, ignoring duplicate call');
         return;
     }
     pvpProcessingRoundResult = true;
@@ -1844,7 +1780,7 @@ async function onRoundResult(msg) {
     const my = msg.you;
     const opp = msg.opponent;
 
-    // АТОМАРНОЕ обновление счёта
+    // Обновляем счёт
     const myScoreVal = (msg.myScore !== undefined) ? msg.myScore : (() => {
         const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
         return msg.scores ? msg.scores[mi2] : scores[0];
@@ -1860,19 +1796,6 @@ async function onRoundResult(msg) {
     if (opp.usedAbility && !oppAbility) {
         oppAbility = opp.usedAbility;
     }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // СИНХРОНИЗАЦИЯ: Ждём пока не наступит время показа анимации
-    // ═══════════════════════════════════════════════════════════════════════
-    if (!isBotMode && msg.phaseAtMs && msg.phaseAtMs > 0) {
-        const nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
-        const waitMs = Math.max(0, msg.phaseAtMs - nowServer);
-        if (waitMs > 0 && waitMs < 5000) { // Ждём максимум 5 секунд
-            console.log('⏳ Waiting', waitMs, 'ms for synchronized animation start');
-            await delay(waitMs);
-        }
-    }
-    // ═══════════════════════════════════════════════════════════════════════
 
     // Показываем тост ТОЛЬКО если соперник использовал умение (не своё)
     // Рентген показывается отдельно через oppUsedXrayThisRound
