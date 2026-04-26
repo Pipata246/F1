@@ -127,6 +127,28 @@ const ABILITIES = {
 
 const $ = (id) => document.getElementById(id);
 
+function debugLog(msg) {
+    const debug = $('debug-info');
+    if (debug) {
+        debug.innerHTML += '<br>' + msg;
+        console.log(msg);
+    }
+}
+
+function showScreen(name) {
+    debugLog('showScreen: ' + name);
+    const screens = document.querySelectorAll('.screen');
+    debugLog('Found ' + screens.length + ' screens');
+    screens.forEach((s) => s.classList.remove('active'));
+    const targetScreen = $('screen-' + name);
+    if (targetScreen) {
+        targetScreen.classList.add('active');
+        debugLog('Activated screen-' + name);
+    } else {
+        debugLog('ERROR: Screen not found: screen-' + name);
+    }
+}
+
 const SFX = {};
 function initSounds() {
     const files = {
@@ -161,13 +183,22 @@ function playSound(name) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOMContentLoaded fired');
+    debugLog('DOM loaded');
     
-    // Добавляем отладку
-    console.log('Available screens:', document.querySelectorAll('.screen'));
+    // Проверяем экраны
+    const screens = document.querySelectorAll('.screen');
+    debugLog('Screens found: ' + screens.length);
+    screens.forEach((s, i) => {
+        debugLog('Screen ' + i + ': ' + s.id);
+    });
     
     // Initialize Supabase Realtime
-    initSupabase();
+    try {
+        initSupabase();
+        debugLog('Supabase initialized');
+    } catch (e) {
+        debugLog('Supabase error: ' + e.message);
+    }
     
     initSounds();
     if (window.Telegram && window.Telegram.WebApp) {
@@ -261,11 +292,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const launchMode = urlParams.get('launch');
     const directRoomId = urlParams.get('roomId');
     
-    console.log('Launch mode:', launchMode, 'Room ID:', directRoomId);
+    debugLog('Launch mode: ' + launchMode);
+    debugLog('Room ID: ' + directRoomId);
     
     if (directRoomId) {
         // Direct room connection - join immediately
-        console.log('Direct room connection:', directRoomId);
+        debugLog('Direct room connection: ' + directRoomId);
         setTimeout(function() {
             isBotMode = false;
             pvpRoomId = String(directRoomId);
@@ -280,20 +312,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 0);
     } else if (launchMode === 'demo') {
         // Show demo screen
-        console.log('Showing demo screen');
+        debugLog('Showing demo screen');
         showScreen('demo');
     } else {
         // Show stake picker screen (default for 'play' or no parameter)
-        console.log('Showing start screen');
+        debugLog('Showing start screen');
         showScreen('start');
     }
     
-    // Дополнительная отладка
+    // Скрываем отладку через 5 секунд
     setTimeout(() => {
-        console.log('After 1 second:');
-        console.log('Active screens:', document.querySelectorAll('.screen.active'));
-        console.log('All screens:', document.querySelectorAll('.screen'));
-    }, 1000);
+        const debug = $('debug-info');
+        if (debug) debug.style.display = 'none';
+    }, 5000);
 });
 
 function openDemoIntro() {
@@ -813,23 +844,7 @@ function handleMessage(msg) {
     }
 }
 
-function showScreen(name) {
-    console.log('showScreen called with:', name);
-    const screens = document.querySelectorAll('.screen');
-    console.log('Found screens:', screens.length);
-    screens.forEach((s) => {
-        console.log('Screen:', s.id, 'removing active');
-        s.classList.remove('active');
-    });
-    const targetScreen = $('screen-' + name);
-    console.log('Target screen:', targetScreen);
-    if (targetScreen) {
-        targetScreen.classList.add('active');
-        console.log('Added active to screen-' + name);
-    } else {
-        console.error('Screen not found: screen-' + name);
-    }
-}
+
     if (name !== 'waiting') {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
