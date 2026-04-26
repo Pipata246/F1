@@ -1672,11 +1672,12 @@ function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
   if (gameKey === "obstacle_race") return pvpDefaultObstacleState(player1Id, player2Id);
   if (gameKey === "super_penalty") return pvpDefaultSuperPenaltyState(player1Id, player2Id);
   if (gameKey === "basketball") return pvpDefaultBasketballState(player1Id, player2Id);
+  if (gameKey === "frog_hunt") return pvpDefaultState(player1Id, player2Id);
   return pvpDefaultState(player1Id, player2Id);
 }
 
-const PVP_BOT_WAIT_MIN_MS = 20_000;
-const PVP_BOT_WAIT_SPAN_MS = 5_000; // 20..25 sec
+const PVP_BOT_WAIT_MIN_MS = 25_000; // 25 seconds minimum
+const PVP_BOT_WAIT_SPAN_MS = 15_000; // 25..40 sec range
 const PVP_BOT_MOVE_MIN_MS = 1000;
 const PVP_BOT_MOVE_MAX_MS = 3000;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
@@ -3310,7 +3311,11 @@ async function pvpMaybeFallbackToBot(room, tgId) {
   const createdAtMs = asMs(room.created_at);
   if (!createdAtMs) return room;
   const waitMs = Date.now() - createdAtMs;
-  if (waitMs < pvpBotFallbackDelayMs(room.id)) return room;
+  const requiredWaitMs = pvpBotFallbackDelayMs(room.id);
+  
+  console.log(`[BOT FALLBACK] Room ${room.id} (${room.game_key}): waited ${Math.round(waitMs/1000)}s, required ${Math.round(requiredWaitMs/1000)}s`);
+  
+  if (waitMs < requiredWaitMs) return room;
   const stake = Number(normalizeStakeOptions(stakeOptionsFromRoom(room))[0] || 0);
   if (!Number.isFinite(stake) || stake <= 0) return room;
   const botId = pvpBotTgId(room.id);
@@ -3324,8 +3329,16 @@ async function pvpMaybeFallbackToBot(room, tgId) {
     updatedAt: new Date().toISOString(),
   };
   const state = pvpWrapWithAcceptPhase(baseState, { player2_tg_user_id: botId });
+  
+  console.log(`[BOT FALLBACK] Triggering bot fallback for room ${room.id} (${room.game_key}) after ${Math.round(waitMs/1000)}s`);
+  
   try {
     const started = await pvpStartBotMatchWithStake(room, pvpPickBotName(), stake, state);
+    if (started) {
+      console.log(`[BOT FALLBACK] Bot match started successfully for room ${room.id}`);
+    } else {
+      console.log(`[BOT FALLBACK] Bot match failed to start for room ${room.id}`);
+    }
     return started || room;
   } catch (e) {
     console.error("pvp bot fallback start:", e?.message || e);

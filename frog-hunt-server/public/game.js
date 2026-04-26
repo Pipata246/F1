@@ -99,10 +99,20 @@ function applyRoomState(room) {
   var s = room.state_json || {};
   var status = String(room.status || '');
   
-  console.log('Applying room state:', { status: status, phase: s.phase, round: s.currentRound });
+  console.log('Applying room state:', { 
+    status: status, 
+    phase: s.phase, 
+    round: s.currentRound,
+    player1: room.player1_tg_user_id,
+    player2: room.player2_tg_user_id,
+    player2_name: room.player2_name,
+    botMatch: s.botMatch
+  });
   
   // Waiting for opponent
   if (status === 'waiting') {
+    var waitTime = room.created_at ? Math.round((Date.now() - new Date(room.created_at).getTime()) / 1000) : 0;
+    console.log(`Waiting for opponent... (${waitTime}s elapsed)`);
     showScreen('waiting');
     return;
   }
