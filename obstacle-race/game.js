@@ -49,7 +49,6 @@ function startRealtimeSubscription(roomId) {
         if (payload.payload && payload.payload.room) {
           var myTg = String(window._tgUserId || '');
           var forPlayer = payload.payload.forPlayer;
-          // Only apply if this update is for me (or no filter)
           if (!forPlayer || forPlayer === myTg) {
             applyPvpRoomState(payload.payload.room);
           }
@@ -59,7 +58,10 @@ function startRealtimeSubscription(roomId) {
     .subscribe(function(status) {
       console.log('WebSocket status:', status);
       if (status === 'SUBSCRIBED') {
-        console.log('✅ WebSocket connected!');
+        console.log('✅ WebSocket connected! Fetching current state...');
+        // WebSocket подключился — запрашиваем актуальное состояние ОДИН РАЗ
+        // чтобы не пропустить broadcast который пришёл пока подключались
+        pvpPollState();
       }
     });
 }
