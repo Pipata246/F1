@@ -1,4 +1,70 @@
-// ===== STATE =====
+// ==================== SUPABASE REALTIME ====================
+let supabase = null;
+let supabaseChannel = null;
+
+function initSupabase() {
+  const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
+  
+  if (typeof window.supabase === 'undefined') {
+    console.warn('Supabase library not loaded - WebSocket disabled');
+    return;
+  }
+  
+  try {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('✅ Supabase Realtime initialized');
+  } catch (err) {
+    console.error('Supabase init error:', err);
+  }
+}
+
+function stopRealtimeSubscription() {
+  if (supabaseChannel) {
+    supabase.removeChannel(supabaseChannel);
+    supabaseChannel = null;
+    console.log('Realtime subscription stopped');
+  }
+}
+
+function startRealtimeSubscription(roomId) {
+  stopRealtimeSubscription();
+  
+  if (!supabase || !roomId) {
+    console.error('Cannot start subscription: missing supabase or roomId');
+    return;
+  }
+  
+  console.log('🔌 Starting Realtime WebSocket for room:', roomId);
+  
+  const channelName = 'obstacle_race_room_' + roomId;
+  
+  supabaseChannel = supabase
+    .channel(channelName)
+    .on(
+      'broadcast',
+      { event: 'state_update' },
+      function(payload) {
+        console.log('📡 WebSocket update received:', payload);
+        if (payload.payload && payload.payload.room) {
+          const myTg = window._tgUserId;
+          const forPlayer = payload.payload.forPlayer;
+          // Only apply if this update is for me (or no filter)
+          if (!forPlayer || forPlayer === myTg) {
+            applyPvpRoomState(payload.payload.room);
+          }
+        }
+      }
+    )
+    .subscribe(function(status) {
+      console.log('WebSocket status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ WebSocket connected!');
+      }
+    });
+}
+
+// ==================== GAME STATE ====================
 let ws = null;
 let playerIndex = -1;
 let opponentName = '';
@@ -11,10 +77,6 @@ let moveChosen = false;
 let timerInterval = null;
 let isOvertime = false;
 let trackDots = 7;
-let tgUserId = null;
-let balanceTon = 0;
-let selectedStakeOptions = [];
-let playMode = 'idle'; // 'idle', 'bot', 'pvp'
 
 // Abilities
 let myAbility = null;
@@ -24,7 +86,38 @@ let abilityActive = false;
 let revealedPoints = {};
 let xrayScanMode = false;
 let knownTrapsOnMyTrack = {};
+let myUsedXrayThisRound = false;  // я использовал рентген в этом раунде
+let oppUsedXrayThisRound = false; // соперник использовал рентген в этом раунде
 let overtimePlacing = false;
+let trapsConfirmed = false;
+let trapTimerInterval = null;
+let myOvertimeTraps = [];
+let roundAnimating = false; // флаг: идёт анимация раунда, не обновляем счёт
+let gameOverSoundPlayed = false; // флаг: звук конца игры уже сыгран
+let tgInitData = '';
+let localMatch = null;
+let matchSaved = false;
+let isBotMode = true;
+let selectedStakeOptions = [];
+let currentStakeTon = null;
+const ALLOWED_STAKES = [0.1, 0.5, 1, 5, 10, 25];
+let currentBalanceTon = 0;
+let bottomNoticeTimer = null;
+let pvpServerSkewMs = 0;
+// Obstacle race server forces moves after 15s in PvP; keep UI in sync.
+const TURN_MS = 15_000;
+let onlineModeSelected = false;
+let pvpAcceptDeadlineMs = 0;
+let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
+let pvpRoomId = null;
+let pvpLastRoundMarker = 0;
+let pvpLastXrayMarker = 0;
+let pvpLastStartKey = '';
+let pvpOpponentTgId = '';
+let pvpOpponentIsBot = false;
+const SETTINGS_KEY = "f1duel_global_settings_v1";
+
+const OT_ROUNDS = 3;
 
 const ABILITIES = {
     xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
@@ -34,7 +127,6 @@ const ABILITIES = {
 
 const $ = (id) => document.getElementById(id);
 
-// ===== SOUNDS =====
 const SFX = {};
 function initSounds() {
     const files = {
@@ -58,210 +150,748 @@ function initSounds() {
 }
 
 function playSound(name) {
+    try {
+        const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+        if (settings.sound === false) return;
+    } catch (e) {}
     const s = SFX[name];
     if (!s) return;
     s.currentTime = 0;
     s.play().catch(() => {});
 }
 
-// ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOMContentLoaded fired');
+    // Initialize Supabase Realtime
+    initSupabase();
+    
     initSounds();
     if (window.Telegram && window.Telegram.WebApp) {
         const tg = window.Telegram.WebApp;
         tg.ready(); tg.expand();
         document.body.classList.add('tg-theme');
         const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
-        if (user && user.first_name) $('player-name').value = user.first_name;
-        if (user && user.id) tgUserId = String(user.id);
-        
-        // Fetch user balance
-        const initData = tg.initData || '';
-        if (initData) {
-            fetch('/api/user', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'authSession', initData: initData })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data?.ok && data.user) {
-                    balanceTon = Number(data.user.balance || 0);
-                    updateBalanceDisplay();
-                }
-            })
-            .catch(() => {});
+        if (user) {
+            window._tgUserId = String(user.id);
         }
+        tgInitData = tg.initData || '';
     }
+    // Also check URL param (passed from F1 Duel)
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('userId')) window._tgUserId = urlParams.get('userId');
 
-    $('btn-find').onclick = () => showStakeScreen();
-    $('btn-bot').onclick = () => showDemoIntro();
+    var presenceTimer = null;
+    function presencePing() {
+        if (!tgInitData) return;
+        fetch('/api/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'presenceHeartbeat', initData: tgInitData }),
+        }).catch(function() {});
+    }
+    function startPresenceLoop() {
+        if (presenceTimer) clearInterval(presenceTimer);
+        presencePing();
+        presenceTimer = setInterval(presencePing, 9000);
+    }
+    function presenceLeaveNet() {
+        if (!tgInitData) return;
+        var payload = JSON.stringify({ action: 'presenceLeave', initData: tgInitData });
+        try {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+            }
+        } catch (e) {}
+        fetch('/api/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+        }).catch(function() {});
+    }
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            presencePing();
+            return;
+        }
+        if (!isBotMode && pvpRoomId && tgInitData) {
+            beaconPvpCancelQueue(pvpRoomId);
+        }
+    });
+    window.addEventListener('focus', presencePing);
+    startPresenceLoop();
+
+    if ($('btn-demo-play')) $('btn-demo-play').onclick = () => startGame(true);
+    if ($('btn-demo-back')) $('btn-demo-back').onclick = () => window.location.href = '/';
+    ensureStakePicker();
+    refreshBalanceForStakePicker();
     $('btn-cancel').onclick = cancelWait;
     $('btn-traps-ok').onclick = confirmTraps;
-    $('btn-again').onclick = () => showDemoIntro();
-    $('btn-menu').onclick = () => showScreen('start');
+    $('btn-again').onclick = () => {
+        // Мгновенный отклик — сразу показываем экран ожидания
+        showScreen('waiting');
+        setTimeout(() => startGame(isBotMode), 50);
+    };
+    $('btn-menu').onclick = () => window.location.href = '/';
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
     $('btn-ability').onclick = toggleAbility;
-    
-    // Demo intro buttons
-    $('btn-demo-play').onclick = () => startGame(true);
-    $('btn-demo-back').onclick = () => showScreen('start');
-    
-    // Stake screen buttons
-    $('btn-stake-back').onclick = () => showScreen('start');
-    $('btn-stake-play').onclick = () => startGameOnline();
-    
-    generateStakeGrid();
+    window.addEventListener('pagehide', function() {
+        presenceLeaveNet();
+        if (!isBotMode && pvpRoomId && tgInitData) {
+            beaconPvpLeaveRoom(pvpRoomId);
+        }
+    });
+    window.addEventListener('beforeunload', function() {
+        presenceLeaveNet();
+        if (!isBotMode && pvpRoomId && tgInitData) {
+            beaconPvpLeaveRoom(pvpRoomId);
+        }
+    });
+
     generateTrapTrack();
     generateGameTracks(7);
+
+    // Check URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const launchMode = urlParams.get('launch');
+    const directRoomId = urlParams.get('roomId');
+    
+    console.log('Launch mode:', launchMode, 'Room ID:', directRoomId);
+    
+    if (directRoomId) {
+        // Direct room connection - join immediately
+        console.log('Direct room connection:', directRoomId);
+        setTimeout(function() {
+            isBotMode = false;
+            pvpRoomId = String(directRoomId);
+            const stakeFromUrl = Number(urlParams.get('stake') || 0);
+            if (stakeFromUrl > 0 && selectedStakeOptions.indexOf(stakeFromUrl) < 0) {
+                selectedStakeOptions = [stakeFromUrl];
+            }
+            syncMyNameFromServer(function() {
+                showScreen('waiting');
+                startRealtimeSubscription(pvpRoomId);
+            });
+        }, 0);
+    } else if (launchMode === 'demo') {
+        // Show demo screen
+        console.log('Showing demo screen');
+        showScreen('demo');
+    } else {
+        // Show stake picker screen (default for 'play' or no parameter)
+        console.log('Showing start screen');
+        showScreen('start');
+    }
 });
 
-function showDemoIntro() {
-    playSound('click');
-    showScreen('demo-intro');
+function openDemoIntro() {
+    showScreen('demo');
 }
 
-function showStakeScreen() {
-    playSound('click');
-    selectedStakeOptions = [];
-    updateStakeGrid();
-    showScreen('stake');
+function connect(cb) {
+    if (cb) cb();
 }
 
-function generateStakeGrid() {
-    const stakes = [0.1, 0.5, 1, 5, 10, 25];
-    const grid = $('stake-grid');
-    grid.innerHTML = '';
-    
-    stakes.forEach(stake => {
-        const btn = document.createElement('button');
-        btn.className = 'stake-option';
-        btn.textContent = stake + ' TON';
-        btn.dataset.stake = stake;
-        btn.onclick = () => toggleStakeOption(stake);
-        grid.appendChild(btn);
-    });
+function apiPost(payload) {
+    return fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+    }).then(function(r) { return r.json(); });
 }
 
-function updateBalanceDisplay() {
-    const el = $('balance-display');
-    if (el) el.textContent = balanceTon.toFixed(2);
-}
-
-function toggleStakeOption(stake) {
-    playSound('tap');
-    const idx = selectedStakeOptions.indexOf(stake);
-    if (idx >= 0) {
-        selectedStakeOptions.splice(idx, 1);
-    } else {
-        if (balanceTon < stake) {
-            // Can't select - insufficient balance
-            return;
-        }
-        selectedStakeOptions.push(stake);
+function syncMyNameFromServer(done) {
+    function fallback() {
+        var u = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
+        myName = (u && u.first_name) ? String(u.first_name).slice(0, 64) : '\u0418\u0433\u0440\u043E\u043A';
+        currentBalanceTon = 0;
+        renderStakePicker();
+        if (done) done();
     }
-    updateStakeGrid();
-}
-
-function updateStakeGrid() {
-    const buttons = document.querySelectorAll('.stake-option');
-    buttons.forEach(btn => {
-        const stake = Number(btn.dataset.stake);
-        const selected = selectedStakeOptions.includes(stake);
-        const blocked = balanceTon < stake;
-        
-        btn.classList.toggle('selected', selected);
-        btn.classList.toggle('blocked', blocked);
-    });
-}
-
-function startGameOnline() {
-    if (selectedStakeOptions.length === 0) {
-        alert('Выбери хотя бы одну ставку');
+    if (!tgInitData) {
+        fallback();
         return;
     }
-    playMode = 'pvp';
-    startGame(false);
+    apiPost({ action: 'authSession', initData: tgInitData })
+        .then(function(data) {
+            if (data && data.ok && data.user && data.user.display_name) {
+                myName = String(data.user.display_name).slice(0, 64);
+                currentBalanceTon = Number(data.user.balance || 0);
+            } else fallback();
+            renderStakePicker();
+            if (done) done();
+        })
+        .catch(function() { fallback(); });
 }
 
-// ===== WEBSOCKET =====
-function connect(cb) {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${proto}//${location.host}`);
-    ws.onopen = () => { if (cb) cb(); };
-    ws.onmessage = (e) => {
-        try {
-            var result = handleMessage(JSON.parse(e.data));
-            if (result && result.catch) result.catch(function(err) { console.error('async error:', err); });
-        } catch (err) { console.error('msg error:', err); }
+function showBottomNotice(msg) {
+    var n = $('bottomNotice');
+    if (!n) {
+        n = document.createElement('div');
+        n.id = 'bottomNotice';
+        n.style.position = 'fixed';
+        n.style.left = '50%';
+        n.style.bottom = '20px';
+        n.style.transform = 'translateX(-50%)';
+        n.style.background = 'rgba(0,0,0,.88)';
+        n.style.color = '#fff';
+        n.style.padding = '10px 14px';
+        n.style.borderRadius = '12px';
+        n.style.fontSize = '13px';
+        n.style.fontWeight = '700';
+        n.style.zIndex = '9999';
+        n.style.display = 'none';
+        document.body.appendChild(n);
+    }
+    n.textContent = String(msg || '');
+    n.style.display = 'block';
+    clearTimeout(bottomNoticeTimer);
+    bottomNoticeTimer = setTimeout(function() { n.style.display = 'none'; }, 2200);
+}
+
+function refreshBalanceForStakePicker() {
+    if (!tgInitData) return;
+    apiPost({ action: 'authSession', initData: tgInitData })
+        .then(function(data) {
+            if (data && data.ok && data.user) {
+                currentBalanceTon = Number(data.user.balance || 0);
+                renderStakePicker();
+            }
+        })
+        .catch(function() {});
+}
+
+function ensureStakePicker() {
+    var grid = $('stakeGridObstacle');
+    if (!grid) return;
+    
+    // Clear grid first
+    grid.innerHTML = '';
+    
+    ALLOWED_STAKES.forEach(function(stake) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn ghost';
+        b.dataset.stake = String(stake);
+        b.style.height = '74px';
+        b.style.padding = '0 6px';
+        b.style.fontWeight = '900';
+        b.style.fontSize = '13px';
+        b.style.display = 'flex';
+        b.style.alignItems = 'center';
+        b.style.justifyContent = 'center';
+        b.style.whiteSpace = 'nowrap';
+        b.style.borderRadius = '14px';
+        b.textContent = stake + ' TON';
+        b.onclick = function() {
+            var n = Number(b.dataset.stake);
+            if (currentBalanceTon < n) {
+                showBottomNotice('У вас недостаточно денег на балансе');
+                return;
+            }
+            if (selectedStakeOptions.indexOf(n) >= 0) {
+                selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
+            } else {
+                selectedStakeOptions.push(n);
+            }
+            renderStakePicker();
+        };
+        grid.appendChild(b);
+    });
+    
+    var playBtn = $('stakePlayBtnObstacle');
+    if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
+    var botBtn = $('btn-bot');
+    if (botBtn) botBtn.onclick = function(){ showScreen('demo'); };
+    
+    renderStakePicker();
+}
+
+function renderStakePicker() {
+    var grid = $('stakeGridObstacle');
+    if (!grid) return;
+    var nodes = grid.querySelectorAll('button[data-stake]');
+    for (var i = 0; i < nodes.length; i++) {
+        var b = nodes[i];
+        var n = Number(b.dataset.stake);
+        var on = selectedStakeOptions.indexOf(n) >= 0;
+        var blocked = currentBalanceTon < n;
+        b.style.borderColor = blocked ? 'rgba(248,113,113,.8)' : (on ? '#8fd1ff' : 'rgba(255,255,255,.18)');
+        b.style.background = blocked ? 'rgba(239,68,68,.18)' : (on ? 'rgba(59,130,246,.25)' : 'rgba(255,255,255,.08)');
+        b.style.color = blocked ? '#fecaca' : (on ? '#e6f3ff' : '#fff');
+        b.style.opacity = blocked ? '0.85' : '1';
+    }
+}
+
+function beaconPvpCancelQueue(roomId) {
+    if (!roomId || !tgInitData) return;
+    var payload = JSON.stringify({ action: 'pvpCancelQueue', initData: tgInitData, roomId: roomId });
+    try {
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+    } catch (e) {}
+    fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true
+    }).catch(function() {});
+}
+
+function beaconPvpLeaveRoom(roomId) {
+    if (!roomId || !tgInitData) return;
+    var payload = JSON.stringify({ action: 'pvpLeaveRoom', initData: tgInitData, roomId: roomId });
+    try {
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+    } catch (e) {}
+    fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true
+    }).catch(function() {});
+}
+
+function resetPvpMarkers() {
+    pvpLastRoundMarker = 0;
+    pvpLastXrayMarker = 0;
+    pvpLastStartKey = '';
+}
+
+function getPvpSides(room) {
+    var meIsP1 = String(room && room.player1_tg_user_id || '') === String(window._tgUserId || '');
+    return {
+        meIsP1: meIsP1,
+        mySide: meIsP1 ? 'p1' : 'p2',
+        oppSide: meIsP1 ? 'p2' : 'p1',
+        playerIndex: meIsP1 ? 0 : 1
     };
-    ws.onclose = () => {};
 }
 
-function sendMsg(m) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
+function stopAcceptTick() {
+    if (pvpAcceptTickInterval) { clearInterval(pvpAcceptTickInterval); pvpAcceptTickInterval = null; }
+}
+
+function startAcceptTick() {
+    stopAcceptTick();
+    function tick() {
+        var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+        var remaining = Math.max(0, Math.ceil((pvpAcceptDeadlineMs - nowServer) / 1000));
+        if ($('accept-timer')) $('accept-timer').textContent = remaining + 'с';
+        if (remaining <= 0) {
+            stopAcceptTick();
+            // WebSocket will send update automatically
+        }
+    }
+    tick(); // сразу обновляем
+    pvpAcceptTickInterval = setInterval(tick, 200); // обновляем каждые 200мс для плавности
+}
+
+function applyPvpRoomState(room) {
+    if (!room) return;
+    var s = room.state_json || {};
+    if (String(room.status) === 'active' && String((s || {}).phase || '') === 'accept_match') {
+        var am = s.acceptMatch || {};
+        pvpAcceptDeadlineMs = Number(am.deadlineMs || 0);
+        if ($('accept-info')) {
+            $('accept-info').textContent =
+                (room.player1_name || 'Игрок 1') + ' vs ' + (room.player2_name || 'Игрок 2') +
+                (room.stake_ton != null ? (' · ' + Number(room.stake_ton) + ' TON') : '');
+        }
+        showScreen('waiting');
+        startAcceptTick(); // локальный тик — обновляет таймер каждые 200мс
+        if ($('accept-modal')) $('accept-modal').style.display = 'flex';
+        return;
+    }
+    if (String(room.status) === 'waiting') {
+        stopAcceptTick();
+        if ($('accept-modal')) $('accept-modal').style.display = 'none';
+        pvpAcceptDeadlineMs = 0;
+        showScreen('waiting');
+        return;
+    }
+    stopAcceptTick();
+    if ($('accept-modal')) $('accept-modal').style.display = 'none';
+
+    var sides = getPvpSides(room);
+    playerIndex = sides.playerIndex;
+    opponentName = sides.meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник');
+    pvpOpponentTgId = sides.meIsP1 ? String(room.player2_tg_user_id || '') : String(room.player1_tg_user_id || '');
+    pvpOpponentIsBot = pvpOpponentTgId.indexOf('bot_fallback_') === 0;
+    currentStakeTon = room.stake_ton != null ? Number(room.stake_ton) : null;
+    pvpAcceptDeadlineMs = 0;
+    if ($('opp-name-traps')) {
+        $('opp-name-traps').textContent = currentStakeTon != null && isFinite(currentStakeTon)
+            ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
+            : ('Дорожка: ' + opponentName);
+    }
+
+    // Если фаза placing/overtime_placing — показываем экран ловушек (только один раз)
+    if ((s.phase === 'placing_traps' || s.phase === 'placing' || s.phase === 'overtime_placing') &&
+        !$('screen-traps').classList.contains('active') &&
+        !trapsConfirmed) {
+        var isOt = s.phase === 'overtime_placing';
+        overtimePlacing = isOt;
+        selectedTraps = [];
+        trapsConfirmed = false;
+        if (isOt) {
+            myOvertimeTraps = [];
+            var otAbilities = s.overtimeAbilities || {};
+            var myOtAbility = otAbilities[sides.mySide] || null;
+            if (myOtAbility) { myAbility = myOtAbility; abilityUsed = false; }
+        }
+        generateTrapTrack();
+        updateTrapUI();
+        $('btn-traps-ok').classList.remove('hidden');
+        $('btn-traps-ok').disabled = true;
+        $('traps-wait').classList.add('hidden');
+        $('opp-name-traps').textContent = currentStakeTon != null && isFinite(currentStakeTon)
+            ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
+            : ('Дорожка: ' + opponentName);
+        showScreen('traps');
+        startTrapTimer();
+        return;
+    }
+
+    // Если уже подтвердили ловушки — просто ждём, не трогаем экран
+    if ((s.phase === 'placing_traps' || s.phase === 'placing' || s.phase === 'overtime_placing') && trapsConfirmed) {
+        return;
+    }
+
+    var xray = s.lastXray || {};
+    var xrayMarker = Number(xray.marker || 0);
+    if (xrayMarker > pvpLastXrayMarker) {
+        pvpLastXrayMarker = xrayMarker;
+        if (xray.bySide === sides.mySide) onXrayResult({ point: xray.point, hasTrap: !!xray.hasTrap });
+        else onOppXray({ point: xray.point });
+    }
+
+    var rr = s.lastRoundResult || {};
+    var roundMarker = Number(rr.marker || 0);
+    if (roundMarker > pvpLastRoundMarker) {
+        pvpLastRoundMarker = roundMarker;
+        var my = rr.result ? rr.result[sides.mySide] : null;
+        var opp = rr.result ? rr.result[sides.oppSide] : null;
+        if (my && opp) {
+            var rrScores = rr.scores || {};
+            onRoundResult({
+                you: my,
+                opponent: opp,
+                step: Number(rr.step || 0),
+                // Передаём счёт напрямую — myScore/oppScore без индексирования
+                myScore: Number(rrScores[sides.mySide] || 0),
+                oppScore: Number(rrScores[sides.oppSide] || 0),
+                winner: rr.gameOver ? (rr.winnerSide === sides.mySide ? 'win' : 'lose') : null,
+                gameOver: !!rr.gameOver,
+                round: Number(rr.round || 0),
+                totalRounds: 7,
+                playerIndex: sides.playerIndex,
+                overtime: !!rr.overtime,
+                startOvertime: !!rr.startOvertime
+            });
+            return;
+        }
+    }
+
+    if (s.phase === 'running') {
+        var step = s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0);
+        var startKey = String(!!s.overtime) + ':' + String(step);
+        if (startKey !== pvpLastStartKey) {
+            pvpLastStartKey = startKey;
+            var abilityForRound = s.overtime
+                ? ((s.overtimeAbilities || {})[sides.mySide] || null)
+                : ((s.abilities || {})[sides.mySide] || null);
+            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) });
+            return;
+        }
+        // WebSocket handles updates automatically
+        return;
+        return;
+    }
+
+    if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+        if (String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
+            stopRealtimeSubscription();
+            pvpRoomId = null;
+            pvpAcceptDeadlineMs = 0;
+            if ($('accept-modal')) $('accept-modal').style.display = 'none';
+            showScreen('waiting');
+            showBottomNotice('Пользователь не принял матч');
+            pvpFindMatch();
+            return;
+        }
+        stopRealtimeSubscription();
+        if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(window._tgUserId || '')) {
+            onOpponentLeft();
+            return;
+        }
+        var fin = s.scores || {};
+        var finalScores = [Number(fin.p1 || 0), Number(fin.p2 || 0)];
+        var winner = null;
+        if (s.winnerSide) winner = s.winnerSide === sides.mySide ? 'win' : 'lose';
+        else if (finalScores[0] !== finalScores[1]) winner = (sides.meIsP1 ? finalScores[0] > finalScores[1] : finalScores[1] > finalScores[0]) ? 'win' : 'lose';
+        showGameOver(winner, finalScores);
+    }
+}
+
+function pvpFindMatch() {
+    if (!tgInitData) {
+        showScreen('start');
+        return;
+    }
+    resetPvpMarkers();
+    pvpRoomId = null;
+    apiPost({
+        action: 'pvpFindMatch',
+        initData: tgInitData,
+        gameKey: 'obstacle_race',
+        playerName: myName,
+        stakeOptions: selectedStakeOptions
+    }).then(function(data) {
+        if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
+        pvpRoomId = data.room.id;
+        startRealtimeSubscription(pvpRoomId);
+        // Применяем состояние сразу — applyPvpRoomState покажет нужный экран
+        applyPvpRoomState(data.room);
+    }).catch(function() {
+        showScreen('start');
+    });
+}
+
+function pvpLeaveRoomSafe() {
+    if (!pvpRoomId || !tgInitData) {
+        pvpRoomId = null;
+        return Promise.resolve();
+    }
+    var rid = pvpRoomId;
+    pvpRoomId = null;
+    return apiPost({
+        action: 'pvpLeaveRoom',
+        initData: tgInitData,
+        roomId: rid
+    }).catch(function() {});
+}
+
+function sendMsg(m) {
+    var msg = m || {};
+    if (isBotMode) {
+        localServerOnClientMessage(msg);
+        return;
+    }
+    if (!pvpRoomId || !tgInitData) return;
+    if (msg.type === 'place_traps') {
+        var trapAttempts = 0;
+        var trapData = msg.traps || [];
+        function submitTraps() {
+            trapAttempts++;
+            apiPost({
+                action: 'pvpSubmitMove',
+                initData: tgInitData,
+                roomId: pvpRoomId,
+                move: { traps: trapData }
+            }).then(function(data) {
+                if (data && data.ok && data.room) {
+                    applyPvpRoomState(data.room);
+                } else if (trapAttempts < 3) {
+                    setTimeout(submitTraps, 800);
+                } else {
+                    // После 3 попыток — разблокируем и показываем ошибку
+                    trapsConfirmed = false;
+                    $('btn-traps-ok').classList.remove('hidden');
+                    $('traps-wait').classList.add('hidden');
+                    showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
+                }
+            }).catch(function() {
+                if (trapAttempts < 3) {
+                    setTimeout(submitTraps, 800);
+                } else {
+                    trapsConfirmed = false;
+                    $('btn-traps-ok').classList.remove('hidden');
+                    $('traps-wait').classList.add('hidden');
+                    showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
+                }
+            });
+        }
+        submitTraps();
+        return;
+    }
+    if (msg.type === 'xray_scan') {
+        var xrayAttempts = 0;
+        var xrayPoint = Number(msg.point || 0);
+        function submitXray() {
+            xrayAttempts++;
+            apiPost({
+                action: 'pvpSubmitMove',
+                initData: tgInitData,
+                roomId: pvpRoomId,
+                move: { type: 'xray_scan', point: xrayPoint }
+            }).then(function(data) {
+                if (data && data.ok && data.room) {
+                    applyPvpRoomState(data.room);
+                } else if (xrayAttempts < 3) {
+                    setTimeout(submitXray, 800);
+                }
+            }).catch(function() {
+                if (xrayAttempts < 3) setTimeout(submitXray, 800);
+            });
+        }
+        submitXray();
+        return;
+    }
+    if (msg.type === 'make_move') {
+        var moveAction = msg.action;
+        var moveAbility = !!msg.useAbility;
+        var moveAttempts = 0;
+
+        function submitMove() {
+            moveAttempts++;
+            apiPost({
+                action: 'pvpSubmitMove',
+                initData: tgInitData,
+                roomId: pvpRoomId,
+                move: { action: moveAction, useAbility: moveAbility }
+            }).then(function(data) {
+                if (data && data.ok && data.room) {
+                    applyPvpRoomState(data.room);
+                } else if (moveAttempts < 3) {
+                    // Retry через 800мс если ответ не ok
+                    setTimeout(submitMove, 800);
+                } else {
+                    // После 3 попыток разблокируем кнопки
+                    moveChosen = false;
+                    $('btn-run').disabled = false;
+                    $('btn-jump').disabled = false;
+                    $('move-wait').classList.add('hidden');
+                }
+            }).catch(function() {
+                if (moveAttempts < 3) {
+                    setTimeout(submitMove, 800);
+                } else {
+                    moveChosen = false;
+                    $('btn-run').disabled = false;
+                    $('btn-jump').disabled = false;
+                    $('move-wait').classList.add('hidden');
+                }
+            });
+        }
+
+        submitMove();
+
+        // WebSocket will handle updates automatically
+    }
+}
 
 function handleMessage(msg) {
     switch (msg.type) {
         case 'waiting': showScreen('waiting'); break;
         case 'game_found': onGameFound(msg); break;
         case 'traps_placed': break;
+        case 'traps_auto':
+            showBottomNotice('Ловушки расставлены автоматически');
+            break;
         case 'round_start': return onRoundStart(msg);
         case 'round_result': return onRoundResult(msg);
+        case 'overtime_start': onOvertimeStart(msg); break;
         case 'xray_result': onXrayResult(msg); break;
         case 'opp_xray': onOppXray(msg); break;
         case 'opponent_left': onOpponentLeft(); break;
     }
 }
 
-// ===== SCREENS =====
 function showScreen(name) {
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     $('screen-' + name).classList.add('active');
+    if (name !== 'waiting') {
+        if ($('accept-modal')) $('accept-modal').style.display = 'none';
+        pvpAcceptDeadlineMs = 0;
+    }
 }
 
-// ===== START =====
 function startGame(vsBot) {
-    myName = $('player-name').value.trim() || '\u0418\u0433\u0440\u043E\u043A';
     selectedTraps = []; scores = [0, 0]; currentStep = 0;
     moveChosen = false; isOvertime = false; trackDots = 7;
     myAbility = null; oppAbility = null; abilityUsed = false; abilityActive = false;
     revealedPoints = {}; xrayScanMode = false; knownTrapsOnMyTrack = {};
+    myUsedXrayThisRound = false; oppUsedXrayThisRound = false;
+    trapsConfirmed = false; myOvertimeTraps = []; stopTrapTimer();
+    roundAnimating = false; gameOverSoundPlayed = false;
     clearInterval(timerInterval);
+    matchSaved = false;
+    isBotMode = !!vsBot;
     
-    playMode = vsBot ? 'bot' : 'pvp';
-
-    if (ws && ws.readyState === 1) {
-        sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId });
-        if (!vsBot) showScreen('waiting');
-    } else {
-        connect(() => {
-            sendMsg({ type: vsBot ? 'find_bot' : 'find_game', name: myName, tgUserId });
-            if (!vsBot) showScreen('waiting');
+    currentStakeTon = null;
+    if (!isBotMode) return beginOnlineSearch();
+    stopRealtimeSubscription();
+    pvpRoomId = null;
+    syncMyNameFromServer(function() {
+        connect(function() {
+            if (isBotMode) {
+                sendMsg({
+                    type: 'find_bot',
+                    name: myName,
+                    tgUserId: window._tgUserId || null
+                });
+                showScreen('waiting');
+                return;
+            }
+            pvpFindMatch();
         });
-    }
+    });
 }
 
-function cancelWait() { sendMsg({ type: 'cancel_wait' }); showScreen('start'); }
+function beginOnlineSearch() {
+    isBotMode = false;
+    currentStakeTon = null;
+    if (!selectedStakeOptions.length) {
+        showBottomNotice('Выбери минимум одну ставку');
+        return;
+    }
+    selectedStakeOptions = selectedStakeOptions.slice().sort(function(a, b) { return a - b; });
+    stopRealtimeSubscription();
+    pvpRoomId = null;
+    // Сразу показываем экран ожидания — не ждём ответа от сервера
+    showScreen('waiting');
+    syncMyNameFromServer(function() {
+        connect(function() { pvpFindMatch(); });
+    });
+}
 
-// ===== GAME FOUND =====
+function cancelWait() {
+    if (isBotMode) {
+        localMatch = null;
+        window.location.href = '/';
+        return;
+    }
+    stopAcceptTick();
+    stopRealtimeSubscription();
+    pvpLeaveRoomSafe().finally(function() { window.location.href = '/'; });
+}
+
 function onGameFound(msg) {
     playSound('ping');
     playerIndex = msg.playerIndex;
     opponentName = msg.opponent;
     $('opp-name-traps').textContent = '\u0414\u043E\u0440\u043E\u0436\u043A\u0430: ' + opponentName;
     selectedTraps = [];
+    trapsConfirmed = false;
     overtimePlacing = false;
     updateTrapUI();
     $('btn-traps-ok').classList.remove('hidden');
     $('btn-traps-ok').disabled = true;
     $('traps-wait').classList.add('hidden');
+    scores = [0, 0];
+    currentStep = 0;
+    isOvertime = false;
     showScreen('traps');
+    startTrapTimer();
 }
 
-// ===== TRAPS =====
 function generateTrapTrack() {
-    const dots = overtimePlacing ? 3 : 7;
+    const dots = overtimePlacing ? OT_ROUNDS : 7;
     const c = $('trap-track'); c.innerHTML = '';
     for (let i = 0; i < dots; i++) {
         const p = document.createElement('div');
@@ -274,6 +904,7 @@ function generateTrapTrack() {
 }
 
 function toggleTrap(i) {
+    if (trapsConfirmed) return; // заблокировано после подтверждения
     const maxTraps = overtimePlacing ? 1 : 3;
     const idx = selectedTraps.indexOf(i);
     if (idx >= 0) selectedTraps.splice(idx, 1);
@@ -294,28 +925,87 @@ function updateTrapUI() {
     $('btn-traps-ok').disabled = selectedTraps.length !== maxTraps;
 }
 
+function stopTrapTimer() {
+    if (trapTimerInterval) { clearInterval(trapTimerInterval); trapTimerInterval = null; }
+    var timerEl = $('trap-timer');
+    if (timerEl) timerEl.style.display = 'none';
+}
+
+function startTrapTimer() {
+    // Не запускаем если уже подтвердили ловушки
+    if (trapsConfirmed) return;
+    // Не перезапускаем если таймер уже идёт
+    if (trapTimerInterval) return;
+    stopTrapTimer();
+    var maxTraps = overtimePlacing ? 1 : 3;
+    var totalSec = 20; // 20 секунд на расстановку
+    var remaining = totalSec;
+
+    // Создаём элемент таймера если нет
+    var timerEl = $('trap-timer');
+    if (!timerEl) {
+        timerEl = document.createElement('div');
+        timerEl.id = 'trap-timer';
+        timerEl.style.cssText = 'text-align:center;font-size:13px;color:#aab1bf;margin-top:8px;';
+        var trapsOkBtn = $('btn-traps-ok');
+        if (trapsOkBtn && trapsOkBtn.parentElement) {
+            trapsOkBtn.parentElement.insertBefore(timerEl, trapsOkBtn.nextSibling);
+        }
+    }
+    timerEl.style.display = 'block';
+    timerEl.textContent = 'Авто-расстановка через ' + remaining + 'с';
+
+    trapTimerInterval = setInterval(function() {
+        remaining--;
+        if (timerEl) timerEl.textContent = 'Авто-расстановка через ' + remaining + 'с';
+        if (remaining <= 0) {
+            stopTrapTimer();
+            if (trapsConfirmed) return;
+            // Автоматически добираем ловушки до нужного количества
+            var needed = overtimePlacing ? 1 : 3;
+            var dots = overtimePlacing ? 3 : 7;
+            while (selectedTraps.length < needed) {
+                var r = Math.floor(Math.random() * dots);
+                if (!selectedTraps.includes(r)) selectedTraps.push(r);
+            }
+            updateTrapUI();
+            confirmTraps();
+        }
+    }, 1000);
+}
+
 function confirmTraps() {
+    if (trapsConfirmed) return; // защита от двойного вызова
     playSound('click');
+    trapsConfirmed = true;
+    stopTrapTimer();
+    if (overtimePlacing) myOvertimeTraps = selectedTraps.slice();
     sendMsg({ type: 'place_traps', traps: selectedTraps });
     $('btn-traps-ok').classList.add('hidden');
     $('traps-wait').classList.remove('hidden');
+    // Блокируем точки после подтверждения
+    document.querySelectorAll('.trap-point').forEach((p) => {
+        p.onclick = null;
+        p.style.pointerEvents = 'none';
+        p.style.opacity = '0.6';
+    });
 }
 
-// ===== TRACKS =====
 function generateGameTracks(n) {
     trackDots = n;
     for (let t = 0; t < 2; t++) {
         const c = $('tpoints-' + t); c.innerHTML = '';
         for (let i = 0; i < n; i++) {
             const d = document.createElement('div');
-            d.className = 'track-dot' + (n === 5 ? ' ot-dot' : '');
-            d.textContent = n === 5 ? '?' : (i + 1);
+            d.className = 'track-dot' + (n <= OT_ROUNDS ? ' ot-dot' : '');
+            d.textContent = (i + 1);
             d.id = 'dot-' + t + '-' + i;
             c.appendChild(d);
         }
         // Show player's mines on opponent's track
-        if (t === 1 && selectedTraps.length > 0) {
-            selectedTraps.forEach(function(trapIdx) {
+        if (t === 1) {
+            var trapsToShow = isOvertime ? myOvertimeTraps : selectedTraps;
+            trapsToShow.forEach(function(trapIdx) {
                 var mineDot = $('dot-1-' + trapIdx);
                 if (mineDot) {
                     mineDot.classList.add('mine-placed');
@@ -357,17 +1047,32 @@ function highlightCurrentDot(step) {
     }
 }
 
-// ===== ROUND START =====
 async function onRoundStart(msg) {
     currentStep = msg.step;
-    moveChosen = false; abilityActive = false;
+    moveChosen = false;
+    abilityActive = false;
+    myUsedXrayThisRound = false;  // сбрасываем флаги рентгена на каждый раунд
+    oppUsedXrayThisRound = false;
+    // Возвращаем нормальный polling — быстрый больше не нужен
+    // WebSocket handles updates automatically
 
     if (msg.overtime) isOvertime = true;
 
     if (msg.ability) {
+        var abilityChanged = myAbility !== msg.ability;
         myAbility = msg.ability;
-        oppAbility = null;
-        abilityUsed = false;
+        if (abilityChanged || currentStep === 0) {
+            oppAbility = null;
+            abilityUsed = false;
+        }
+    } else if (isOvertime && currentStep === 0) {
+        // Способность придёт из overtime_start, не сбрасываем здесь
+    }
+
+    // В овертайме способности отключены
+    if (isOvertime) {
+        myAbility = null;
+        abilityUsed = true;
     }
 
     showScreen('game');
@@ -375,13 +1080,14 @@ async function onRoundStart(msg) {
     if (currentStep === 0 && !isOvertime) {
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
-        $('sb-score-0').textContent = '0';
-        $('sb-score-1').textContent = '0';
+        // Не обновляем счёт пока идёт анимация предыдущего раунда
+        if (!roundAnimating) {
+            $('sb-score-0').textContent = String(scores[0] || 0);
+            $('sb-score-1').textContent = String(scores[1] || 0);
+        }
         $('tname-0').textContent = myName;
         $('tname-1').textContent = opponentName;
-        $('round-val').textContent = '1/7';
         $('round-num').textContent = '\u0420\u0430\u0443\u043D\u0434';
-
         generateGameTracks(7);
         highlightCurrentDot(0);
         $('round-reveal').classList.add('hidden');
@@ -394,8 +1100,8 @@ async function onRoundStart(msg) {
         selectedTraps = [];
         revealedPoints = {};
         knownTrapsOnMyTrack = {};
-        myAbility = null;
-        abilityUsed = true;
+        // Способность приходит из overtime_start или round_start
+        if (!myAbility) abilityUsed = true; else abilityUsed = false;
         $('sb-name-0').textContent = myName;
         $('sb-name-1').textContent = opponentName;
         $('sb-score-0').textContent = String(scores[0] || 0);
@@ -407,6 +1113,13 @@ async function onRoundStart(msg) {
         $('tpoints-0').innerHTML = '';
         $('tpoints-1').innerHTML = '';
         generateGameTracks(OT_ROUNDS);
+        // Явно показываем ловушки которые мы поставили сопернику
+        if (myOvertimeTraps && myOvertimeTraps.length > 0) {
+            myOvertimeTraps.forEach(function(trapIdx) {
+                var mineDot = $('dot-1-' + trapIdx);
+                if (mineDot) mineDot.classList.add('mine-placed');
+            });
+        }
         highlightCurrentDot(0);
         $('round-reveal').classList.add('hidden');
         $('round-reveal').style.opacity = '';
@@ -422,10 +1135,8 @@ async function onRoundStart(msg) {
         highlightCurrentDot(currentStep);
     }
 
-    if (!isOvertime && myAbility) await showAbilityReveal();
-
     showActionButtons();
-    startTimer();
+    startTimer(msg && msg.phaseAtMs ? msg.phaseAtMs : null);
 }
 
 async function showAbilityReveal() {
@@ -442,7 +1153,6 @@ async function showAbilityReveal() {
     });
 }
 
-// ===== XRAY SCAN =====
 function enterXrayScanMode() {
     xrayScanMode = true;
     document.body.classList.add('xray-mode');
@@ -484,6 +1194,7 @@ function onXrayResult(msg) {
     xrayScanMode = false;
     abilityUsed = true;
     abilityActive = false;
+    myUsedXrayThisRound = true; // запоминаем что я использовал рентген в этом раунде
     document.body.classList.remove('xray-mode');
 
     // Scan sweep animation
@@ -509,8 +1220,9 @@ function onXrayResult(msg) {
 }
 
 function onOppXray(msg) {
-    // Reveal opponent ability
+    // Запоминаем что соперник использовал рентген — покажем на экране результата хода
     oppAbility = 'xray';
+    oppUsedXrayThisRound = true; // запоминаем для toast и dotIcon
 
     // Scan sweep animation on opponent track (track 1)
     var trackLine = $('tpoints-1') ? $('tpoints-1').parentElement : null;
@@ -520,17 +1232,9 @@ function onOppXray(msg) {
         trackLine.appendChild(scanLine);
         setTimeout(function() { scanLine.remove(); }, 700);
     }
-
-    // Highlight the scanned dot on opponent's track
-    setTimeout(function() {
-        var dot = $('dot-1-' + msg.point);
-        if (dot) {
-            dot.classList.add('xray-scanned-opp');
-        }
-    }, 600);
+    // Не добавляем xray-scanned-opp на ячейку — иконка 👁 будет показана в dotIcon() при onRoundResult
 }
 
-// ===== ABILITY =====
 function toggleAbility() {
     if (abilityUsed) return;
     playSound('click');
@@ -569,7 +1273,6 @@ function updatePromptText() {
     }
 }
 
-// ===== ACTIONS =====
 function showActionButtons() {
     $('action-btns').classList.remove('hidden');
     $('move-wait').classList.add('hidden');
@@ -579,13 +1282,23 @@ function showActionButtons() {
     abilityActive = false;
     updatePromptText();
 
-    const abilityLocked = myAbility === 'double' && currentStep >= 5;
+    // Double заблокирован после раунда 5 и в овертайме; в овертайме способности отключены полностью
+    const abilityLocked = isOvertime || (myAbility === 'double' && currentStep >= 5);
     if (!abilityUsed && myAbility && !abilityLocked) {
         $('ability-zone').classList.remove('hidden');
         const info = ABILITIES[myAbility];
         $('btn-ability').textContent = info.icon + ' ' + info.name;
         $('btn-ability').classList.remove('ability-active');
         $('btn-ability').disabled = false;
+        const oppStatus = $('opp-ability-status');
+        if (oppStatus) {
+            if (oppAbility) {
+                const oInfo = ABILITIES[oppAbility];
+                oppStatus.textContent = oInfo.icon + ' ' + oInfo.name;
+            } else {
+                oppStatus.textContent = '❓ Скрыто';
+            }
+        }
     } else if (!abilityUsed && myAbility && abilityLocked) {
         $('ability-zone').classList.remove('hidden');
         const info = ABILITIES[myAbility];
@@ -593,11 +1306,13 @@ function showActionButtons() {
         $('btn-ability').classList.add('ability-active');
         $('btn-ability').disabled = true;
         const oppStatus = $('opp-ability-status');
-        if (oppAbility) {
-            const oInfo = ABILITIES[oppAbility];
-            oppStatus.textContent = oInfo.icon + ' ' + oInfo.name;
-        } else {
-            oppStatus.textContent = '\u2753 \u0421\u043A\u0440\u044B\u0442\u043E';
+        if (oppStatus) {
+            if (oppAbility) {
+                const oInfo = ABILITIES[oppAbility];
+                oppStatus.textContent = oInfo.icon + ' ' + oInfo.name;
+            } else {
+                oppStatus.textContent = '❓ Скрыто';
+            }
         }
     } else {
         $('ability-zone').classList.add('hidden');
@@ -624,15 +1339,212 @@ function makeMove(action) {
     $('move-wait').classList.remove('hidden');
 }
 
-function startTimer() {
+function randomAbility() {
+    const r = Math.random() * 5;
+    if (r < 2) return 'xray';
+    if (r < 4) return 'sabotage';
+    return 'double';
+}
+
+function randomBotTraps(total, count) {
+    const set = new Set();
+    while (set.size < count) set.add(Math.floor(Math.random() * total));
+    return [...set];
+}
+
+function localServerOnClientMessage(msg) {
+    if (msg.type === 'find_bot' || msg.type === 'find_game') {
+        localMatch = {
+            tgUserId: msg.tgUserId ? String(msg.tgUserId) : null,
+            names: [myName, 'Бот'],
+            traps: [null, randomBotTraps(7, 3)],
+            scores: [0, 0],
+            currentStep: 0,
+            overtime: false,
+            overtimeRound: 0,
+            overtimeTraps: null,
+            moves: [null, null],
+            abilities: [randomAbility(), randomAbility()],
+            abilityUsed: [false, false],
+            phase: 'placing',
+            ended: false
+        };
+        setTimeout(() => handleMessage({ type: 'game_found', opponent: 'Бот', playerIndex: 0 }), 450);
+        return;
+    }
+    if (!localMatch) return;
+    if (msg.type === 'cancel_wait') { localMatch = null; return; }
+
+    if (msg.type === 'place_traps') {
+        const needed = localMatch.phase === 'overtime_placing' ? 1 : 3;
+        if (!Array.isArray(msg.traps) || msg.traps.length !== needed) return;
+        if (localMatch.phase === 'overtime_placing') {
+            localMatch.overtimeTraps = [msg.traps.slice(), randomBotTraps(3, 1)];
+            localMatch.overtime = true;
+            localMatch.overtimeRound = 0;
+            localMatch.phase = 'running';
+            isOvertime = true;
+            setTimeout(localStartRound, 500);
+            return;
+        }
+        localMatch.traps[0] = msg.traps.slice();
+        localMatch.phase = 'running';
+        setTimeout(localStartRound, 500);
+        return;
+    }
+
+    if (msg.type === 'xray_scan') {
+        if (localMatch.abilityUsed[0] || localMatch.abilities[0] !== 'xray') return;
+        const point = Number(msg.point || 0);
+        const hasTrap = localMatch.overtime
+            ? localMatch.overtimeTraps[1].includes(point)
+            : localMatch.traps[1].includes(point);
+        localMatch.abilityUsed[0] = true;
+        handleMessage({ type: 'xray_result', point, hasTrap });
+        return;
+    }
+
+    if (msg.type === 'make_move') {
+        if (localMatch.ended) return;
+        localMatch.moves[0] = { action: msg.action, useAbility: !!msg.useAbility };
+        localChooseBotMove();
+        localResolveRound();
+    }
+}
+
+function localStartRound() {
+    if (!localMatch || localMatch.ended) return;
+    localMatch.moves = [null, null];
+    const step = localMatch.overtime ? localMatch.overtimeRound : localMatch.currentStep;
+    handleMessage({ type: 'round_start', step, ability: localMatch.abilities[0], overtime: localMatch.overtime });
+}
+
+function localChooseBotMove() {
+    if (!localMatch) return;
+    let useAbility = false;
+    if (!localMatch.overtime && !localMatch.abilityUsed[1] && Math.random() < 0.3) {
+        const ab = localMatch.abilities[1];
+        if (ab === 'sabotage') useAbility = true;
+        if (ab === 'double' && localMatch.currentStep <= 4) useAbility = true;
+    }
+    localMatch.moves[1] = { action: Math.random() > 0.5 ? 'run' : 'jump', useAbility };
+}
+
+function localResolveRound() {
+    const m = localMatch;
+    if (!m || !m.moves[0] || !m.moves[1]) return;
+    const step = m.overtime ? m.overtimeRound : m.currentStep;
+    const result = [null, null];
+
+    for (let i = 0; i < 2; i++) {
+        const opp = 1 - i;
+        const mv = m.moves[i];
+        const hasTrap = m.overtime ? m.overtimeTraps[opp].includes(step) : m.traps[opp].includes(step);
+        let usedAbility = null;
+        if (mv.useAbility && !m.abilityUsed[i] && !m.overtime) {
+            const ab = m.abilities[i];
+            if (!(ab === 'double' && step > 4)) { usedAbility = ab; m.abilityUsed[i] = true; }
+        }
+        const success = (mv.action === 'run' && !hasTrap) || (mv.action === 'jump' && hasTrap);
+        let points = success ? 1 : 0;
+        if (usedAbility === 'double') points = success ? 2 : -1;
+        let reason = '';
+        if (mv.action === 'run' && !hasTrap) reason = 'clear_run';
+        else if (mv.action === 'run' && hasTrap) reason = 'hit_trap';
+        else if (mv.action === 'jump' && hasTrap) reason = 'dodged_trap';
+        else reason = 'wasted_jump';
+        result[i] = { action: mv.action, hasTrap, success, reason, points, usedAbility, sabotaged: false, sabotageHit: false, sabotageBackfire: false };
+    }
+
+    const baseSuccess = [result[0].success, result[1].success];
+    for (let i = 0; i < 2; i++) {
+        if (result[i].usedAbility === 'sabotage') {
+            const opp = 1 - i;
+            if (baseSuccess[opp]) {
+                result[opp].sabotaged = true;
+                result[opp].points = 0;
+                result[i].sabotageHit = true;
+            } else result[i].sabotageBackfire = true;
+        }
+    }
+
+    m.scores[0] += result[0].points;
+    m.scores[1] += result[1].points;
+    if (m.overtime) m.overtimeRound++;
+    else m.currentStep++;
+
+    const MAIN_ROUNDS = 7;
+    const WIN_SCORE_LOCAL = 5;
+    let gameOver = false;
+    let winner = null;
+    let startOvertime = false;
+
+    if (m.overtime) {
+        if (m.scores[0] !== m.scores[1]) {
+            gameOver = true;
+            winner = m.scores[0] > m.scores[1] ? 'win' : 'lose';
+        } else if (m.overtimeRound >= OT_ROUNDS) startOvertime = true;
+    } else {
+        const p0 = m.scores[0], p1 = m.scores[1];
+        // Досрочная победа если кто-то достиг WIN_SCORE
+        if (p0 >= WIN_SCORE_LOCAL && p1 >= WIN_SCORE_LOCAL) {
+            if (p0 > p1) { gameOver = true; winner = 'win'; }
+            else if (p1 > p0) { gameOver = true; winner = 'lose'; }
+            else startOvertime = true;
+        } else if (p0 >= WIN_SCORE_LOCAL) {
+            gameOver = true; winner = 'win';
+        } else if (p1 >= WIN_SCORE_LOCAL) {
+            gameOver = true; winner = 'lose';
+        } else if (m.currentStep >= MAIN_ROUNDS) {
+            if (p0 === p1) startOvertime = true;
+            else { gameOver = true; winner = p0 > p1 ? 'win' : 'lose'; }
+        }
+    }
+
+    handleMessage({
+        type: 'round_result',
+        you: result[0],
+        opponent: result[1],
+        step,
+        scores: [m.scores[0], m.scores[1]],
+        winner,
+        gameOver,
+        round: m.overtime ? m.overtimeRound : m.currentStep,
+        totalRounds: MAIN_ROUNDS,
+        playerIndex: 0,
+        overtime: m.overtime,
+        startOvertime,
+        overtimeAbility: startOvertime ? (m.overtimeAbilities ? m.overtimeAbilities[0] : null) : null,
+        abilityUsed: [m.abilityUsed[0], m.abilityUsed[1]]
+    });
+
+    if (startOvertime) {
+        m.phase = 'overtime_placing';
+        m.overtimeTraps = [null, null];
+        // Назначаем способности для овертайма (xray/sabotage)
+        const otAbs = ['xray', 'sabotage'];
+        m.overtimeAbilities = [
+            otAbs[Math.floor(Math.random() * otAbs.length)],
+            otAbs[Math.floor(Math.random() * otAbs.length)]
+        ];
+        m.abilityUsed = [false, false];
+    }
+    if (gameOver) m.ended = true;
+}
+
+function startTimer(phaseAtMs) {
     const fill = $('timer-fill');
     fill.style.width = '100%';
     fill.classList.remove('urgent');
     clearInterval(timerInterval);
-    const start = Date.now();
-    const duration = 10000;
+    const nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+    const durationMs = isBotMode ? 10_000 : TURN_MS;
+    const startAt = Number(phaseAtMs || 0) > 0 ? Number(phaseAtMs || 0) : nowServer;
+    const endAt = startAt + durationMs;
     timerInterval = setInterval(() => {
-        const pct = Math.max(0, 100 - ((Date.now() - start) / duration) * 100);
+        const nowS = Date.now() - (Number(pvpServerSkewMs || 0));
+        const left = Math.max(0, endAt - nowS);
+        const pct = Math.max(0, (left / durationMs) * 100);
         fill.style.width = pct + '%';
         if (pct < 30) fill.classList.add('urgent');
         if (pct <= 0) {
@@ -640,15 +1552,20 @@ function startTimer() {
             if (!moveChosen) {
                 if (xrayScanMode) exitXrayScanMode();
                 abilityActive = false;
-                makeMove(Math.random() < 0.5 ? 'run' : 'jump');
+                // Auto move on timer expiry:
+                // - bot/demo: local move
+                // - PvP: submit move to backend (server-synced timer), server still has timeout safety net
+                if (isBotMode) makeMove(Math.random() < 0.5 ? 'run' : 'jump');
+                else makeMove(Math.random() < 0.5 ? 'run' : 'jump');
             }
         }
     }, 50);
 }
 
-// ===== ROUND RESULT =====
 async function onRoundResult(msg) {
     clearInterval(timerInterval);
+    // WebSocket handles updates automatically
+    roundAnimating = true; // блокируем обновление счёта в UI
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
     const my = msg.you;
@@ -657,6 +1574,30 @@ async function onRoundResult(msg) {
     // Reveal opponent ability when they use it
     if (opp.usedAbility && !oppAbility) {
         oppAbility = opp.usedAbility;
+    }
+
+    // Показываем тост ТОЛЬКО если соперник использовал умение (не своё)
+    // Рентген показывается отдельно через oppUsedXrayThisRound
+    if (opp.usedAbility && opp.usedAbility !== 'xray') {
+        var toastInfo = {
+            double:   { icon: '⚡', text: opponentName + ' использовал Удвоение!', cls: 'double' },
+            sabotage: { icon: '💀', text: opponentName + ' использовал Саботаж!', cls: 'sabotage' },
+        }[opp.usedAbility];
+        if (toastInfo) {
+            var toast = document.createElement('div');
+            toast.className = 'ability-toast ' + toastInfo.cls;
+            toast.innerHTML = '<span class="ability-toast-icon">' + toastInfo.icon + '</span><span>' + toastInfo.text + '</span>';
+            document.body.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 2200);
+        }
+    }
+    // Рентген соперника — показываем сразу вместе с другими тостами
+    if (oppUsedXrayThisRound) {
+        var xrayToast = document.createElement('div');
+        xrayToast.className = 'ability-toast xray';
+        xrayToast.innerHTML = '<span class="ability-toast-icon">👁</span><span>' + opponentName + ' использовал Рентген!</span>';
+        document.body.appendChild(xrayToast);
+        setTimeout(function() { xrayToast.remove(); }, 2200);
     }
 
     // Track traps discovered on my track
@@ -680,8 +1621,6 @@ async function onRoundResult(msg) {
     // Action text
     function actionStr(r) {
         let s = r.action === 'run' ? '\u25B6 \u0411\u0435\u0436\u0430\u0442\u044C' : '\u25B2 \u041F\u0440\u044B\u0433\u043D\u0443\u0442\u044C';
-        if (r.usedAbility === 'double') s = '\u26A1 ' + s;
-        if (r.usedAbility === 'sabotage') s = '\uD83D\uDC80 ' + s;
         return s;
     }
 
@@ -729,40 +1668,47 @@ async function onRoundResult(msg) {
     $('reveal-opp-result').className = 'reveal-result ' + (isGood(opp) ? 'good' : 'bad');
     playSound(isGood(my) ? 'good' : 'bad');
 
-    // Mark dots — enhanced with mine visuals
+        // Mark dots — enhanced with mine visuals
+    // Иконки способностей вместо ✓/✗ когда способность использована
+    function dotIcon(r, isOpp) {
+        if (r.usedAbility === 'double') return '⚡';
+        if (r.usedAbility === 'sabotage') return '💀';
+        if (r.usedAbility === 'xray') return '👁';
+        // Рентген не приходит в usedAbility — используем флаги
+        if (!isOpp && myUsedXrayThisRound) return '👁';
+        if (isOpp && oppUsedXrayThisRound) return '👁';
+        if (r.sabotaged) return '💀'; // заблокировано саботажем — показываем череп
+        return r.points > 0 ? '\u2713' : '\u2717';
+    }
     if (myDot) {
         myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
         if (my.hasTrap && my.reason === 'hit_trap') {
-            // Ran into a trap — fail indicator, bomb floats above
             myDot.classList.add('fail', 'mine-hit');
-            myDot.textContent = '\u2717';
+            myDot.textContent = dotIcon(my, false);
         } else if (my.hasTrap && my.reason === 'dodged_trap') {
-            // Jumped over a trap — success indicator, bomb floats above
             myDot.classList.add('success', 'mine-dodged');
-            myDot.textContent = '\u2713';
+            myDot.textContent = dotIcon(my, false);
         } else {
             const myOk = my.points > 0 && !my.sabotaged;
             myDot.classList.add(myOk ? 'success' : 'fail');
-            myDot.textContent = myOk ? '\u2713' : '\u2717';
+            myDot.textContent = dotIcon(my, false);
         }
     }
     if (oppDot) {
-        oppDot.classList.remove('current');
+        oppDot.classList.remove('current', 'xray-scanned-opp');
         if (opp.hasTrap && opp.reason === 'hit_trap') {
-            // Opponent hit our mine — dot red, bomb becomes explosion above
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('fail', 'mine-exploded');
-            oppDot.textContent = '\u2717';
+            oppDot.textContent = dotIcon(opp, true);
         } else if (opp.hasTrap && opp.reason === 'dodged_trap') {
-            // Opponent dodged — dot green, dimmed bomb + checkmark above
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('mine-safe');
-            oppDot.textContent = '\u2713';
+            oppDot.textContent = dotIcon(opp, true);
         } else {
             oppDot.classList.remove('mine-placed');
             const oppOk = opp.points > 0 && !opp.sabotaged;
             oppDot.classList.add(oppOk ? 'success' : 'fail');
-            oppDot.textContent = oppOk ? '\u2713' : '\u2717';
+            oppDot.textContent = dotIcon(opp, true);
         }
     }
 
@@ -786,11 +1732,19 @@ async function onRoundResult(msg) {
     myAv.classList.remove('shake', 'jump-anim');
     oppAv.classList.remove('shake', 'jump-anim');
 
-    // Update scores
-    const mi = playerIndex;
-    scores = [msg.scores[mi], msg.scores[1 - mi]];
+    // Update scores — берём напрямую из myScore/oppScore (уже ориентированы правильно на бэке)
+    const myScoreVal = (msg.myScore !== undefined) ? msg.myScore : (() => {
+        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
+        return msg.scores ? msg.scores[mi2] : scores[0];
+    })();
+    const oppScoreVal = (msg.oppScore !== undefined) ? msg.oppScore : (() => {
+        const mi2 = (msg.playerIndex !== undefined) ? msg.playerIndex : playerIndex;
+        return msg.scores ? msg.scores[1 - mi2] : scores[1];
+    })();
+    scores = [myScoreVal, oppScoreVal];
     const s0 = $('sb-score-0'); const s1 = $('sb-score-1');
     s0.textContent = scores[0]; s1.textContent = scores[1];
+    roundAnimating = false; // разблокируем обновление счёта
 
     if (my.points > 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '+' + my.points, true); }
     else if (my.points < 0) { s0.classList.add('score-pop'); showFloat($('gtrack-0'), '' + my.points, false); }
@@ -827,6 +1781,8 @@ async function onRoundResult(msg) {
         $('round-val').textContent = Math.min(msg.round + 1, totalRounds) + '/' + totalRounds;
     }
 
+    // WebSocket handles updates automatically
+
     if (msg.gameOver) {
         await delay(300);
         showGameOver(msg.winner, msg.scores);
@@ -835,10 +1791,19 @@ async function onRoundResult(msg) {
         isOvertime = true;
         revealedPoints = {};
         knownTrapsOnMyTrack = {};
-        myAbility = null;
         oppAbility = null;
-        // Show trap placement for overtime (2 traps on 5-dot track)
+        // Способность для овертайма — из msg.overtimeAbility (бот) или придёт через applyPvpRoomState (pvp)
+        if (msg.overtimeAbility) {
+            myAbility = msg.overtimeAbility;
+            abilityUsed = false;
+        } else {
+            myAbility = null;
+            abilityUsed = true;
+        }
+        // Show trap placement for overtime (1 trap on 3-dot track)
         selectedTraps = [];
+        myOvertimeTraps = [];
+        trapsConfirmed = false;
         overtimePlacing = true;
         generateTrapTrack();
         showScreen('traps');
@@ -847,22 +1812,23 @@ async function onRoundResult(msg) {
         $('btn-traps-ok').classList.remove('hidden');
         $('btn-traps-ok').disabled = true;
         $('traps-wait').classList.add('hidden');
+        startTrapTimer();
     } else {
         currentStep = msg.round;
         highlightCurrentDot(msg.round);
         moveChosen = false;
         showActionButtons();
-        startTimer();
+        startTimer(msg && msg.phaseAtMs ? msg.phaseAtMs : null);
     }
 }
 
-const OT_ROUNDS = 3;
-
-function onOvertimeStart() {
+function onOvertimeStart(msg) {
     isOvertime = true;
     currentStep = 0;
+    // В овертайме способности отключены
     myAbility = null;
     abilityUsed = true;
+    oppAbility = null;
     selectedTraps = [];
     revealedPoints = {};
     knownTrapsOnMyTrack = {};
@@ -870,6 +1836,13 @@ function onOvertimeStart() {
     $('tpoints-0').innerHTML = '';
     $('tpoints-1').innerHTML = '';
     generateGameTracks(OT_ROUNDS);
+    // Явно показываем ловушки которые мы поставили сопернику
+    if (myOvertimeTraps && myOvertimeTraps.length > 0) {
+        myOvertimeTraps.forEach(function(trapIdx) {
+            var mineDot = $('dot-1-' + trapIdx);
+            if (mineDot) mineDot.classList.add('mine-placed');
+        });
+    }
     highlightCurrentDot(0);
     $('round-num').textContent = '\u041E\u0432\u0435\u0440\u0442\u0430\u0439\u043C';
     $('round-val').textContent = '1/' + OT_ROUNDS;
@@ -886,7 +1859,7 @@ function onOvertimeStart() {
     var otEl = $('overtime-announce'); if (otEl) otEl.classList.add('hidden');
     var azEl = $('ability-zone'); if (azEl) azEl.classList.add('hidden');
     showActionButtons();
-    startTimer();
+    startTimer(msg && msg.phaseAtMs ? msg.phaseAtMs : null);
 }
 
 async function showOvertimeAnnouncement() {
@@ -929,20 +1902,19 @@ function showSabotageEffect() {
     setTimeout(function() { overlay.remove(); }, 800);
 }
 
-// ===== GAME OVER =====
 function showGameOver(winner, serverScores) {
     const mi = playerIndex;
     const myScore = serverScores[mi];
     const oppScore = serverScores[1 - mi];
 
     if (winner === 'win') {
-        playSound('win');
+        if (!gameOverSoundPlayed) { playSound('win'); gameOverSoundPlayed = true; }
         $('result-emoji').textContent = '\uD83D\uDC51';
         $('result-title').textContent = '\u041F\u041E\u0411\u0415\u0414\u0410!';
         $('result-title').style.color = 'var(--success)';
         $('result-sub').textContent = '\u0422\u044B \u043E\u043A\u0430\u0437\u0430\u043B\u0441\u044F \u0445\u0438\u0442\u0440\u0435\u0435!';
     } else if (winner === 'lose') {
-        playSound('lose');
+        if (!gameOverSoundPlayed) { playSound('lose'); gameOverSoundPlayed = true; }
         $('result-emoji').textContent = '\uD83D\uDE14';
         $('result-title').textContent = '\u041F\u041E\u0420\u0410\u0416\u0415\u041D\u0418\u0415';
         $('result-title').style.color = 'var(--danger)';
@@ -953,21 +1925,78 @@ function showGameOver(winner, serverScores) {
         $('result-title').style.color = 'var(--warn)';
         $('result-sub').textContent = '\u0420\u0430\u0432\u043D\u044B\u0435 \u0441\u043E\u043F\u0435\u0440\u043D\u0438\u043A\u0438!';
     }
+    if (!isBotMode && Number.isFinite(Number(currentStakeTon)) && Number(currentStakeTon) > 0) {
+        var stake = Number(currentStakeTon);
+        if (winner === 'win') {
+            $('result-sub').textContent = 'TON итог: +' + formatTonCompact(stake * 2) + ' TON';
+            $('result-sub').style.color = 'var(--success)';
+        } else if (winner === 'lose') {
+            $('result-sub').textContent = 'TON итог: -' + formatTonCompact(stake) + ' TON';
+            $('result-sub').style.color = 'var(--danger)';
+        } else {
+            $('result-sub').textContent = 'TON итог: 0 TON';
+            $('result-sub').style.color = 'var(--warn)';
+        }
+    }
 
     $('fs-name-0').textContent = myName;
     $('fs-val-0').textContent = myScore;
     $('fs-name-1').textContent = opponentName;
     $('fs-val-1').textContent = oppScore;
     showScreen('result');
+    if (isBotMode) saveMatchToBackend(winner, myScore, oppScore);
+}
+
+function formatTonCompact(n) {
+    var x = Number(n || 0);
+    if (!isFinite(x)) return '0';
+    return x.toFixed(9).replace(/\.?0+$/, '');
 }
 
 function onOpponentLeft() {
     clearInterval(timerInterval);
-    $('result-emoji').textContent = '\uD83D\uDEB6';
-    $('result-title').textContent = '\u0421\u043E\u043F\u0435\u0440\u043D\u0438\u043A \u0443\u0448\u0451\u043B';
-    $('result-title').style.color = 'var(--warn)';
-    $('result-sub').textContent = '\u0418\u0433\u0440\u0430 \u043F\u0440\u0435\u0440\u0432\u0430\u043D\u0430';
-    $('fs-name-0').textContent = ''; $('fs-val-0').textContent = '';
-    $('fs-name-1').textContent = ''; $('fs-val-1').textContent = '';
+    $('result-emoji').textContent = '🏆';
+    $('result-title').textContent = 'ПОБЕДА!';
+    $('result-title').style.color = 'var(--success)';
+    // Показываем выигрыш если была ставка
+    if (!isBotMode && Number.isFinite(Number(currentStakeTon)) && Number(currentStakeTon) > 0) {
+        var stake = Number(currentStakeTon);
+        $('result-sub').textContent = 'Соперник вышел · +' + formatTonCompact(stake * 2) + ' TON';
+        $('result-sub').style.color = 'var(--success)';
+    } else {
+        $('result-sub').textContent = 'Соперник вышел из игры';
+        $('result-sub').style.color = 'var(--warn)';
+    }
+    $('fs-name-0').textContent = myName;
+    $('fs-val-0').textContent = scores[0];
+    $('fs-name-1').textContent = opponentName;
+    $('fs-val-1').textContent = scores[1];
+    if (!gameOverSoundPlayed) { playSound('win'); gameOverSoundPlayed = true; }
     showScreen('result');
+}
+
+function saveMatchToBackend(winner, myScore, oppScore) {
+    if (matchSaved || !tgInitData || !window.fetch) return;
+    matchSaved = true;
+    const youWon = winner === 'win';
+    const tgUserId = window._tgUserId ? String(window._tgUserId) : null;
+    fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'recordMatch',
+            initData: tgInitData,
+            payload: {
+                gameKey: 'obstacle_race',
+                mode: 'bot',
+                winnerTgUserId: youWon ? tgUserId : null,
+                players: [
+                    { tgUserId, name: myName || 'Игрок', score: myScore || 0, isWinner: !!youWon, isBot: false },
+                    { tgUserId: null, name: opponentName || 'Бот 🤖', score: oppScore || 0, isWinner: !youWon, isBot: true }
+                ],
+                score: { left: myScore || 0, right: oppScore || 0 },
+                details: { overtime: !!isOvertime, rounds: currentStep + 1 }
+            }
+        })
+    }).catch(() => { matchSaved = false; });
 }

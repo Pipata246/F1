@@ -5,90 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Obstacle Race</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- START -->
-    <div id="screen-start" class="screen active">
-        <div class="logo">
-            <div class="logo-runner">
-                <svg viewBox="0 0 40 58" xmlns="http://www.w3.org/2000/svg" style="width:50px;height:68px;display:block;overflow:visible">
-                    <circle cx="20" cy="6" r="5" fill="none" stroke-width="2.5" stroke-linecap="round"/>
-                    <line x1="20" y1="14" x2="20" y2="36" stroke-width="2.5" stroke-linecap="round"/>
-                    <g>
-                        <animateTransform attributeName="transform" type="rotate" values="-30,20,14;40,20,14;-30,20,14" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
-                        <polyline points="20,14 20,23 28,23" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </g>
-                    <g>
-                        <animateTransform attributeName="transform" type="rotate" values="40,20,14;-30,20,14;40,20,14" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
-                        <polyline points="20,14 20,23 28,23" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </g>
-                    <g>
-                        <animateTransform attributeName="transform" type="rotate" values="20,20,36;-45,20,36;20,20,36" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
-                        <polyline points="20,36 20,47 10,47" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </g>
-                    <g>
-                        <animateTransform attributeName="transform" type="rotate" values="-45,20,36;20,20,36;-45,20,36" dur="0.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>
-                        <polyline points="20,36 20,47 10,47" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </g>
-                </svg>
-            </div>
-            <h1>OBSTACLE<br>RACE</h1>
-            <p class="subtitle">Преодолей барьеры. Обмани соперника.</p>
-        </div>
-        <div class="form">
-            <input type="text" id="player-name" placeholder="Твоё имя" maxlength="15" autocomplete="off">
-            <button class="btn primary" id="btn-find">Играть</button>
-            <button class="btn secondary" id="btn-bot">Демо</button>
-        </div>
-        <div class="rules-hint">
-            <details>
-                <summary>Как играть?</summary>
-                <div class="rules-text">
-                    <p><b>1.</b> Расставь 3 барьера на дорожке соперника</p>
-                    <p><b>2.</b> Каждый раунд выбирай: бежать или прыгнуть</p>
-                    <p><b>3.</b> Бежать + нет барьера = +1 очко</p>
-                    <p><b>4.</b> Прыгнуть + есть барьер = +1 очко</p>
-                    <p><b>5.</b> Первый до 5 очков — победитель</p>
-                    <p style="margin-top:10px"><b>Способности</b> — в начале игры оба игрока получают по одной случайной способности. Способность соперника скрыта, пока он её не использует. Используй 1 раз за игру — нажми кнопку способности до выбора хода:</p>
-                    <p><b>Рентген</b> — выбери точку на своей дорожке и узнай, есть ли там барьер соперника. Полезно перед принятием решения.</p>
-                    <p><b>Удвоение</b> — ставишь всё на кон. Успешный ход = +2 очка. Попал на барьер = −1 очко вместо 0.</p>
-                    <p><b>Саботаж</b> — отменяет очко соперника в этом раунде (включая удвоенные). Если он и так попал на барьер — промах, но без штрафа.</p>
-                    <p style="margin-top:10px"><b>Овертайм</b> — при ничьей после 7 раундов начинается овертайм: 5 дополнительных раундов. Каждый расставляет по 2 барьера. Способности в овертайме не действуют.</p>
-                </div>
-            </details>
+    <!-- STAKE PICKER SCREEN -->
+    <div id="screen-start" class="screen">
+        <a href="/" class="back-link">← Назад</a>
+        <div class="logo-container" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:400px;padding:20px">
+            <h1 style="font-size:48px;font-weight:900;letter-spacing:0.05em;margin:40px 0 10px;text-align:center;line-height:1.1;color:#8ef0b2">OBSTACLE<br>RACE</h1>
+            <p style="font-size:13px;color:#8b92a8;margin-bottom:30px;text-align:center;letter-spacing:0.05em">Преодолей барьеры. Обмани соперника.</p>
+            <p style="font-size:13px;color:#8b92a8;margin-bottom:16px;text-align:center;text-transform:uppercase;letter-spacing:0.08em;width:100%">ВЫБЕРИ СТАВКИ TON</p>
+            <div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%;margin-bottom:12px"></div>
+            <button type="button" id="stakePlayBtnObstacle" class="btn primary" style="width:100%;margin-bottom:8px">Играть</button>
+            <button type="button" id="btn-bot" class="btn secondary" style="width:100%">Играть с ботом</button>
         </div>
     </div>
 
     <!-- DEMO INTRO -->
-    <div id="screen-demo-intro" class="screen">
+    <div id="screen-demo" class="screen">
         <div class="center-content">
-            <h1 style="font-size: 2rem; text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 1rem;">ДЭМО РЕЖИМ</h1>
-            <p style="color: #aaa; font-size: 0.9rem; line-height: 1.6; max-width: 400px; margin: 0 auto 2rem;">
-                Тренировочная игра против бота. Без TON-ставок: можно спокойно тестировать стратегии, способности и тактику расстановки ловушек.
+            <h2 style="letter-spacing:.08em">ДЭМО РЕЖИМ</h2>
+            <p style="max-width:340px;text-align:center;opacity:.92;line-height:1.5;margin-top:6px">
+                Тренировочная игра против бота в стиле Obstacle Race.
+                Без TON-ставок: можешь спокойно тестировать стратегии.
             </p>
-            <button class="btn primary" id="btn-demo-play">Играть</button>
-            <button class="btn secondary" id="btn-demo-back">Назад</button>
-        </div>
-    </div>
-
-    <!-- STAKE SELECTION -->
-    <div id="screen-stake" class="screen">
-        <div class="center-content">
-            <button class="btn-back" id="btn-stake-back">← Назад</button>
-            <div style="font-size: 4rem; margin: 1rem 0;">🏁</div>
-            <h1 style="font-size: 2.5rem; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 0.5rem;">
-                OBSTACLE <span style="color: #4AFF93;">RACE</span>
-            </h1>
-            <p style="color: #666; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 2rem;">Выбери ставки</p>
-            <div class="stake-grid" id="stake-grid">
-                <!-- Stakes will be generated by JS -->
-            </div>
-            <div style="margin-top: 1rem; color: #888; font-size: 0.85rem;">
-                Баланс: <span id="balance-display">0</span> TON
-            </div>
-            <button class="btn primary" id="btn-stake-play" style="margin-top: 1.5rem;">Играть</button>
+            <button class="btn primary" id="btn-demo-play" style="margin-top:14px">Играть</button>
+            <button class="btn secondary" id="btn-demo-back" style="margin-top:8px">Назад</button>
         </div>
     </div>
 
@@ -98,6 +42,14 @@
             <div class="spinner"></div>
             <h2>Ищем соперника...</h2>
             <button class="btn secondary" id="btn-cancel">Отмена</button>
+        </div>
+        <div id="accept-modal" style="display:none;position:absolute;inset:0;background:rgba(8,10,18,.74);backdrop-filter:blur(2px);z-index:20;align-items:center;justify-content:center;padding:16px">
+            <div style="width:100%;max-width:360px;background:linear-gradient(180deg,#2a2f52,#1d213f);border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:14px;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,.45)">
+                <p style="font-weight:900;letter-spacing:.04em;margin:2px 0 8px">Матч найден</p>
+                <p id="accept-info" style="font-size:13px;opacity:.95;margin:0 0 8px"></p>
+                <p id="accept-timer" style="font-size:24px;font-weight:900;color:#8ef0b2;margin:0 0 10px">5с</p>
+                <p style="font-size:12px;opacity:.85;margin:0">Игра начнется автоматически</p>
+            </div>
         </div>
     </div>
 
@@ -163,7 +115,6 @@
             <div id="action-zone">
                 <div id="ability-zone" class="hidden">
                     <button class="btn ability-btn" id="btn-ability"></button>
-                    <div class="ability-opp-line">Соперник: <span id="opp-ability-status"></span></div>
                 </div>
                 <div id="action-prompt">
                     <p id="prompt-text">Что делаешь на этой точке?</p>

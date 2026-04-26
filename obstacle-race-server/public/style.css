@@ -17,6 +17,8 @@
     --text: #e8f0ea;
     --text2: #6d9b7a;
     --radius: 14px;
+    --tg-safe-top-ui: calc(env(safe-area-inset-top, 0px) + 16px);
+    --tg-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
 }
 
 body {
@@ -41,7 +43,7 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 24px 20px;
+    padding: var(--tg-safe-top-ui) 20px var(--tg-safe-bottom);
     overflow-y: auto;
 }
 .screen.active {
@@ -86,65 +88,6 @@ body {
     background: rgba(255, 255, 255, 0.04);
     color: var(--accent2);
     border: 1px solid rgba(151, 229, 205, 0.22);
-}
-
-.btn-back {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    background: transparent;
-    border: none;
-    color: #888;
-    font-size: 14px;
-    cursor: pointer;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    transition: color 0.2s;
-}
-.btn-back:hover { color: var(--accent); }
-
-/* STAKE GRID */
-.stake-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    width: 100%;
-    max-width: 320px;
-    margin: 0 auto;
-}
-.stake-option {
-    aspect-ratio: 1;
-    border-radius: 12px;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.03);
-    color: rgba(255, 255, 255, 0.75);
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.stake-option:hover {
-    background: rgba(255, 255, 255, 0.08);
-}
-.stake-option.selected {
-    background: rgba(99, 230, 190, 0.15);
-    border-color: #63e6be;
-    color: #8ff0cf;
-    box-shadow: 0 0 14px rgba(99, 230, 190, 0.3);
-}
-.stake-option.blocked {
-    background: rgba(255, 59, 78, 0.15);
-    border-color: #ff3b4e;
-    color: #ff8a95;
-    cursor: not-allowed;
-}
-.stake-option:active:not(.blocked) {
-    transform: scale(0.95);
 }
 
 /* START SCREEN */
@@ -509,65 +452,14 @@ body.xray-mode .track-avatar {
     border-color: var(--success) !important;
     color: var(--success) !important;
 }
-/* Bomb indicator above dots */
-.track-dot.mine-placed::before,
-.track-dot.xray-trap::before,
-.track-dot.mine-hit::before,
-.track-dot.mine-dodged::before {
-    content: '\1F6A7';
-    position: absolute;
-    top: -22px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 15px;
-    opacity: 0.6;
-    pointer-events: none;
-    z-index: 3;
-    line-height: 1;
-}
-/* Exploded mine — bomb becomes explosion above */
-.track-dot.mine-exploded::before {
-    content: '\1F4A5';
-    position: absolute;
-    top: -22px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 15px;
-    opacity: 0.85;
-    pointer-events: none;
-    z-index: 3;
-    line-height: 1;
-}
-/* Safe mine — dimmed bomb with checkmark overlay */
-.track-dot.mine-safe::before {
-    content: '\1F6A7';
-    position: absolute;
-    top: -22px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 15px;
-    opacity: 0.3;
-    pointer-events: none;
-    z-index: 3;
-    line-height: 1;
+/* Bomb indicator above dots — убрано */
+.track-dot.mine-placed {
+    border-color: rgba(255, 165, 2, 0.5);
+    background: rgba(255, 165, 2, 0.1);
+    color: var(--warn);
 }
 .track-dot.mine-safe::after {
-    content: '\2713';
-    position: absolute;
-    top: -25px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 13px;
-    font-weight: 900;
-    color: var(--success);
-    pointer-events: none;
-    z-index: 4;
-    line-height: 1;
-    text-shadow: 0 0 8px rgba(46, 213, 115, 0.6);
+    content: none; /* галочка уже показывается внутри ячейки через dotIcon */
 }
 @keyframes mineExplode {
     0% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 165, 2, 0); }
@@ -738,6 +630,17 @@ body.xray-mode .track-avatar {
 /* Flying lights removed — too distracting */
 
 /* Telegram WebApp overrides */
+.back-link {
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 100;
+}
+
 body.tg-theme {
     --bg: var(--tg-theme-bg-color, #0f1923);
     --bg2: var(--tg-theme-secondary-bg-color, #162231);
@@ -842,26 +745,59 @@ body.tg-theme {
     100% { left: 100%; opacity: 0; }
 }
 
-/* Xray scanned dot on opponent track — eye icon */
-.track-dot.xray-scanned-opp {
-    background: rgba(100, 200, 255, 0.15) !important;
-    border-color: var(--accent2) !important;
-    box-shadow: 0 0 10px rgba(100, 200, 255, 0.3);
-}
-.track-dot.xray-scanned-opp::after {
-    content: '\1F441';
-    position: absolute;
-    top: -20px;
-    left: 0; right: 0;
-    text-align: center;
-    font-size: 13px;
-    opacity: 0.7;
+/* Xray scanned dot on opponent track — no special styling, icon shown inside dot via dotIcon() */
+
+/* ABILITY USED TOAST — уведомление об умении соперника */
+.ability-toast {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 90px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
     pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    animation: abilityToastIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards,
+               abilityToastOut 0.3s ease-in 1.8s forwards;
+    white-space: nowrap;
+}
+.ability-toast.double {
+    background: linear-gradient(135deg, rgba(255,200,0,0.18), rgba(255,120,0,0.18));
+    border: 1.5px solid rgba(255,200,0,0.55);
+    color: #ffd700;
+    box-shadow: 0 4px 24px rgba(255,165,0,0.35);
+}
+.ability-toast.sabotage {
+    background: linear-gradient(135deg, rgba(155,48,255,0.18), rgba(100,0,200,0.18));
+    border: 1.5px solid rgba(155,48,255,0.55);
+    color: #c87aff;
+    box-shadow: 0 4px 24px rgba(150,0,255,0.35);
+}
+.ability-toast.xray {
+    background: linear-gradient(135deg, rgba(0,191,255,0.18), rgba(0,100,200,0.18));
+    border: 1.5px solid rgba(0,191,255,0.55);
+    color: #7ad4ff;
+    box-shadow: 0 4px 24px rgba(0,150,255,0.35);
+}
+.ability-toast-icon {
+    font-size: 22px;
     line-height: 1;
 }
+@keyframes abilityToastIn {
+    0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes abilityToastOut {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+}
 
-/* ABILITY EFFECTS */
-/* Lightning flash for Double ability */
 .lightning-flash {
     animation: lightningPulse 0.8s ease-out !important;
 }
@@ -944,7 +880,5 @@ body.tg-theme {
 .ot-sub { color: var(--text2); font-size: 15px; margin-top: 8px; }
 
 .track-dot.ot-dot {
-    border-color: var(--warn);
-    color: var(--warn);
-    background: rgba(255,165,2,0.1);
+    /* В овертайме точки выглядят как обычные — зелёные */
 }
