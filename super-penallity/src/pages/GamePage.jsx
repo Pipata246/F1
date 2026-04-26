@@ -1,7 +1,70 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
+import { createClient } from '@supabase/supabase-js';
+
 const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
+
+// ==================== SUPABASE REALTIME ====================
+const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
+
+let supabase = null;
+let supabaseChannel = null;
+
+function initSupabase() {
+  try {
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('✅ Supabase Realtime initialized');
+  } catch (err) {
+    console.error('Supabase init error:', err);
+  }
+}
+
+function stopRealtimeSubscription() {
+  if (supabaseChannel && supabase) {
+    supabase.removeChannel(supabaseChannel);
+    supabaseChannel = null;
+    console.log('Realtime subscription stopped');
+  }
+}
+
+function startRealtimeSubscription(roomId, onStateUpdate) {
+  stopRealtimeSubscription();
+  
+  if (!supabase || !roomId) {
+    console.error('Cannot start subscription: missing supabase or roomId');
+    return;
+  }
+  
+  console.log('🔌 Starting Realtime WebSocket for room:', roomId);
+  
+  const channelName = `super_penalty_room_${roomId}`;
+  
+  supabaseChannel = supabase
+    .channel(channelName)
+    .on(
+      'broadcast',
+      { event: 'state_update' },
+      function(payload) {
+        console.log('📡 WebSocket update received:', payload);
+        if (payload.payload && payload.payload.room) {
+          const myTg = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+          const forPlayer = payload.payload.forPlayer;
+          // Only apply if this update is for me (or no filter)
+          if (!forPlayer || String(forPlayer) === String(myTg)) {
+            onStateUpdate(payload.payload.room);
+          }
+        }
+      }
+    )
+    .subscribe(function(status) {
+      console.log('WebSocket status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ WebSocket connected!');
+      }
+    });
+}
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 function appSettings() {
   try {
@@ -185,6 +248,14 @@ const GamePage = () => {
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
+
+  // Initialize Supabase on component mount
+  useEffect(() => {
+    initSupabase();
+    return () => {
+      stopRealtimeSubscription();
+    };
+  }, []);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -585,13 +656,24 @@ const GamePage = () => {
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
     const s = room.state_json || {};
+    
+    console.log('Applying room state:', { 
+      status: room.status, 
+      phase: s.phase, 
+      round: s.round,
+      player1: room.player1_tg_user_id,
+      player2: room.player2_tg_user_id,
+      player2_name: room.player2_name,
+      botMatch: s.botMatch
+    });
+    
     if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
       const am = s.acceptMatch || {};
       const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
       const meIsP1Accept = String(room.player1_tg_user_id || '') === myTgAccept;
       const deadlineMs = Number(am.deadlineMs || 0);
       
-      // Check if timer expired - if yes, wait for next poll to get turn_input phase
+      // Check if timer expired - if yes, wait for next update to get turn_input phase
       if (deadlineMs > 0 && Date.now() >= deadlineMs) {
         // Timer expired but still in accept_match - wait for backend to transition
         setScreen('waiting');
@@ -682,7 +764,7 @@ const GamePage = () => {
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
-      stopPvpPolling();
+      stopRealtimeSubscription();
       pvpRoomIdRef.current = null;
       const scoresObj = s.scores || { p1: 0, p2: 0 };
       const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
@@ -696,7 +778,7 @@ const GamePage = () => {
       }
       handleServerMessage({ type: 'match_result', youWon, scores: arr });
     }
-  }, [handleServerMessage, stopPvpPolling]);
+  }, [handleServerMessage]);
 
   const pvpPollState = useCallback(() => {
     if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
