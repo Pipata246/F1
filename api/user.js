@@ -1495,7 +1495,12 @@ async function pvpTryJoinWaitingWithStake(room, tgId, safeName, state, stakeTon)
   const roomId = Number(rpcScalar(rpcRes) || 0);
   if (!Number.isInteger(roomId) || roomId <= 0) return null;
   const rows = await sb(`pvp_rooms?id=eq.${roomId}&select=*`);
-  return rows?.[0] || null;
+  const joinedRoom = rows?.[0] || null;
+  // Уведомляем player1 через WebSocket что соперник нашёлся
+  if (joinedRoom) {
+    pvpBroadcastRoomUpdate(joinedRoom).catch(() => {});
+  }
+  return joinedRoom;
 }
 
 async function pvpFinalizeStakeForRoom(roomId, winnerTgUserId, reason) {
@@ -1524,7 +1529,12 @@ async function pvpStartBotMatchWithStake(room, botName, stakeTon, state) {
   const roomId = Number(rpcScalar(rpcRes) || 0);
   if (!Number.isInteger(roomId) || roomId <= 0) return null;
   const rows = await sb(`pvp_rooms?id=eq.${roomId}&select=*`);
-  return rows?.[0] || null;
+  const startedRoom = rows?.[0] || null;
+  // Уведомляем player1 через WebSocket что бот нашёлся
+  if (startedRoom) {
+    pvpBroadcastRoomUpdate(startedRoom).catch(() => {});
+  }
+  return startedRoom;
 }
 
 async function pvpFinalizeBotStakeForRoom(roomId, userTgId, userWon, reason) {
@@ -3531,7 +3541,19 @@ async function pvpBroadcastRoomUpdate(room) {
   const channelName = `${gameKey}_room_${room.id}`;
   const p1TgId = String(room.player1_tg_user_id || "");
   const p2TgId = String(room.player2_tg_user_id || "");
-  
+  const phase = String(room.state_json?.phase || "");
+
+  // Для accept_match — нечего скрывать, шлём одинаковое состояние обоим без фильтрации
+  if (phase === "accept_match" || phase === "") {
+    try {
+      if (p1TgId) await sbBroadcast(channelName, "state_update", { room, forPlayer: p1TgId });
+      if (p2TgId) await sbBroadcast(channelName, "state_update", { room, forPlayer: p2TgId });
+    } catch (err) {
+      console.error("Broadcast accept_match error:", err);
+    }
+    return;
+  }
+
   // Get filtered state for each player
   try {
     // Player 1 filtered state
