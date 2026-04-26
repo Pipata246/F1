@@ -2283,6 +2283,7 @@ function pvpResolveSuperPenaltyRound(state) {
   s.phase = "round_result";
   s.phaseAtMs = Date.now();
   s.choices = { p1: null, p2: null };
+  s.moveSubmittedBy = {};
   s.lastRoundResult = {
     marker: Number(asObj(s.markers).round || 0) + 1,
     kickerIndex: kickerSide === "p1" ? 0 : 1,
@@ -2311,8 +2312,12 @@ function pvpApplySuperPenaltyMove(room, tgId, move) {
   const zone = Number(asObj(move).zone);
   if (![0, 1, 2, 3].includes(zone)) throw new Error("Invalid zone");
   const next = { ...s, choices: { ...asObj(s.choices) } };
+  // Защита от повторной отправки: если уже записан ход — отклоняем
+  const submitted = asObj(s.moveSubmittedBy);
+  if (submitted[side]) return next;
   if (next.choices[side] !== null && next.choices[side] !== undefined) return next;
   next.choices[side] = zone;
+  next.moveSubmittedBy = { ...submitted, [side]: tgId };
   if (next.choices.p1 === null || next.choices.p2 === null) {
     next.updatedAt = new Date().toISOString();
     return next;
@@ -2614,6 +2619,7 @@ function pvpAdvanceByTime(room) {
       if (!Number.isInteger(Number(choices.p1))) choices.p1 = Math.floor(Math.random() * 4);
       if (!Number.isInteger(Number(choices.p2))) choices.p2 = Math.floor(Math.random() * 4);
       next.choices = choices;
+      next.moveSubmittedBy = {};
       const resolved = pvpResolveSuperPenaltyRound(next);
       resolved.updatedAt = new Date().toISOString();
       return { changed: true, state: resolved };
@@ -2629,6 +2635,7 @@ function pvpAdvanceByTime(room) {
         next.phase = "turn_input";
         next.phaseAtMs = now;
         next.choices = { p1: null, p2: null };
+        next.moveSubmittedBy = {};
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
