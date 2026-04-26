@@ -162,6 +162,10 @@ function playSound(name) {
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOMContentLoaded fired');
+    
+    // Добавляем отладку
+    console.log('Available screens:', document.querySelectorAll('.screen'));
+    
     // Initialize Supabase Realtime
     initSupabase();
     
@@ -283,6 +287,13 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Showing start screen');
         showScreen('start');
     }
+    
+    // Дополнительная отладка
+    setTimeout(() => {
+        console.log('After 1 second:');
+        console.log('Active screens:', document.querySelectorAll('.screen.active'));
+        console.log('All screens:', document.querySelectorAll('.screen'));
+    }, 1000);
 });
 
 function openDemoIntro() {
@@ -803,8 +814,22 @@ function handleMessage(msg) {
 }
 
 function showScreen(name) {
-    document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
-    $('screen-' + name).classList.add('active');
+    console.log('showScreen called with:', name);
+    const screens = document.querySelectorAll('.screen');
+    console.log('Found screens:', screens.length);
+    screens.forEach((s) => {
+        console.log('Screen:', s.id, 'removing active');
+        s.classList.remove('active');
+    });
+    const targetScreen = $('screen-' + name);
+    console.log('Target screen:', targetScreen);
+    if (targetScreen) {
+        targetScreen.classList.add('active');
+        console.log('Added active to screen-' + name);
+    } else {
+        console.error('Screen not found: screen-' + name);
+    }
+}
     if (name !== 'waiting') {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
