@@ -13,9 +13,13 @@
     <!-- STAKE PICKER SCREEN -->
     <div id="screen-start" class="screen">
         <a href="/" class="back-link">← Назад</a>
-        <div class="center-content" style="width:100%;max-width:400px">
-            <h2 style="letter-spacing:.08em;margin-bottom:20px">ВЫБЕРИ СТАВКУ</h2>
-            <div id="stakePickerContainer"></div>
+        <div class="logo-container" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:400px;padding:20px">
+            <h1 style="font-size:48px;font-weight:900;letter-spacing:0.05em;margin:40px 0 10px;text-align:center;line-height:1.1;color:#8ef0b2">OBSTACLE<br>RACE</h1>
+            <p style="font-size:13px;color:#8b92a8;margin-bottom:30px;text-align:center;letter-spacing:0.05em">Преодолей барьеры. Обмани соперника.</p>
+            <p style="font-size:13px;color:#8b92a8;margin-bottom:16px;text-align:center;text-transform:uppercase;letter-spacing:0.08em;width:100%">ВЫБЕРИ СТАВКИ TON</p>
+            <div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%;margin-bottom:12px"></div>
+            <button type="button" id="stakePlayBtnObstacle" class="btn primary" style="width:100%;margin-bottom:8px">Играть</button>
+            <button type="button" id="btn-bot" class="btn secondary" style="width:100%">Играть с ботом</button>
         </div>
     </div>
 

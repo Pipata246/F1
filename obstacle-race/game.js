@@ -362,28 +362,26 @@ function refreshBalanceForStakePicker() {
 }
 
 function ensureStakePicker() {
-    var container = $('stakePickerContainer');
-    if (!container || $('stakePickerObstacle')) return;
-    
-    var wrap = document.createElement('div');
-    wrap.id = 'stakePickerObstacle';
-    wrap.style.width = '100%';
-    wrap.innerHTML =
-        '<div style="font-size:12px;color:#aab1bf;margin-bottom:12px;text-transform:uppercase;letter-spacing:.08em;text-align:center">Выбери ставки TON</div>' +
-        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px"></div>' +
-        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="width:100%;margin-bottom:8px">Играть</button>' +
-        '<button type="button" id="btn-bot" class="btn secondary" style="width:100%">Играть с ботом</button>';
-    container.appendChild(wrap);
     var grid = $('stakeGridObstacle');
+    if (!grid) return;
+    
+    // Clear grid first
+    grid.innerHTML = '';
+    
     ALLOWED_STAKES.forEach(function(stake) {
         var b = document.createElement('button');
         b.type = 'button';
         b.className = 'btn ghost';
         b.dataset.stake = String(stake);
-        b.style.aspectRatio = '1/1';
-        b.style.padding = '0';
+        b.style.height = '74px';
+        b.style.padding = '0 6px';
         b.style.fontWeight = '900';
         b.style.fontSize = '13px';
+        b.style.display = 'flex';
+        b.style.alignItems = 'center';
+        b.style.justifyContent = 'center';
+        b.style.whiteSpace = 'nowrap';
+        b.style.borderRadius = '14px';
         b.textContent = stake + ' TON';
         b.onclick = function() {
             var n = Number(b.dataset.stake);
@@ -391,16 +389,21 @@ function ensureStakePicker() {
                 showBottomNotice('У вас недостаточно денег на балансе');
                 return;
             }
-            if (selectedStakeOptions.indexOf(n) >= 0) selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
-            else selectedStakeOptions.push(n);
+            if (selectedStakeOptions.indexOf(n) >= 0) {
+                selectedStakeOptions = selectedStakeOptions.filter(function(x) { return x !== n; });
+            } else {
+                selectedStakeOptions.push(n);
+            }
             renderStakePicker();
         };
         grid.appendChild(b);
     });
+    
     var playBtn = $('stakePlayBtnObstacle');
     if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
     var botBtn = $('btn-bot');
     if (botBtn) botBtn.onclick = function(){ showScreen('demo'); };
+    
     renderStakePicker();
 }
 
