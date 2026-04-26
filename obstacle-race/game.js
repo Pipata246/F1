@@ -252,40 +252,27 @@ document.addEventListener('DOMContentLoaded', () => {
     generateTrapTrack();
     generateGameTracks(7);
 
-    const launchMode = String(urlParams.get('launch') || '').toLowerCase();
-    console.log('Launch mode:', launchMode);
-    if (launchMode === 'demo') {
-        // Дэмо режим - показываем приветственный экран
-        console.log('Showing demo screen');
-        showScreen('demo');
-    } else if (launchMode === 'play') {
-        const directRoomId = urlParams.get('roomId');
-        if (directRoomId) {
-            // Случайная игра — подключаемся напрямую к комнате
-            console.log('Direct room connection');
-            setTimeout(function() {
-                isBotMode = false;
-                pvpRoomId = String(directRoomId);
-                // Восстанавливаем ставку из URL для кнопки "Играть снова"
-                const stakeFromUrl = Number(urlParams.get('stake') || 0);
-                if (stakeFromUrl > 0 && selectedStakeOptions.indexOf(stakeFromUrl) < 0) {
-                    selectedStakeOptions = [stakeFromUrl];
-                }
-                syncMyNameFromServer(function() {
-                    showScreen('waiting');
-                    startRealtimeSubscription(pvpRoomId);
-                });
-            }, 0);
-        } else {
-            // Обычная игра - показываем экран выбора ставки
-            console.log('Showing start screen (play mode)');
-            showScreen('start');
-        }
-    } else {
-        // По умолчанию показываем экран выбора ставки
-        console.log('Showing start screen (default)');
-        showScreen('start');
+    // Check for direct room connection (from "Play Again" or notification)
+    const urlParams = new URLSearchParams(window.location.search);
+    const directRoomId = urlParams.get('roomId');
+    if (directRoomId) {
+        // Direct room connection - join immediately
+        console.log('Direct room connection:', directRoomId);
+        setTimeout(function() {
+            isBotMode = false;
+            pvpRoomId = String(directRoomId);
+            // Restore stake from URL for "Play Again" button
+            const stakeFromUrl = Number(urlParams.get('stake') || 0);
+            if (stakeFromUrl > 0 && selectedStakeOptions.indexOf(stakeFromUrl) < 0) {
+                selectedStakeOptions = [stakeFromUrl];
+            }
+            syncMyNameFromServer(function() {
+                showScreen('waiting');
+                startRealtimeSubscription(pvpRoomId);
+            });
+        }, 0);
     }
+    // Otherwise, show start screen (already active in HTML)
 });
 
 function openDemoIntro() {
