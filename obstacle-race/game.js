@@ -47,7 +47,12 @@ function startRealtimeSubscription(roomId) {
       function(payload) {
         console.log('📡 WebSocket update received:', payload);
         if (payload.payload && payload.payload.room) {
-          applyPvpRoomState(payload.payload.room);
+          var myTg = String(window._tgUserId || '');
+          var forPlayer = payload.payload.forPlayer;
+          // Only apply if this update is for me (or no filter)
+          if (!forPlayer || forPlayer === myTg) {
+            applyPvpRoomState(payload.payload.room);
+          }
         }
       }
     )

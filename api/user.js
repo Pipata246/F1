@@ -2093,6 +2093,7 @@ function pvpResolveObstacleRound(state) {
   s.phase = "round_result";
   s.phaseAtMs = Date.now();
   s.pendingMoves = { p1: null, p2: null };
+  s.moveSubmittedBy = {}; // Clear move tracking for next round
   s.lastRoundResult = {
     marker: Number(asObj(s.markers).round || 0) + 1,
     step,
@@ -2129,6 +2130,7 @@ function pvpApplyObstacleMove(room, tgId, move) {
       next.phase = "running";
       next.phaseAtMs = Date.now();
       next.pendingMoves = { p1: null, p2: null };
+      next.moveSubmittedBy = {}; // Clear move tracking
     } else {
       next.updatedAt = new Date().toISOString();
     }
@@ -2164,9 +2166,24 @@ function pvpApplyObstacleMove(room, tgId, move) {
 
   const action = String(m.action || "");
   if (action !== "run" && action !== "jump") throw new Error("Invalid move action");
+  
+  // Track who submitted each move to prevent changes
+  if (!next.moveSubmittedBy) next.moveSubmittedBy = {};
+  
   const pending = { ...asObj(next.pendingMoves) };
-  if (pending[side]) return next;
+  
+  // Check if move was already submitted by this player
+  if (pending[side]) {
+    if (next.moveSubmittedBy[side] && next.moveSubmittedBy[side] !== tgId) {
+      throw new Error("Move already submitted by another player");
+    }
+    // Same player trying to resubmit - just return current state
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
+  
   pending[side] = { action, useAbility: !!m.useAbility };
+  next.moveSubmittedBy[side] = tgId;
   next.pendingMoves = pending;
 
   if (!pending.p1 || !pending.p2) {
@@ -2634,6 +2651,7 @@ function pvpAdvanceByTime(room) {
               next.phase = "running";
               next.phaseAtMs = Date.now();
               next.pendingMoves = { p1: null, p2: null };
+              next.moveSubmittedBy = {}; // Clear move tracking
             }
             next.updatedAt = new Date().toISOString();
             return { changed: true, state: next };
@@ -2659,6 +2677,7 @@ function pvpAdvanceByTime(room) {
               next.phase = "running";
               next.phaseAtMs = Date.now();
               next.pendingMoves = { p1: null, p2: null };
+              next.moveSubmittedBy = {}; // Clear move tracking
             }
             next.updatedAt = new Date().toISOString();
             return { changed: true, state: next };
@@ -2733,6 +2752,7 @@ function pvpAdvanceByTime(room) {
       next.phase = "running";
       next.phaseAtMs = now;
       next.pendingMoves = { p1: null, p2: null };
+      next.moveSubmittedBy = {}; // Clear move tracking
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
     }
@@ -2744,6 +2764,7 @@ function pvpAdvanceByTime(room) {
       next.phase = "running";
       next.phaseAtMs = now;
       next.pendingMoves = { p1: null, p2: null };
+      next.moveSubmittedBy = {}; // Clear move tracking
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
     }
@@ -2794,6 +2815,7 @@ function pvpAdvanceByTime(room) {
         next.phase = "running";
         next.phaseAtMs = now;
         next.pendingMoves = { p1: null, p2: null };
+        next.moveSubmittedBy = {}; // Clear move tracking
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
@@ -3479,30 +3501,24 @@ async function pvpBroadcastRoomUpdate(room) {
   
   // Get filtered state for each player
   try {
-    // For obstacle_race, we'll add filtering later - for now send full state
-    if (gameKey === "obstacle_race") {
-      // Send same state to both players (will be filtered in next stage)
-      const payload = { room: room };
-      await sbBroadcast(channelName, "state_update", payload);
-    } else {
-      // Frog hunt filtering (existing code)
-      if (p1TgId) {
-        const p1Filtered = await sbRpc("pvp_get_filtered_room_state", {
-          p_room_id: room.id,
-          p_tg_user_id: p1TgId,
-        });
-        const p1Room = { ...room, state_json: p1Filtered };
-        await sbBroadcast(channelName, "state_update", { room: p1Room, forPlayer: p1TgId });
-      }
-      
-      if (p2TgId) {
-        const p2Filtered = await sbRpc("pvp_get_filtered_room_state", {
-          p_room_id: room.id,
-          p_tg_user_id: p2TgId,
-        });
-        const p2Room = { ...room, state_json: p2Filtered };
-        await sbBroadcast(channelName, "state_update", { room: p2Room, forPlayer: p2TgId });
-      }
+    // Player 1 filtered state
+    if (p1TgId) {
+      const p1Filtered = await sbRpc("pvp_get_filtered_room_state", {
+        p_room_id: room.id,
+        p_tg_user_id: p1TgId,
+      });
+      const p1Room = { ...room, state_json: p1Filtered };
+      await sbBroadcast(channelName, "state_update", { room: p1Room, forPlayer: p1TgId });
+    }
+    
+    // Player 2 filtered state
+    if (p2TgId) {
+      const p2Filtered = await sbRpc("pvp_get_filtered_room_state", {
+        p_room_id: room.id,
+        p_tg_user_id: p2TgId,
+      });
+      const p2Room = { ...room, state_json: p2Filtered };
+      await sbBroadcast(channelName, "state_update", { room: p2Room, forPlayer: p2TgId });
     }
   } catch (err) {
     console.error("Broadcast error:", err);
