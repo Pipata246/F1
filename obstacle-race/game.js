@@ -109,7 +109,7 @@ const TURN_MS = 15_000;
 let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
 let pvpAcceptTickInterval = null; // локальный тик таймера accept_match
-let pvpWaitingFallbackTimer = null; // быстрый polling пока ждём соперника
+let pvpWaitingFallbackTimer = null; // резерв (не используется)
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -464,34 +464,16 @@ function beaconPvpLeaveRoom(roomId) {
 }
 
 function stopPvpPolling() {
-    // Stop WebSocket subscription instead of polling
     stopRealtimeSubscription();
     pvpPollTimer = null;
     pvpPollInFlight = false;
     stopMoveWatchdog();
-    stopWaitingFallbackPolling();
 }
 
-function stopWaitingFallbackPolling() {
-    if (pvpWaitingFallbackTimer) { clearInterval(pvpWaitingFallbackTimer); pvpWaitingFallbackTimer = null; }
-}
-
-// Быстрый polling (500ms) пока игрок в фазе waiting/accept_match.
-// Нужен потому что WebSocket подключается с задержкой ~1-2с и может пропустить
-// broadcast о том что матч найден. Останавливается как только игра началась.
-function startWaitingFallbackPolling() {
-    stopWaitingFallbackPolling();
-    pvpWaitingFallbackTimer = setInterval(function() {
-        if (!pvpRoomId) { stopWaitingFallbackPolling(); return; }
-        // Останавливаем как только вышли из экрана waiting
-        var waitingScreen = document.getElementById('screen-waiting');
-        if (!waitingScreen || !waitingScreen.classList.contains('active')) {
-            stopWaitingFallbackPolling();
-            return;
-        }
-        pvpPollState();
-    }, 500);
-}
+function stopWaitingFallbackPolling() {}
+function stopTrapsWaitPolling() {}
+function startWaitingFallbackPolling() {}
+function startTrapsWaitPolling() {}
 
 function stopMoveWatchdog() {
     if (pvpMoveWatchdogTimer) { clearInterval(pvpMoveWatchdogTimer); pvpMoveWatchdogTimer = null; }
@@ -629,9 +611,14 @@ function applyPvpRoomState(room) {
         return;
     }
 
-    // Если уже подтвердили ловушки — просто ждём, не трогаем экран
+    // Если уже подтвердили ловушки — ждём соперника, НО если фаза изменилась — продолжаем обработку
     if ((s.phase === 'placing_traps' || s.phase === 'placing' || s.phase === 'overtime_placing') && trapsConfirmed) {
         return;
+    }
+    // Если подтвердили ловушки и фаза уже не placing — сбрасываем флаг и продолжаем
+    if (trapsConfirmed && s.phase !== 'placing_traps' && s.phase !== 'placing' && s.phase !== 'overtime_placing') {
+        trapsConfirmed = false;
+        stopTrapTimer();
     }
 
     var xray = s.lastXray || {};
@@ -765,13 +752,8 @@ function pvpFindMatch() {
     }).then(function(data) {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
-        // Запускаем WebSocket подписку
         startPvpPolling();
-        // Применяем состояние сразу
         applyPvpRoomState(data.room);
-        // Запускаем быстрый polling (500ms) пока WebSocket не подключился
-        // и пока мы в фазе waiting/accept_match — чтобы не пропустить переход
-        startWaitingFallbackPolling();
     }).catch(function() {
         showScreen('start');
     });
@@ -1140,7 +1122,6 @@ function confirmTraps() {
     sendMsg({ type: 'place_traps', traps: selectedTraps });
     $('btn-traps-ok').classList.add('hidden');
     $('traps-wait').classList.remove('hidden');
-    // Блокируем точки после подтверждения
     document.querySelectorAll('.trap-point').forEach((p) => {
         p.onclick = null;
         p.style.pointerEvents = 'none';
