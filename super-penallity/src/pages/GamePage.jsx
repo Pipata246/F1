@@ -545,28 +545,10 @@ const GamePage = () => {
       }
     }, 400);
 
-    // Safety net: if server/client transition gets stuck after GOAL/SAVED,
-    // force a state refresh and unlock controls so the match never freezes.
-    // Aggressive polling during result phase
-    const resultPollInterval = setInterval(() => {
-      if (!showingResultRef.current) {
-        clearInterval(resultPollInterval);
-        return;
-      }
-      if (playModeRef.current === 'pvp') {
-        const rid = pvpRoomIdRef.current;
-        const init = tgInitDataRef.current;
-        if (rid && init) {
-          apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
-            .then((data) => { if (data?.ok && data.room) applyPvpRoomState(data.room); })
-            .catch(() => {});
-        }
-      }
-    }, 300);
+    // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
 
-    // Reduced from 3500ms to 2500ms for faster recovery
+    // Safety timeout: если застряли на результате - разблокируем
     roundStuckTimerRef.current = setTimeout(() => {
-      clearInterval(resultPollInterval);
       if (!showingResultRef.current) return;
 
       if (playModeRef.current === 'pvp') {
@@ -588,12 +570,6 @@ const GamePage = () => {
       setInputBlocked(false);
     }, 2500);
   };
-
-  const stopPvpPolling = useCallback(() => {
-    if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
-    pvpPollTimerRef.current = null;
-    pvpPollInFlightRef.current = false;
-  }, []);
 
   // ==================== HTTP POLLING (КАК В FROG HUNT) ====================
   const stopRealtimeSubscription = useCallback(() => {
@@ -768,13 +744,6 @@ const GamePage = () => {
     });
   }, [apiPost, applyPvpRoomState, goHome, stopPvpPolling, acceptInfo]);
 
-  const startPvpPolling = useCallback(() => {
-    stopPvpPolling();
-    // Polling — fallback если WebSocket не работает (2000ms)
-    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 2000);
-    pvpPollState();
-  }, [pvpPollState, stopPvpPolling]);
-
   const sendMessage = (type, data = {}) => {
     if (playModeRef.current === 'pvp') {
       if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
@@ -810,8 +779,6 @@ const GamePage = () => {
           }).then((data2) => {
             if (data2?.ok && data2.room) {
               applyPvpRoomState(data2.room);
-              // Immediate poll after successful submit for faster response
-              setTimeout(() => pvpPollState(), 200);
             } else if (penAttempts < 3) {
               setTimeout(submitPenMove, 500);
             } else {
@@ -832,44 +799,7 @@ const GamePage = () => {
         };
         submitPenMove();
 
-        // Aggressive polling while waiting for opponent
-        const aggressivePollInterval = setInterval(() => {
-          if (!zoneLocked || !pvpRoomIdRef.current) {
-            clearInterval(aggressivePollInterval);
-            return;
-          }
-          pvpPollState();
-        }, 300);
-
-        // Watchdog: reduced to 3s for faster recovery
-        setTimeout(() => {
-          clearInterval(aggressivePollInterval);
-          if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
-            apiPost({ action: 'pvpGetRoomState', initData: tgInitDataRef.current, roomId: pvpRoomIdRef.current })
-              .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
-              .catch(() => {});
-          }
-        }, 3000);
-
-        if (pvpOpponentIsBotRef.current) {
-          clearWaitingBotMoveTimer();
-          // Aggressive polling for bot moves
-          waitingBotMoveTimerRef.current = setTimeout(() => {
-            const rid = pvpRoomIdRef.current;
-            const init = tgInitDataRef.current;
-            if (!rid || !init) return;
-            const botPollInterval = setInterval(() => {
-              if (!zoneLocked) {
-                clearInterval(botPollInterval);
-                return;
-              }
-              apiPost({ action: 'pvpGetRoomState', initData: init, roomId: rid })
-                .then((d) => { if (d?.ok && d.room) applyPvpRoomState(d.room); })
-                .catch(() => {});
-            }, 200);
-            setTimeout(() => clearInterval(botPollInterval), 5000);
-          }, 1500);
-        }
+        // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
       }
       return;
     }
