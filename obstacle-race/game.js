@@ -77,7 +77,7 @@ let pvpHeartbeatTimer = null;
 const PVP_HEARTBEAT_MS = 2000;
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 
-const OT_ROUNDS = 3;
+const OT_ROUNDS = 30; // Увеличено до 30 чтобы точно не дошли до конца
 
 const ABILITIES = {
     xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
