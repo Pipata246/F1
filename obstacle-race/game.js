@@ -536,18 +536,21 @@ function startAcceptTick() {
         if ($('accept-timer')) $('accept-timer').textContent = remaining + 'с';
         if (remaining <= 0) {
             stopAcceptTick();
-            // WebSocket should handle updates, but fallback API call for safety
-            pvpPollState();
+            // WebSocket принесёт следующую фазу — ничего не делаем
         }
     }
-    tick(); // сразу обновляем
-    pvpAcceptTickInterval = setInterval(tick, 200); // обновляем каждые 200мс для плавности
+    tick();
+    pvpAcceptTickInterval = setInterval(tick, 200);
 }
 
 function applyPvpRoomState(room) {
     if (!room) return;
     var s = room.state_json || {};
-    if (String(room.status) === 'active' && String((s || {}).phase || '') === 'accept_match') {
+    var status = String(room.status || '');
+    var phase = String((s || {}).phase || '');
+
+    // ── ACCEPT MATCH ──────────────────────────────────────────────────────────
+    if (status === 'active' && phase === 'accept_match') {
         var am = s.acceptMatch || {};
         pvpAcceptDeadlineMs = Number(am.deadlineMs || 0);
         if ($('accept-info')) {
@@ -556,20 +559,35 @@ function applyPvpRoomState(room) {
                 (room.stake_ton != null ? (' · ' + Number(room.stake_ton) + ' TON') : '');
         }
         showScreen('waiting');
-        startAcceptTick(); // локальный тик — обновляет таймер каждые 200мс
+        startAcceptTick();
         if ($('accept-modal')) $('accept-modal').style.display = 'flex';
         return;
     }
-    if (String(room.status) === 'waiting') {
+
+    // ── WAITING (ещё нет соперника) ───────────────────────────────────────────
+    if (status === 'waiting') {
         stopAcceptTick();
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
         showScreen('waiting');
         return;
     }
+
+    // ── ACCEPT TIMEOUT / отмена ───────────────────────────────────────────────
+    if (status === 'cancelled' || (status === 'active' && phase === 'accept_timeout')) {
+        stopPvpPolling();
+        pvpRoomId = null;
+        pvpAcceptDeadlineMs = 0;
+        if ($('accept-modal')) $('accept-modal').style.display = 'none';
+        showScreen('waiting');
+        showBottomNotice('Пользователь не принял матч');
+        pvpFindMatch();
+        return;
+    }
+
+    // ── Игра активна ──────────────────────────────────────────────────────────
     stopAcceptTick();
     if ($('accept-modal')) $('accept-modal').style.display = 'none';
-    stopWaitingFallbackPolling(); // Игра началась — быстрый polling больше не нужен
 
     var sides = getPvpSides(room);
     playerIndex = sides.playerIndex;
@@ -584,43 +602,58 @@ function applyPvpRoomState(room) {
             : ('Дорожка: ' + opponentName);
     }
 
-    // Если фаза placing/overtime_placing — показываем экран ловушек (только один раз)
-    if ((s.phase === 'placing_traps' || s.phase === 'placing' || s.phase === 'overtime_placing') &&
-        !$('screen-traps').classList.contains('active') &&
-        !trapsConfirmed) {
-        var isOt = s.phase === 'overtime_placing';
-        overtimePlacing = isOt;
-        selectedTraps = [];
-        trapsConfirmed = false;
-        if (isOt) {
-            myOvertimeTraps = [];
-            var otAbilities = s.overtimeAbilities || {};
-            var myOtAbility = otAbilities[sides.mySide] || null;
-            if (myOtAbility) { myAbility = myOtAbility; abilityUsed = false; }
+    // ── PLACING TRAPS ─────────────────────────────────────────────────────────
+    if (phase === 'placing_traps' || phase === 'placing' || phase === 'overtime_placing') {
+        // Если уже подтвердили — просто ждём, не трогаем экран
+        if (trapsConfirmed) return;
+        // Показываем экран ловушек только если ещё не показан
+        if (!$('screen-traps').classList.contains('active')) {
+            var isOt = phase === 'overtime_placing';
+            overtimePlacing = isOt;
+            selectedTraps = [];
+            trapsConfirmed = false;
+            if (isOt) {
+                myOvertimeTraps = [];
+                var otAbilities = s.overtimeAbilities || {};
+                var myOtAbility = otAbilities[sides.mySide] || null;
+                if (myOtAbility) { myAbility = myOtAbility; abilityUsed = false; }
+            }
+            generateTrapTrack();
+            updateTrapUI();
+            $('btn-traps-ok').classList.remove('hidden');
+            $('btn-traps-ok').disabled = true;
+            $('traps-wait').classList.add('hidden');
+            showScreen('traps');
+            startTrapTimer();
         }
-        generateTrapTrack();
-        updateTrapUI();
-        $('btn-traps-ok').classList.remove('hidden');
-        $('btn-traps-ok').disabled = true;
-        $('traps-wait').classList.add('hidden');
-        $('opp-name-traps').textContent = currentStakeTon != null && isFinite(currentStakeTon)
-            ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
-            : ('Дорожка: ' + opponentName);
-        showScreen('traps');
-        startTrapTimer();
         return;
     }
 
-    // Если уже подтвердили ловушки — ждём соперника, НО если фаза изменилась — продолжаем обработку
-    if ((s.phase === 'placing_traps' || s.phase === 'placing' || s.phase === 'overtime_placing') && trapsConfirmed) {
-        return;
-    }
-    // Если подтвердили ловушки и фаза уже не placing — сбрасываем флаг и продолжаем
-    if (trapsConfirmed && s.phase !== 'placing_traps' && s.phase !== 'placing' && s.phase !== 'overtime_placing') {
+    // ── Вышли из placing — сбрасываем флаг ───────────────────────────────────
+    if (trapsConfirmed) {
         trapsConfirmed = false;
         stopTrapTimer();
     }
 
+    // ── MATCH OVER / FINISHED ─────────────────────────────────────────────────
+    if (phase === 'match_over' || status === 'finished') {
+        stopPvpPolling();
+        pvpRoomId = null;
+        if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(window._tgUserId || '')) {
+            onOpponentLeft();
+            return;
+        }
+        var fin = s.scores || {};
+        var myFinalScore = Number(fin[sides.mySide] || 0);
+        var oppFinalScore = Number(fin[sides.oppSide] || 0);
+        var winner = null;
+        if (s.winnerSide) winner = s.winnerSide === sides.mySide ? 'win' : 'lose';
+        else if (myFinalScore !== oppFinalScore) winner = myFinalScore > oppFinalScore ? 'win' : 'lose';
+        showGameOver(winner, [myFinalScore, oppFinalScore]);
+        return;
+    }
+
+    // ── XRAY ──────────────────────────────────────────────────────────────────
     var xray = s.lastXray || {};
     var xrayMarker = Number(xray.marker || 0);
     if (xrayMarker > pvpLastXrayMarker) {
@@ -629,6 +662,7 @@ function applyPvpRoomState(room) {
         else onOppXray({ point: xray.point });
     }
 
+    // ── ROUND RESULT ──────────────────────────────────────────────────────────
     var rr = s.lastRoundResult || {};
     var roundMarker = Number(rr.marker || 0);
     if (roundMarker > pvpLastRoundMarker) {
@@ -641,7 +675,6 @@ function applyPvpRoomState(room) {
                 you: my,
                 opponent: opp,
                 step: Number(rr.step || 0),
-                // Передаём счёт напрямую — myScore/oppScore без индексирования
                 myScore: Number(rrScores[sides.mySide] || 0),
                 oppScore: Number(rrScores[sides.oppSide] || 0),
                 winner: rr.gameOver ? (rr.winnerSide === sides.mySide ? 'win' : 'lose') : null,
@@ -650,52 +683,29 @@ function applyPvpRoomState(room) {
                 totalRounds: 7,
                 playerIndex: sides.playerIndex,
                 overtime: !!rr.overtime,
-                startOvertime: !!rr.startOvertime
+                startOvertime: !!rr.startOvertime,
+                // phaseAtMs НЕ передаём — следующий раунд придёт через WebSocket с правильным phaseAtMs
+                phaseAtMs: null,
             });
             return;
         }
     }
 
-    if (s.phase === 'running') {
+    // ── RUNNING (новый раунд) ─────────────────────────────────────────────────
+    if (phase === 'running') {
         var step = s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0);
         var startKey = String(!!s.overtime) + ':' + String(step);
         if (startKey !== pvpLastStartKey) {
             pvpLastStartKey = startKey;
+            moveChosen = false;
+            roundAnimating = false;
             var abilityForRound = s.overtime
                 ? ((s.overtimeAbilities || {})[sides.mySide] || null)
                 : ((s.abilities || {})[sides.mySide] || null);
+            // phaseAtMs с сервера — для точной синхронизации таймера
             onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) });
-            return;
-        }
-        // Тот же раунд — если ход уже сделан, убеждаемся что быстрый polling активен
-        if (moveChosen && pvpPollTimer) {
-            // Уже ждём — watchdog сам форсирует poll, ничего не делаем
         }
         return;
-    }
-
-    if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
-        if (String((s || {}).phase || '') === 'accept_match' || String((s || {}).phase || '') === 'accept_timeout') {
-            stopPvpPolling();
-            pvpRoomId = null;
-            pvpAcceptDeadlineMs = 0;
-            if ($('accept-modal')) $('accept-modal').style.display = 'none';
-            showScreen('waiting');
-            showBottomNotice('Пользователь не принял матч');
-            pvpFindMatch();
-            return;
-        }
-        stopPvpPolling();
-        if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(window._tgUserId || '')) {
-            onOpponentLeft();
-            return;
-        }
-        var fin = s.scores || {};
-        var finalScores = [Number(fin.p1 || 0), Number(fin.p2 || 0)];
-        var winner = null;
-        if (s.winnerSide) winner = s.winnerSide === sides.mySide ? 'win' : 'lose';
-        else if (finalScores[0] !== finalScores[1]) winner = (sides.meIsP1 ? finalScores[0] > finalScores[1] : finalScores[1] > finalScores[0]) ? 'win' : 'lose';
-        showGameOver(winner, finalScores);
     }
 }
 
@@ -1690,11 +1700,17 @@ function startTimer(phaseAtMs) {
             if (!moveChosen) {
                 if (xrayScanMode) exitXrayScanMode();
                 abilityActive = false;
-                // Auto move on timer expiry:
-                // - bot/demo: local move
-                // - PvP: submit move to backend (server-synced timer), server still has timeout safety net
-                if (isBotMode) makeMove(Math.random() < 0.5 ? 'run' : 'jump');
-                else makeMove(Math.random() < 0.5 ? 'run' : 'jump');
+                // В боте — делаем авто-ход локально
+                // В PvP — бэкенд сам сделает авто-ход по таймауту, просто блокируем UI
+                if (isBotMode) {
+                    makeMove(Math.random() < 0.5 ? 'run' : 'jump');
+                } else {
+                    // Блокируем кнопки — ждём бэкенд
+                    $('btn-run').disabled = true;
+                    $('btn-jump').disabled = true;
+                    $('move-wait').classList.remove('hidden');
+                    $('action-btns').classList.add('hidden');
+                }
             }
         }
     }, 50);
@@ -1924,14 +1940,16 @@ async function onRoundResult(msg) {
 
     if (msg.gameOver) {
         await delay(300);
-        showGameOver(msg.winner, msg.scores);
+        // Финальный счёт — берём из myScore/oppScore (уже ориентированы на нас)
+        var finalArr = [msg.myScore !== undefined ? msg.myScore : scores[0],
+                        msg.oppScore !== undefined ? msg.oppScore : scores[1]];
+        showGameOver(msg.winner, finalArr);
     } else if (msg.startOvertime) {
         await showOvertimeAnnouncement();
         isOvertime = true;
         revealedPoints = {};
         knownTrapsOnMyTrack = {};
         oppAbility = null;
-        // Способность для овертайма — из msg.overtimeAbility (бот) или придёт через applyPvpRoomState (pvp)
         if (msg.overtimeAbility) {
             myAbility = msg.overtimeAbility;
             abilityUsed = false;
@@ -1939,25 +1957,34 @@ async function onRoundResult(msg) {
             myAbility = null;
             abilityUsed = true;
         }
-        // Show trap placement for overtime (1 trap on 3-dot track)
-        selectedTraps = [];
-        myOvertimeTraps = [];
-        trapsConfirmed = false;
-        overtimePlacing = true;
-        generateTrapTrack();
-        showScreen('traps');
-        $('opp-name-traps').textContent = '\u0414\u043E\u0440\u043E\u0436\u043A\u0430: ' + opponentName;
-        updateTrapUI();
-        $('btn-traps-ok').classList.remove('hidden');
-        $('btn-traps-ok').disabled = true;
-        $('traps-wait').classList.add('hidden');
-        startTrapTimer();
+        // В PvP — экран ловушек придёт через WebSocket (overtime_placing фаза)
+        // В боте — показываем сразу
+        if (isBotMode) {
+            selectedTraps = [];
+            myOvertimeTraps = [];
+            trapsConfirmed = false;
+            overtimePlacing = true;
+            generateTrapTrack();
+            showScreen('traps');
+            $('opp-name-traps').textContent = '\u0414\u043E\u0440\u043E\u0436\u043A\u0430: ' + opponentName;
+            updateTrapUI();
+            $('btn-traps-ok').classList.remove('hidden');
+            $('btn-traps-ok').disabled = true;
+            $('traps-wait').classList.add('hidden');
+            startTrapTimer();
+        }
+        // В PvP — ждём WebSocket broadcast с overtime_placing
     } else {
-        currentStep = msg.round;
-        highlightCurrentDot(msg.round);
-        moveChosen = false;
-        showActionButtons();
-        startTimer(msg && msg.phaseAtMs ? msg.phaseAtMs : null);
+        // Следующий раунд — в PvP ждём WebSocket broadcast с running фазой
+        // В боте — запускаем напрямую
+        if (isBotMode) {
+            currentStep = msg.round;
+            highlightCurrentDot(msg.round);
+            moveChosen = false;
+            showActionButtons();
+            startTimer(null);
+        }
+        // В PvP: WebSocket принесёт running фазу с правильным phaseAtMs
     }
 }
 
@@ -2041,10 +2068,10 @@ function showSabotageEffect() {
     setTimeout(function() { overlay.remove(); }, 800);
 }
 
-function showGameOver(winner, serverScores) {
-    const mi = playerIndex;
-    const myScore = serverScores[mi];
-    const oppScore = serverScores[1 - mi];
+function showGameOver(winner, scoresArr) {
+    // scoresArr = [myScore, oppScore] — уже ориентированы на текущего игрока
+    const myScore = Array.isArray(scoresArr) ? scoresArr[0] : 0;
+    const oppScore = Array.isArray(scoresArr) ? scoresArr[1] : 0;
 
     if (winner === 'win') {
         if (!gameOverSoundPlayed) { playSound('win'); gameOverSoundPlayed = true; }
