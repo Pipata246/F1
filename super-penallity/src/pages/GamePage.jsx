@@ -643,6 +643,36 @@ const GamePage = () => {
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
     const s = room.state_json || {};
+    
+    // ЗАЩИТА ОТ ЗАВИСАНИЯ: Если игра завершена на сервере - принудительно показываем результат
+    if (String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+      stopPvpPolling();
+      stopRealtimeSubscription();
+      pvpRoomIdRef.current = null;
+      
+      const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+      const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
+      const mySide = meIsP1 ? 'p1' : 'p2';
+      const myIdx = meIsP1 ? 0 : 1;
+      
+      const scoresObj = s.scores || { p1: 0, p2: 0 };
+      const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
+      let youWon = false;
+      if (s.winnerSide) youWon = s.winnerSide === mySide;
+      else if (arr[0] !== arr[1]) youWon = myIdx === 0 ? arr[0] > arr[1] : arr[1] > arr[0];
+      
+      // Проверяем если соперник вышел
+      if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg && String(s.leaveKind || '') === 'explicit') {
+        setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
+        setScreen('result');
+        return;
+      }
+      
+      // Обычный результат матча
+      handleServerMessage({ type: 'match_result', youWon, scores: arr });
+      return;
+    }
+    
     if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
       const am = s.acceptMatch || {};
       const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
@@ -738,24 +768,7 @@ const GamePage = () => {
       }
       return;
     }
-
-    if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
-      stopPvpPolling();
-      stopRealtimeSubscription();
-      pvpRoomIdRef.current = null;
-      const scoresObj = s.scores || { p1: 0, p2: 0 };
-      const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
-      let youWon = false;
-      if (s.winnerSide) youWon = s.winnerSide === mySide;
-      else if (arr[0] !== arr[1]) youWon = myIdx === 0 ? arr[0] > arr[1] : arr[1] > arr[0];
-      if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg && String(s.leaveKind || '') === 'explicit') {
-        setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
-        setScreen('result');
-        return;
-      }
-      handleServerMessage({ type: 'match_result', youWon, scores: arr });
-    }
-  }, [handleServerMessage, stopPvpPolling]);
+  }, [handleServerMessage, stopPvpPolling, stopRealtimeSubscription]);
 
   const pvpPollState = useCallback(() => {
     if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
