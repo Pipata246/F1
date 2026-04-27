@@ -1,31 +1,6 @@
--- Security fixes for Frog Hunt: RLS policies to prevent cheating
+-- Security fixes for Basketball: Add filtering to pvp_get_filtered_room_state
 
--- Enable RLS on pvp_rooms table
-ALTER TABLE public.pvp_rooms ENABLE ROW LEVEL SECURITY;
-
--- Policy: Players can only read their own rooms
-DROP POLICY IF EXISTS pvp_rooms_players_read ON public.pvp_rooms;
-CREATE POLICY pvp_rooms_players_read 
-  ON public.pvp_rooms 
-  FOR SELECT 
-  USING (
-    -- Allow service role full access
-    auth.role() = 'service_role'
-    OR
-    -- Players can only see rooms they're in
-    player1_tg_user_id = current_setting('app.current_user_tg_id', true)
-    OR player2_tg_user_id = current_setting('app.current_user_tg_id', true)
-  );
-
--- Policy: Only service role can insert/update/delete
-DROP POLICY IF EXISTS pvp_rooms_service_only ON public.pvp_rooms;
-CREATE POLICY pvp_rooms_service_only 
-  ON public.pvp_rooms 
-  FOR ALL
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
-
--- Function to get filtered room state (hides opponent's pending move)
+-- Update the filtering function to include Basketball
 CREATE OR REPLACE FUNCTION public.pvp_get_filtered_room_state(
   p_room_id bigint,
   p_tg_user_id text

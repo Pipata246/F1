@@ -2397,8 +2397,12 @@ function pvpApplyBasketballMove(room, tgId, move) {
     throw new Error("Invalid basketball distance");
   }
   const next = { ...s, choices: { ...asObj(s.choices) } };
-  if (next.choices[side]) return next;
+  // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: moveSubmittedBy
+  const submitted = asObj(s.moveSubmittedBy);
+  if (submitted[side]) return next; // Уже отправил ход
+  if (next.choices[side]) return next; // Уже записан ход
   next.choices[side] = distance;
+  next.moveSubmittedBy = { ...submitted, [side]: tgId };
   if (!next.choices.p1 || !next.choices.p2) {
     next.updatedAt = new Date().toISOString();
     return next;
@@ -3451,7 +3455,25 @@ async function pvpGetRoomState(initData, roomId) {
     await pvpBroadcastRoomUpdate(nextRoom);
   }
   
-  return finalizePvpRoomIfNeeded(nextRoom);
+  const finalRoom = finalizePvpRoomIfNeeded(nextRoom);
+  
+  // ✅ ФИЛЬТРАЦИЯ: для Basketball возвращаем отфильтрованное состояние
+  const gameKey = String(finalRoom?.game_key || "");
+  if (gameKey === "basketball") {
+    try {
+      const filteredState = await sbRpc("pvp_get_filtered_room_state", {
+        p_room_id: id,
+        p_tg_user_id: tgId,
+      });
+      return { ...finalRoom, state_json: filteredState };
+    } catch (err) {
+      console.error("Basketball filtering error:", err);
+      // Fallback: return unfiltered if filtering fails
+      return finalRoom;
+    }
+  }
+  
+  return finalRoom;
 }
 
 async function pvpGetFilteredState(initData, roomId) {
