@@ -3587,8 +3587,8 @@ async function pvpBroadcastRoomUpdate(room) {
   if (!room || !room.id) return;
   
   const gameKey = String(room.game_key || "");
-  // Broadcast for frog_hunt, obstacle_race and super_penalty
-  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race" && gameKey !== "super_penalty") return;
+  // ✅ BROADCAST: добавлена поддержка Basketball для real-time обновлений
+  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race" && gameKey !== "super_penalty" && gameKey !== "basketball") return;
   
   const channelName = `${gameKey}_room_${room.id}`;
   const p1TgId = String(room.player1_tg_user_id || "");
