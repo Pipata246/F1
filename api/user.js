@@ -1673,6 +1673,8 @@ function pvpDefaultBasketballState(player1Id, player2Id) {
     maxRounds: 7,
     choices: { p1: null, p2: null },
     scores: { p1: 0, p2: 0 },
+    // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: инициализация moveSubmittedBy
+    moveSubmittedBy: { p1: null, p2: null },
     markers: { round: 0, phase: 0, match: 0 },
     players: { p1: String(player1Id), p2: String(player2Id) },
     createdAt: new Date().toISOString(),
@@ -2371,6 +2373,8 @@ function pvpResolveBasketballRound(state) {
   s.phase = "round_result";
   s.phaseAtMs = Date.now();
   s.choices = { p1: null, p2: null };
+  // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy для следующего раунда
+  s.moveSubmittedBy = { p1: null, p2: null };
   s.lastRoundResult = {
     marker: Number(asObj(s.markers).round || 0) + 1,
     phaseNum: Number(s.phaseNum || 2),
@@ -2512,12 +2516,16 @@ function pvpAdvanceByTime(room) {
             next.phase = "turn_input";
             next.phaseAtMs = now;
             next.choices = { p1: null, p2: null };
+            // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при переходе в овертайм
+            next.moveSubmittedBy = { p1: null, p2: null };
             next.markers = { ...asObj(s.markers), phase: Number(asObj(s.markers).phase || 0) + 1 };
           }
         } else {
           next.phase = "turn_input";
           next.phaseAtMs = now;
           next.choices = { p1: null, p2: null };
+          // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при переходе к новому раунду
+          next.moveSubmittedBy = { p1: null, p2: null };
         }
         next.updatedAt = new Date().toISOString();
         return { changed: true, state: next };
@@ -2532,6 +2540,8 @@ function pvpAdvanceByTime(room) {
         next.phase = "turn_input";
         next.phaseAtMs = now;
         next.choices = { p1: null, p2: null };
+        // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy в овертайме
+        next.moveSubmittedBy = { p1: null, p2: null };
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
