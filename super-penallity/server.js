@@ -224,7 +224,26 @@ function resolveRound(room) {
   const roundsPlayed = room.round;
   const maxRounds = room.maxRounds;
   const [s0, s1] = room.scores;
-  const startingSuddenDeath = wasRegularGame && roundsPlayed >= maxRounds && s0 === s1;
+  let startingSuddenDeath = false;
+  
+  // Проверяем начало ПЕРВОГО овертайма
+  if (wasRegularGame && roundsPlayed >= maxRounds && s0 === s1) {
+    startingSuddenDeath = true;
+  }
+  
+  // Проверяем начало ПОВТОРНОГО овертайма (после ничьей в предыдущем)
+  if (room.suddenDeath) {
+    const sdRounds = roundsPlayed - room.sdStart;
+    // После каждой пары раундов проверяем счёт
+    if (sdRounds >= 2 && sdRounds % 2 === 0) {
+      if (s0 === s1) {
+        // Счёт равный - начинаем новый цикл овертайма
+        room.sdStart = roundsPlayed;
+        room.kickerOverride = 0;
+        startingSuddenDeath = true;
+      }
+    }
+  }
 
   // Send result to both players
   for (const p of room.players) {
@@ -246,7 +265,7 @@ function resolveRound(room) {
   if (shouldEndMatch(room)) {
     setTimeout(() => endMatch(room), 2500);
   } else {
-    // Если начинается овертайм - даём больше времени на показ модалки (4 сек вместо 2.8)
+    // Если начинается овертайм - даём больше времени на показ модалки (5 сек вместо 2.8)
     const nextRoundDelay = startingSuddenDeath ? 5000 : 2800;
     setTimeout(() => startRound(room), nextRoundDelay);
   }
