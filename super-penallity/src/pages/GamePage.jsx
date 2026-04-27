@@ -157,6 +157,9 @@ const GamePage = () => {
   const [roleAnnounce, setRoleAnnounce] = useState(null);
   const [inputBlocked, setInputBlocked] = useState(false);
 
+  // Overtime announcement
+  const [overtimeAnnounce, setOvertimeAnnounce] = useState(false);
+
   // Match result
   const [matchResult, setMatchResult] = useState(null);
   const [selectedStakeOptions, setSelectedStakeOptions] = useState([]);
@@ -556,6 +559,18 @@ const GamePage = () => {
         }
       }
     }, 400);
+
+    // Если начинается овертайм - показываем уведомление
+    if (msg.startSuddenDeath) {
+      setTimeout(() => {
+        setOvertimeAnnounce(true);
+        setSuddenDeath(true);
+        if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('warning');
+        setTimeout(() => {
+          setOvertimeAnnounce(false);
+        }, 2500);
+      }, 1500);
+    }
 
     // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
 
@@ -1264,6 +1279,30 @@ const GamePage = () => {
                 roleAnnounce.role === 'kicker' ? 'text-yellow-300' : 'text-emerald-300'
               }`}>
                 {roleAnnounce.role === 'kicker' ? 'ТВОЙ УДАР!' : 'ОТБИВАЙ МЯЧ!'}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Overtime announcement overlay */}
+      <AnimatePresence>
+        {overtimeAnnounce && (
+          <motion.div
+            key="overtime-announce"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 flex items-center justify-center z-[80] pointer-events-none"
+          >
+            <div className="px-10 py-5 rounded-2xl shadow-2xl text-center border-4 bg-black/90 border-red-400 shadow-red-500/40">
+              <div className="text-6xl mb-3 animate-pulse">⚡</div>
+              <div className="text-4xl font-black tracking-widest uppercase text-red-400 mb-2">
+                ОВЕРТАЙМ!
+              </div>
+              <div className="text-lg text-white/80 font-bold">
+                Серия пенальти до первого гола
               </div>
             </div>
           </motion.div>
