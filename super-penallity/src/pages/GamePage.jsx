@@ -99,14 +99,15 @@ const GrassSVG = memo(() => (
 // Dots for this player's KICKS only (not keeper rounds)
 // Green = scored, Red = missed
 const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color, suddenDeath, suddenDeathStartRound }) => {
-  // В овертайме показываем только удары после начала овертайма
-  // suddenDeathStartRound - это номер раунда когда начался овертайм (например 10)
-  // В истории каждый элемент = 1 раунд, поэтому берём элементы начиная с индекса suddenDeathStartRound
-  const filteredHistory = suddenDeath && suddenDeathStartRound > 0
-    ? history.slice(suddenDeathStartRound) // Берём только овертаймные раунды
-    : history;
+  // Фильтруем только удары этого игрока (когда он был kicker)
+  const allKicks = history.filter(h => h.kickerIndex === playerIdx);
   
-  const kicks = filteredHistory.filter(h => h.kickerIndex === playerIdx);
+  // В овертайме показываем только ПОСЛЕДНИЕ totalKicks ударов
+  // В основной игре показываем все удары (но не больше totalKicks)
+  const kicks = suddenDeath 
+    ? allKicks.slice(-totalKicks) // Последние N ударов
+    : allKicks.slice(0, totalKicks); // Первые N ударов
+  
   return (
     <div className="flex items-center justify-center gap-2">
       <span className={`text-[10px] font-bold truncate w-14 text-right ${color}`}>{label}</span>
