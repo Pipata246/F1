@@ -189,6 +189,7 @@ const GamePage = () => {
   const showingResultRef = useRef(false);
   const roundStuckTimerRef = useRef(null);
   const waitingBotMoveTimerRef = useRef(null);
+  const pvpMoveWatchdogTimerRef = useRef(null); // Watchdog: защита от зависания после хода
   // Supabase Realtime - НЕ ИСПОЛЬЗУЕМ, только HTTP polling
   const realtimeChannelRef = useRef(null);
 
@@ -346,6 +347,7 @@ const GamePage = () => {
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
       if (roundStuckTimerRef.current) clearTimeout(roundStuckTimerRef.current);
       if (waitingBotMoveTimerRef.current) clearTimeout(waitingBotMoveTimerRef.current);
+      if (pvpMoveWatchdogTimerRef.current) clearTimeout(pvpMoveWatchdogTimerRef.current);
       if (realtimeChannelRef.current) {
         supabaseClient.removeChannel(realtimeChannelRef.current);
         realtimeChannelRef.current = null;
@@ -381,6 +383,7 @@ const GamePage = () => {
 
       case 'round_start':
         clearRoundStuckTimer();
+        clearMoveWatchdog();
         clearWaitingBotMoveTimer();
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
@@ -421,6 +424,7 @@ const GamePage = () => {
 
       case 'match_result':
         clearRoundStuckTimer();
+        clearMoveWatchdog();
         clearWaitingBotMoveTimer();
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
@@ -440,6 +444,7 @@ const GamePage = () => {
 
       case 'opponent_left':
         clearRoundStuckTimer();
+        clearMoveWatchdog();
         clearWaitingBotMoveTimer();
         setMatchResult({ youWon: true, scores: [0, 0], opponentLeft: true });
         setScreen('result');
@@ -480,9 +485,16 @@ const GamePage = () => {
       waitingBotMoveTimerRef.current = null;
     }
   };
+  const clearMoveWatchdog = () => {
+    if (pvpMoveWatchdogTimerRef.current) {
+      clearTimeout(pvpMoveWatchdogTimerRef.current);
+      pvpMoveWatchdogTimerRef.current = null;
+    }
+  };
 
   const handleRoundResult = (msg) => {
     clearRoundStuckTimer();
+    clearMoveWatchdog();
     stopTimer();
     setWaitingOpponent(false);
     setShowingResult(true);
@@ -798,6 +810,23 @@ const GamePage = () => {
           });
         };
         submitPenMove();
+
+        // Watchdog: если через 8 сек нет ответа — форсируем poll и разблокируем
+        clearMoveWatchdog();
+        pvpMoveWatchdogTimerRef.current = setTimeout(() => {
+          if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
+            // Форсируем poll
+            pvpPollState();
+            // Если через ещё 3 сек всё ещё зависло — разблокируем
+            setTimeout(() => {
+              if (zoneLocked && waitingOpponent) {
+                setZoneLocked(false);
+                setWaitingOpponent(false);
+                showBottomNotice('Ошибка синхронизации. Попробуй снова.');
+              }
+            }, 3000);
+          }
+        }, 8000);
 
         // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
       }
