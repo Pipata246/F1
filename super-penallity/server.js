@@ -219,6 +219,13 @@ function resolveRound(room) {
   room.history.push({ kickerIndex: kickerIdx, kickerZone, keeperZone, isGoal });
   room.round++;
 
+  // Check if sudden death is starting NOW (before sending result)
+  const wasRegularGame = !room.suddenDeath;
+  const roundsPlayed = room.round;
+  const maxRounds = room.maxRounds;
+  const [s0, s1] = room.scores;
+  const startingSuddenDeath = wasRegularGame && roundsPlayed >= maxRounds && s0 === s1;
+
   // Send result to both players
   for (const p of room.players) {
     if (!p.isBot) {
@@ -230,6 +237,7 @@ function resolveRound(room) {
         round: room.round,
         kickerIndex: kickerIdx,
         history: room.history,
+        startSuddenDeath: startingSuddenDeath, // NEW: notify clients overtime is starting
       });
     }
   }
@@ -246,12 +254,18 @@ function shouldEndMatch(room) {
   const [s0, s1] = room.scores;
   const roundsPlayed = room.round;
 
-  // Sudden death: end only after a complete pair (both players kicked)
+  // OVERTIME: End immediately when scores differ (first goal wins)
   if (room.suddenDeath) {
+    // After each overtime round, check if someone scored
     const sdRounds = roundsPlayed - room.sdStart;
+    // End after each complete pair (both players kicked once)
     if (sdRounds >= 2 && sdRounds % 2 === 0) {
-      return s0 !== s1;
+      // If scores differ, someone won
+      if (s0 !== s1) return true;
+      // If still tied, continue overtime (another pair)
+      return false;
     }
+    // Wait for both players to kick before checking
     return false;
   }
 
@@ -260,6 +274,7 @@ function shouldEndMatch(room) {
   // All rounds played
   if (roundsPlayed >= maxRounds) {
     if (s0 === s1) {
+      // Start overtime
       room.suddenDeath = true;
       room.sdStart = roundsPlayed;
       return false;

@@ -102,11 +102,30 @@ const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color, sudde
   // Фильтруем только удары этого игрока (когда он был kicker)
   const allKicks = history.filter(h => h.kickerIndex === playerIdx);
   
-  // В овертайме показываем только ПОСЛЕДНИЕ totalKicks ударов
-  // В основной игре показываем все удары (но не больше totalKicks)
-  const kicks = suddenDeath 
-    ? allKicks.slice(-totalKicks) // Последние N ударов
-    : allKicks.slice(0, totalKicks); // Первые N ударов
+  let kicks;
+  if (suddenDeath) {
+    // В овертайме показываем только удары ПОСЛЕ начала овертайма
+    // suddenDeathStartRound - это индекс раунда когда начался овертайм (например 10)
+    // История содержит все раунды с индексами 0-9 (основная игра) и 10+ (овертайм)
+    const overtimeKicks = allKicks.filter((_, idx) => {
+      // Считаем сколько ударов было до овертайма
+      const kicksBeforeOT = allKicks.slice(0, idx + 1).filter((k, i) => {
+        // Находим индекс этого удара в полной истории
+        const fullHistoryIdx = history.indexOf(k);
+        return fullHistoryIdx < suddenDeathStartRound;
+      }).length;
+      
+      // Если этот удар после начала овертайма
+      const fullHistoryIdx = history.indexOf(allKicks[idx]);
+      return fullHistoryIdx >= suddenDeathStartRound;
+    });
+    
+    // Показываем последние totalKicks ударов овертайма
+    kicks = overtimeKicks.slice(-totalKicks);
+  } else {
+    // В основной игре показываем первые totalKicks ударов
+    kicks = allKicks.slice(0, totalKicks);
+  }
   
   return (
     <div className="flex items-center justify-center gap-2">
@@ -572,9 +591,9 @@ const GamePage = () => {
 
     // Если начинается овертайм - показываем уведомление
     if (msg.startSuddenDeath) {
-      // msg.round - это последний раунд основной игры (например 10)
-      // История содержит 10 элементов (индексы 0-9)
-      // Овертаймные раунды начинаются с индекса 10
+      // msg.round - это раунд ПОСЛЕ которого начинается овертайм
+      // Например, если было 10 раундов основной игры, msg.round = 10
+      // Овертаймные раунды начинаются с индекса 10 в истории
       const overtimeStartRound = msg.round || 0;
       setTimeout(() => {
         setOvertimeAnnounce(true);
@@ -739,6 +758,7 @@ const GamePage = () => {
         round: Number(rr.round || 0),
         kickerIndex: Number(rr.kickerIndex || 0),
         history: Array.isArray(rr.history) ? rr.history : [],
+        startSuddenDeath: !!rr.startSuddenDeath, // NEW: pass overtime flag
       });
       return;
     }

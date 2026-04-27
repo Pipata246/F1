@@ -2252,12 +2252,17 @@ function pvpResolveSuperPenaltyRound(state) {
   const p1 = Number(s.scores.p1 || 0);
   const p2 = Number(s.scores.p2 || 0);
   const roundsPlayed = Number(s.round || 0);
+  
   if (s.suddenDeath) {
+    // ОВЕРТАЙМ: Игра до первого гола
+    // После каждой пары раундов (оба игрока сделали по удару) проверяем счёт
     const sdRounds = roundsPlayed - Number(s.sdStart || 0);
     const maxOvertimePairs = 30; // Максимум 30 пар овертаймов (60 раундов)
+    
     if (sdRounds >= 2 && sdRounds % 2 === 0) {
+      // Оба игрока сделали по удару в этой паре
       if (p1 !== p2) {
-        // Есть победитель после пары раундов
+        // Есть победитель - кто-то забил, а другой нет
         gameOver = true;
         winnerSide = p1 > p2 ? "p1" : "p2";
       } else if (sdRounds / 2 >= maxOvertimePairs) {
@@ -2265,27 +2270,31 @@ function pvpResolveSuperPenaltyRound(state) {
         gameOver = true;
         winnerSide = Math.random() < 0.5 ? "p1" : "p2";
       }
+      // Если счёт всё ещё равный - продолжаем овертайм (следующая пара)
     }
+    
     if (!gameOver) {
+      // Определяем кто бьёт следующим в овертайме
       const pairNum = Math.floor(sdRounds / 2);
       const withinPair = sdRounds % 2;
       s.kickerOverride = (pairNum + withinPair) % 2;
     }
   } else {
+    // ОСНОВНАЯ ИГРА
     if (roundsPlayed >= Number(s.maxRounds || 10)) {
       if (p1 === p2) {
+        // Ничья - начинаем овертайм
         s.suddenDeath = true;
         s.sdStart = roundsPlayed;
-        s.kickerOverride = 0;
+        s.kickerOverride = 0; // Первым бьёт игрок 0
         startSuddenDeath = true;
       } else {
+        // Есть победитель после основной игры
         gameOver = true;
         winnerSide = p1 > p2 ? "p1" : "p2";
       }
-    } else {
-      // Игра продолжается до конца всех раундов
-      // Досрочное завершение убрано - играем все maxRounds
     }
+    // Игра продолжается до конца всех раундов
   }
 
   s.phase = "round_result";
