@@ -246,7 +246,9 @@ function resolveRound(room) {
   if (shouldEndMatch(room)) {
     setTimeout(() => endMatch(room), 2500);
   } else {
-    setTimeout(() => startRound(room), 2800);
+    // Если начинается овертайм - даём больше времени на показ модалки (4 сек вместо 2.8)
+    const nextRoundDelay = startingSuddenDeath ? 5000 : 2800;
+    setTimeout(() => startRound(room), nextRoundDelay);
   }
 }
 

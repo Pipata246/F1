@@ -2649,10 +2649,17 @@ function pvpAdvanceByTime(room) {
         next.winnerSide = rr.winnerSide || null;
         next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
       } else {
-        next.phase = "turn_input";
-        next.phaseAtMs = now;
-        next.choices = { p1: null, p2: null };
-        next.moveSubmittedBy = {};
+        // Если начинается овертайм - даём больше времени на показ модалки (5 сек вместо 0.8)
+        const minElapsed = rr.startSuddenDeath ? 5000 : 800;
+        if (elapsed >= minElapsed) {
+          next.phase = "turn_input";
+          next.phaseAtMs = now;
+          next.choices = { p1: null, p2: null };
+          next.moveSubmittedBy = {};
+        } else {
+          // Ещё не прошло достаточно времени - не меняем фазу
+          return { changed: false, state: s };
+        }
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };

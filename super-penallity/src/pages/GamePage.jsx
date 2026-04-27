@@ -433,14 +433,29 @@ const GamePage = () => {
         setIsKeeperMirrored(false);
         setKeeperX(0);
         setKeeperBottom('4');
-        setRoleAnnounce({ role: msg.role, round: msg.round });
-        setInputBlocked(true);
-        // Block input while role announcement is visible. Timer starts AFTER announcement.
-        setTimeout(() => {
-          setRoleAnnounce(null);
-          setInputBlocked(false);
-          startTimer();
-        }, 1100);
+        
+        // Если овертайм уже показывается - НЕ показываем роль, ждём его завершения
+        if (!overtimeAnnounce) {
+          setRoleAnnounce({ role: msg.role, round: msg.round });
+          setInputBlocked(true);
+          // Block input while role announcement is visible. Timer starts AFTER announcement.
+          setTimeout(() => {
+            setRoleAnnounce(null);
+            setInputBlocked(false);
+            startTimer();
+          }, 1100);
+        } else {
+          // Овертайм показывается - ждём его завершения (2.5 сек), потом показываем роль
+          setTimeout(() => {
+            setRoleAnnounce({ role: msg.role, round: msg.round });
+            setInputBlocked(true);
+            setTimeout(() => {
+              setRoleAnnounce(null);
+              setInputBlocked(false);
+              startTimer();
+            }, 1100);
+          }, 2500);
+        }
         break;
 
       case 'zone_locked':
@@ -482,7 +497,7 @@ const GamePage = () => {
         setScreen('result');
         break;
     }
-  }, [history]);
+  }, [history, overtimeAnnounce]);
 
   const startTimer = () => {
     stopTimer();
@@ -589,26 +604,28 @@ const GamePage = () => {
       }
     }, 400);
 
-    // Если начинается овертайм - показываем уведомление
+    // Если начинается овертайм - показываем уведомление ПЕРЕД следующим раундом
     if (msg.startSuddenDeath) {
-      // msg.round - это раунд ПОСЛЕ которого начинается овертайм
-      // Например, если было 10 раундов основной игры, msg.round = 10
-      // Овертаймные раунды начинаются с индекса 10 в истории
       const overtimeStartRound = msg.round || 0;
+      // Показываем овертайм через 1.5 сек после результата
       setTimeout(() => {
         setOvertimeAnnounce(true);
         setSuddenDeath(true);
         setSuddenDeathStartRound(overtimeStartRound);
         if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('warning');
+        // Скрываем овертайм через 2.5 сек
         setTimeout(() => {
           setOvertimeAnnounce(false);
+          // Сбрасываем результат раунда чтобы разблокировать для следующего
+          setShowingResult(false);
+          setResultMessage(null);
         }, 2500);
       }, 1500);
     }
 
-    // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
-
     // Safety timeout: если застряли на результате - разблокируем
+    // Увеличиваем таймаут если овертайм, чтобы дать время на показ модалки
+    const safetyTimeout = msg.startSuddenDeath ? 5000 : 2500;
     roundStuckTimerRef.current = setTimeout(() => {
       if (!showingResultRef.current) return;
 
@@ -629,7 +646,7 @@ const GamePage = () => {
       setShowingResult(false);
       setResultMessage(null);
       setInputBlocked(false);
-    }, 2500);
+    }, safetyTimeout);
   };
 
   // ==================== HTTP POLLING (КАК В FROG HUNT) ====================
