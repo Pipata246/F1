@@ -98,8 +98,21 @@ const GrassSVG = memo(() => (
 
 // Dots for this player's KICKS only (not keeper rounds)
 // Green = scored, Red = missed
-const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color }) => {
-  const kicks = history.filter(h => h.kickerIndex === playerIdx);
+const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color, suddenDeath, suddenDeathStartRound }) => {
+  // В овертайме показываем только удары после начала овертайма
+  const filteredHistory = suddenDeath 
+    ? history.filter(h => {
+        // Находим индекс в истории где начался овертайм
+        const overtimeStartIdx = history.findIndex((item, idx) => {
+          // Считаем что овертайм начинается после раунда suddenDeathStartRound
+          return idx >= suddenDeathStartRound;
+        });
+        const hIdx = history.indexOf(h);
+        return hIdx >= Math.max(0, suddenDeathStartRound);
+      })
+    : history;
+  
+  const kicks = filteredHistory.filter(h => h.kickerIndex === playerIdx);
   return (
     <div className="flex items-center justify-center gap-2">
       <span className={`text-[10px] font-bold truncate w-14 text-right ${color}`}>{label}</span>
@@ -138,6 +151,7 @@ const GamePage = () => {
   const [role, setRole] = useState('kicker');
   const [scores, setScores] = useState([0, 0]);
   const [suddenDeath, setSuddenDeath] = useState(false);
+  const [suddenDeathStartRound, setSuddenDeathStartRound] = useState(0); // Раунд начала овертайма
   const [zoneLocked, setZoneLocked] = useState(false);
   const [waitingOpponent, setWaitingOpponent] = useState(false);
   const [timer, setTimer] = useState(10);
@@ -380,6 +394,7 @@ const GamePage = () => {
         setScores([0, 0]);
         setRound(0);
         setSuddenDeath(false);
+        setSuddenDeathStartRound(0);
         setHistory([]);
         setScreen('game');
         break;
@@ -562,9 +577,11 @@ const GamePage = () => {
 
     // Если начинается овертайм - показываем уведомление
     if (msg.startSuddenDeath) {
+      const overtimeStartRound = msg.round || 0;
       setTimeout(() => {
         setOvertimeAnnounce(true);
         setSuddenDeath(true);
+        setSuddenDeathStartRound(overtimeStartRound);
         if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('warning');
         setTimeout(() => {
           setOvertimeAnnounce(false);
@@ -1183,8 +1200,24 @@ const GamePage = () => {
           )}
 
           <div className="flex flex-col items-center gap-2 mt-4 bg-white/5 p-3 rounded-xl border border-white/10">
-            <KickDots history={history} playerIdx={playerIndex} totalKicks={5} label={displayName || 'Ты'} color="text-blue-400" />
-            <KickDots history={history} playerIdx={1 - playerIndex} totalKicks={5} label={opponent} color="text-red-400" />
+            <KickDots 
+              history={history} 
+              playerIdx={playerIndex} 
+              totalKicks={suddenDeath ? 2 : 5} 
+              label={displayName || 'Ты'} 
+              color="text-blue-400"
+              suddenDeath={suddenDeath}
+              suddenDeathStartRound={suddenDeathStartRound}
+            />
+            <KickDots 
+              history={history} 
+              playerIdx={1 - playerIndex} 
+              totalKicks={suddenDeath ? 2 : 5} 
+              label={opponent} 
+              color="text-red-400"
+              suddenDeath={suddenDeath}
+              suddenDeathStartRound={suddenDeathStartRound}
+            />
           </div>
 
           <div className="mt-6 flex gap-3">
@@ -1239,8 +1272,24 @@ const GamePage = () => {
 
           {/* Centered kick dots */}
           <div className="mt-2 flex flex-col items-center gap-1">
-            <KickDots history={history} playerIdx={playerIndex} totalKicks={5} label={displayName || 'Ты'} color="text-blue-400" />
-            <KickDots history={history} playerIdx={1 - playerIndex} totalKicks={5} label={opponent} color="text-red-400" />
+            <KickDots 
+              history={history} 
+              playerIdx={playerIndex} 
+              totalKicks={suddenDeath ? 2 : 5} 
+              label={displayName || 'Ты'} 
+              color="text-blue-400"
+              suddenDeath={suddenDeath}
+              suddenDeathStartRound={suddenDeathStartRound}
+            />
+            <KickDots 
+              history={history} 
+              playerIdx={1 - playerIndex} 
+              totalKicks={suddenDeath ? 2 : 5} 
+              label={opponent} 
+              color="text-red-400"
+              suddenDeath={suddenDeath}
+              suddenDeathStartRound={suddenDeathStartRound}
+            />
           </div>
 
           {/* Timer */}
