@@ -668,7 +668,7 @@ const GamePage = () => {
 
   const startPvpPolling = useCallback(() => {
     stopPvpPolling();
-    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 900);
+    pvpPollTimerRef.current = setInterval(() => pvpPollState(), 800);
     pvpPollState();
   }, [pvpPollState, stopPvpPolling]);
 
