@@ -100,16 +100,10 @@ const GrassSVG = memo(() => (
 // Green = scored, Red = missed
 const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color, suddenDeath, suddenDeathStartRound }) => {
   // В овертайме показываем только удары после начала овертайма
-  const filteredHistory = suddenDeath 
-    ? history.filter(h => {
-        // Находим индекс в истории где начался овертайм
-        const overtimeStartIdx = history.findIndex((item, idx) => {
-          // Считаем что овертайм начинается после раунда suddenDeathStartRound
-          return idx >= suddenDeathStartRound;
-        });
-        const hIdx = history.indexOf(h);
-        return hIdx >= Math.max(0, suddenDeathStartRound);
-      })
+  // suddenDeathStartRound - это номер раунда когда начался овертайм (например 10)
+  // В истории каждый элемент = 1 раунд, поэтому берём элементы начиная с индекса suddenDeathStartRound
+  const filteredHistory = suddenDeath && suddenDeathStartRound > 0
+    ? history.slice(suddenDeathStartRound) // Берём только овертаймные раунды
     : history;
   
   const kicks = filteredHistory.filter(h => h.kickerIndex === playerIdx);
@@ -577,6 +571,9 @@ const GamePage = () => {
 
     // Если начинается овертайм - показываем уведомление
     if (msg.startSuddenDeath) {
+      // msg.round - это последний раунд основной игры (например 10)
+      // История содержит 10 элементов (индексы 0-9)
+      // Овертаймные раунды начинаются с индекса 10
       const overtimeStartRound = msg.round || 0;
       setTimeout(() => {
         setOvertimeAnnounce(true);
