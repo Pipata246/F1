@@ -2254,10 +2254,19 @@ function pvpResolveSuperPenaltyRound(state) {
   const roundsPlayed = Number(s.round || 0);
   if (s.suddenDeath) {
     const sdRounds = roundsPlayed - Number(s.sdStart || 0);
-    if (sdRounds >= 2 && sdRounds % 2 === 0 && p1 !== p2) {
-      gameOver = true;
-      winnerSide = p1 > p2 ? "p1" : "p2";
-    } else {
+    const maxOvertimePairs = 30; // Максимум 30 пар овертаймов (60 раундов)
+    if (sdRounds >= 2 && sdRounds % 2 === 0) {
+      if (p1 !== p2) {
+        // Есть победитель после пары раундов
+        gameOver = true;
+        winnerSide = p1 > p2 ? "p1" : "p2";
+      } else if (sdRounds / 2 >= maxOvertimePairs) {
+        // Достигнут лимит овертаймов - случайный победитель
+        gameOver = true;
+        winnerSide = Math.random() < 0.5 ? "p1" : "p2";
+      }
+    }
+    if (!gameOver) {
       const pairNum = Math.floor(sdRounds / 2);
       const withinPair = sdRounds % 2;
       s.kickerOverride = (pairNum + withinPair) % 2;
