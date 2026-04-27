@@ -1251,7 +1251,7 @@ const GamePage = () => {
             <KickDots 
               history={history} 
               playerIdx={playerIndex} 
-              totalKicks={suddenDeath ? 2 : 5} 
+              totalKicks={suddenDeath ? 1 : 5} 
               label={displayName || 'Ты'} 
               color="text-blue-400"
               suddenDeath={suddenDeath}
@@ -1260,7 +1260,7 @@ const GamePage = () => {
             <KickDots 
               history={history} 
               playerIdx={1 - playerIndex} 
-              totalKicks={suddenDeath ? 2 : 5} 
+              totalKicks={suddenDeath ? 1 : 5} 
               label={opponent} 
               color="text-red-400"
               suddenDeath={suddenDeath}
@@ -1323,7 +1323,7 @@ const GamePage = () => {
             <KickDots 
               history={history} 
               playerIdx={playerIndex} 
-              totalKicks={suddenDeath ? 2 : 5} 
+              totalKicks={suddenDeath ? 1 : 5} 
               label={displayName || 'Ты'} 
               color="text-blue-400"
               suddenDeath={suddenDeath}
@@ -1332,7 +1332,7 @@ const GamePage = () => {
             <KickDots 
               history={history} 
               playerIdx={1 - playerIndex} 
-              totalKicks={suddenDeath ? 2 : 5} 
+              totalKicks={suddenDeath ? 1 : 5} 
               label={opponent} 
               color="text-red-400"
               suddenDeath={suddenDeath}
