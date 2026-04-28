@@ -1043,8 +1043,7 @@ const GamePage = () => {
         setWaitingOpponent(true);
         stopTimer();
         
-        // Бот делает случайный ход через 500-1500мс
-        const botDelay = 500 + Math.random() * 1000;
+        // Бот делает случайный ход мгновенно (без задержки для плавности)
         setTimeout(() => {
           const botZone = Math.floor(Math.random() * 4);
           
@@ -1064,10 +1063,6 @@ const GamePage = () => {
           // Обновляем историю
           const newHistory = [...history, { kickerIndex, kickerZone, keeperZone, isGoal }];
           
-          setScores(newScores);
-          setHistory(newHistory);
-          setRound(currentRound + 1);
-          
           // Показываем результат раунда
           handleServerMessage({
             type: 'round_result',
@@ -1081,36 +1076,36 @@ const GamePage = () => {
             startSuddenDeath: false,
           });
           
-          // Проверяем конец игры
-          setTimeout(() => {
-            const roundsPlayed = currentRound + 1;
-            const maxR = 10;
-            
-            if (roundsPlayed >= maxR) {
-              // Игра закончена
+          // Проверяем конец игры - БЕЗ ЗАДЕРЖКИ
+          const roundsPlayed = currentRound + 1;
+          const maxR = 10;
+          
+          if (roundsPlayed >= maxR) {
+            // Игра закончена - показываем результат через 1.5 сек (время анимации)
+            setTimeout(() => {
               const youWon = newScores[0] > newScores[1];
               handleServerMessage({
                 type: 'match_result',
                 youWon,
                 scores: newScores,
               });
-            } else {
-              // Следующий раунд
+            }, 1500);
+          } else {
+            // Следующий раунд - начинаем через 1.5 сек (время анимации)
+            setTimeout(() => {
               const nextKickerIndex = roundsPlayed % 2 === 0 ? 0 : 1;
-              setTimeout(() => {
-                handleServerMessage({
-                  type: 'round_start',
-                  round: roundsPlayed + 1,
-                  maxRounds: maxR,
-                  role: nextKickerIndex === 0 ? 'kicker' : 'keeper',
-                  scores: newScores,
-                  suddenDeath: false,
-                  history: newHistory,
-                });
-              }, 2500);
-            }
-          }, 2000);
-        }, botDelay);
+              handleServerMessage({
+                type: 'round_start',
+                round: roundsPlayed + 1,
+                maxRounds: maxR,
+                role: nextKickerIndex === 0 ? 'kicker' : 'keeper',
+                scores: newScores,
+                suddenDeath: false,
+                history: newHistory,
+              });
+            }, 1500);
+          }
+        }, 100); // Минимальная задержка для плавности UI
       }
       return;
     }
