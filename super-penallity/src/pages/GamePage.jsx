@@ -238,11 +238,41 @@ const GamePage = () => {
   const pvpMoveWatchdogTimerRef = useRef(null); // Watchdog: защита от зависания после хода
   const connectionErrorTimerRef = useRef(null); // Таймер для показа ошибки соединения
   const lastSuccessfulPollRef = useRef(Date.now()); // Время последнего успешного poll
+  const waitingOpponentTimerRef = useRef(null); // Таймер для отслеживания долгого ожидания
   // Supabase Realtime - НЕ ИСПОЛЬЗУЕМ, только HTTP polling
   const realtimeChannelRef = useRef(null);
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
+
+  // Отслеживание долгого ожидания соперника
+  useEffect(() => {
+    if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
+      // Если ждём соперника больше 5 секунд - показываем модалку
+      if (waitingOpponentTimerRef.current) clearTimeout(waitingOpponentTimerRef.current);
+      waitingOpponentTimerRef.current = setTimeout(() => {
+        if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
+          setShowConnectionError(true);
+        }
+      }, 5000);
+    } else {
+      // Ожидание закончилось - скрываем модалку и очищаем таймер
+      if (waitingOpponentTimerRef.current) {
+        clearTimeout(waitingOpponentTimerRef.current);
+        waitingOpponentTimerRef.current = null;
+      }
+      if (!waitingOpponent) {
+        setShowConnectionError(false);
+      }
+    }
+    
+    return () => {
+      if (waitingOpponentTimerRef.current) {
+        clearTimeout(waitingOpponentTimerRef.current);
+        waitingOpponentTimerRef.current = null;
+      }
+    };
+  }, [waitingOpponent, screen]);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -397,6 +427,7 @@ const GamePage = () => {
       if (waitingBotMoveTimerRef.current) clearTimeout(waitingBotMoveTimerRef.current);
       if (pvpMoveWatchdogTimerRef.current) clearTimeout(pvpMoveWatchdogTimerRef.current);
       if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
+      if (waitingOpponentTimerRef.current) clearTimeout(waitingOpponentTimerRef.current);
       if (realtimeChannelRef.current) {
         supabaseClient.removeChannel(realtimeChannelRef.current);
         realtimeChannelRef.current = null;
@@ -853,6 +884,7 @@ const GamePage = () => {
     // Показываем ошибку соединения если нет ответа 3 секунды
     if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
     connectionErrorTimerRef.current = setTimeout(() => {
+      // Показываем для любой онлайн игры (PvP или fallback бот), но не для локального демо-бота
       if (playModeRef.current === 'pvp' && screen === 'game') {
         setShowConnectionError(true);
       }
@@ -889,6 +921,7 @@ const GamePage = () => {
     }).catch(() => {
       // Ошибка сети - показываем модалку если прошло больше 3 сек с последнего успешного poll
       const timeSinceLastSuccess = Date.now() - lastSuccessfulPollRef.current;
+      // Показываем для любой онлайн игры (PvP или fallback бот), но не для локального демо-бота
       if (timeSinceLastSuccess > 3000 && playModeRef.current === 'pvp' && screen === 'game') {
         setShowConnectionError(true);
       }
