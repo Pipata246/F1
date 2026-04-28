@@ -1031,7 +1031,7 @@ const GamePage = () => {
       return;
     }
     
-    // DEMO BOT MODE - локальная игра с ботом
+    // DEMO BOT MODE - локальная игра с ботом (полноценная игра как PvP)
     if (playModeRef.current === 'demo-bot') {
       if (type === 'choose_zone') {
         const playerZone = Number(data.zone);
@@ -1043,13 +1043,13 @@ const GamePage = () => {
         setWaitingOpponent(true);
         stopTimer();
         
-        // Бот делает случайный ход мгновенно (без задержки для плавности)
+        // Бот делает случайный ход мгновенно
         setTimeout(() => {
           const botZone = Math.floor(Math.random() * 4);
           
-          // Определяем кто кикер в этом раунде
+          // Определяем кто кикер в этом раунде (игрок = 0, бот = 1)
           const currentRound = round;
-          const kickerIndex = currentRound % 2 === 0 ? 0 : 1;
+          const kickerIndex = (currentRound - 1) % 2 === 0 ? 0 : 1;
           const keeperIndex = 1 - kickerIndex;
           
           const kickerZone = kickerIndex === 0 ? playerZone : botZone;
@@ -1063,6 +1063,42 @@ const GamePage = () => {
           // Обновляем историю
           const newHistory = [...history, { kickerIndex, kickerZone, keeperZone, isGoal }];
           
+          // Проверяем конец основной игры (5 раундов)
+          const roundsPlayed = currentRound;
+          const maxR = 5;
+          
+          // Проверяем нужен ли овертайм
+          let needsOvertime = false;
+          let startingSuddenDeath = false;
+          let overtimeStartRound = suddenDeathStartRound;
+          
+          if (roundsPlayed >= maxR && !suddenDeath) {
+            // Основная игра закончена - проверяем счёт
+            if (newScores[0] === newScores[1]) {
+              needsOvertime = true;
+              startingSuddenDeath = true;
+              overtimeStartRound = roundsPlayed; // Запоминаем раунд начала овертайма
+            }
+          }
+          
+          // Проверяем конец овертайма (кто-то забил больше в текущем цикле)
+          let gameEnded = false;
+          if (suddenDeath && roundsPlayed > maxR) {
+            // В овертайме проверяем после каждых 2 раундов (1 цикл)
+            const overtimeRounds = roundsPlayed - suddenDeathStartRound;
+            if (overtimeRounds % 2 === 0) {
+              // Цикл завершён - проверяем счёт последних 2 раундов
+              const lastTwoRounds = newHistory.slice(-2);
+              const p1Goals = lastTwoRounds.filter(h => h.kickerIndex === 0 && h.isGoal).length;
+              const p2Goals = lastTwoRounds.filter(h => h.kickerIndex === 1 && h.isGoal).length;
+              
+              if (p1Goals !== p2Goals) {
+                // Кто-то выиграл овертайм
+                gameEnded = true;
+              }
+            }
+          }
+          
           // Показываем результат раунда
           handleServerMessage({
             type: 'round_result',
@@ -1070,18 +1106,32 @@ const GamePage = () => {
             keeperZone,
             isGoal,
             scores: newScores,
-            round: currentRound + 1,
+            round: currentRound,
             kickerIndex,
             history: newHistory,
-            startSuddenDeath: false,
+            startSuddenDeath: startingSuddenDeath,
           });
           
-          // Проверяем конец игры - БЕЗ ЗАДЕРЖКИ
-          const roundsPlayed = currentRound + 1;
-          const maxR = 10;
+          // Устанавливаем suddenDeathStartRound если начинается овертайм
+          if (startingSuddenDeath) {
+            setTimeout(() => {
+              setSuddenDeathStartRound(overtimeStartRound);
+            }, 100);
+          }
           
-          if (roundsPlayed >= maxR) {
-            // Игра закончена - показываем результат через 1.5 сек (время анимации)
+          // Проверяем конец игры
+          if (roundsPlayed >= maxR && !needsOvertime && !suddenDeath) {
+            // Основная игра закончена, есть победитель
+            setTimeout(() => {
+              const youWon = newScores[0] > newScores[1];
+              handleServerMessage({
+                type: 'match_result',
+                youWon,
+                scores: newScores,
+              });
+            }, 1500);
+          } else if (gameEnded) {
+            // Овертайм закончен
             setTimeout(() => {
               const youWon = newScores[0] > newScores[1];
               handleServerMessage({
@@ -1091,19 +1141,22 @@ const GamePage = () => {
               });
             }, 1500);
           } else {
-            // Следующий раунд - начинаем через 1.5 сек (время анимации)
+            // Следующий раунд
             setTimeout(() => {
-              const nextKickerIndex = roundsPlayed % 2 === 0 ? 0 : 1;
+              const nextRound = roundsPlayed + 1;
+              const nextKickerIndex = (nextRound - 1) % 2 === 0 ? 0 : 1;
+              const inSuddenDeath = needsOvertime || suddenDeath;
+              
               handleServerMessage({
                 type: 'round_start',
-                round: roundsPlayed + 1,
-                maxRounds: maxR,
+                round: nextRound,
+                maxRounds: inSuddenDeath ? nextRound : maxR,
                 role: nextKickerIndex === 0 ? 'kicker' : 'keeper',
                 scores: newScores,
-                suddenDeath: false,
+                suddenDeath: inSuddenDeath,
                 history: newHistory,
               });
-            }, 1500);
+            }, startingSuddenDeath ? 4000 : 1500); // Больше времени если показываем овертайм
           }
         }, 100); // Минимальная задержка для плавности UI
       }
@@ -1196,7 +1249,7 @@ const GamePage = () => {
     playerIndexRef.current = 0;
     setScores([0, 0]);
     setRound(0);
-    setMaxRounds(10);
+    setMaxRounds(5); // 5 раундов как в обычной игре
     setSuddenDeath(false);
     setSuddenDeathStartRound(0);
     setHistory([]);
@@ -1204,12 +1257,11 @@ const GamePage = () => {
     
     // Начинаем первый раунд
     setTimeout(() => {
-      const kickerIndex = 0; // Игрок начинает
       handleServerMessage({
         type: 'round_start',
         round: 1,
-        maxRounds: 10,
-        role: kickerIndex === 0 ? 'kicker' : 'keeper',
+        maxRounds: 5,
+        role: 'kicker', // Игрок начинает как kicker
         scores: [0, 0],
         suddenDeath: false,
         history: [],
