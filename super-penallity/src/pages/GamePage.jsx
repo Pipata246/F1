@@ -998,6 +998,90 @@ const GamePage = () => {
       return;
     }
     
+    // DEMO BOT MODE - локальная игра с ботом
+    if (playModeRef.current === 'demo-bot') {
+      if (type === 'choose_zone') {
+        const playerZone = Number(data.zone);
+        if (![0, 1, 2, 3].includes(playerZone)) return;
+        
+        if (zoneLocked) return;
+        
+        setZoneLocked(true);
+        setWaitingOpponent(true);
+        stopTimer();
+        
+        // Бот делает случайный ход через 500-1500мс
+        const botDelay = 500 + Math.random() * 1000;
+        setTimeout(() => {
+          const botZone = Math.floor(Math.random() * 4);
+          
+          // Определяем кто кикер в этом раунде
+          const currentRound = round;
+          const kickerIndex = currentRound % 2 === 0 ? 0 : 1;
+          const keeperIndex = 1 - kickerIndex;
+          
+          const kickerZone = kickerIndex === 0 ? playerZone : botZone;
+          const keeperZone = keeperIndex === 0 ? playerZone : botZone;
+          const isGoal = kickerZone !== keeperZone;
+          
+          // Обновляем счёт
+          const newScores = [...scores];
+          if (isGoal) newScores[kickerIndex]++;
+          
+          // Обновляем историю
+          const newHistory = [...history, { kickerIndex, kickerZone, keeperZone, isGoal }];
+          
+          setScores(newScores);
+          setHistory(newHistory);
+          setRound(currentRound + 1);
+          
+          // Показываем результат раунда
+          handleServerMessage({
+            type: 'round_result',
+            kickerZone,
+            keeperZone,
+            isGoal,
+            scores: newScores,
+            round: currentRound + 1,
+            kickerIndex,
+            history: newHistory,
+            startSuddenDeath: false,
+          });
+          
+          // Проверяем конец игры
+          setTimeout(() => {
+            const roundsPlayed = currentRound + 1;
+            const maxR = 10;
+            
+            if (roundsPlayed >= maxR) {
+              // Игра закончена
+              const youWon = newScores[0] > newScores[1];
+              handleServerMessage({
+                type: 'match_result',
+                youWon,
+                scores: newScores,
+              });
+            } else {
+              // Следующий раунд
+              const nextKickerIndex = roundsPlayed % 2 === 0 ? 0 : 1;
+              setTimeout(() => {
+                handleServerMessage({
+                  type: 'round_start',
+                  round: roundsPlayed + 1,
+                  maxRounds: maxR,
+                  role: nextKickerIndex === 0 ? 'kicker' : 'keeper',
+                  scores: newScores,
+                  suddenDeath: false,
+                  history: newHistory,
+                });
+              }, 2500);
+            }
+          }, 2000);
+        }, botDelay);
+      }
+      return;
+    }
+    
     // Bot mode removed - all games go through backend now
     if (playModeRef.current === 'bot') {
       showBottomNotice('Режим бота больше не поддерживается. Используй PvP.');
@@ -1077,10 +1161,32 @@ const GamePage = () => {
   };
 
   const startSearchBot = () => {
-    // Bot mode removed - redirect to online PvP with demo stakes
-    showBottomNotice('Демо режим теперь использует PvP с ботом');
-    setSelectedStakeOptions([0.1]); // Minimal stake for demo
-    setTimeout(() => startSearchOnline(), 500);
+    // Локальная игра с демо-ботом (без ставок, без бэкенда)
+    playModeRef.current = 'demo-bot';
+    setOpponent('Бот 🤖');
+    setPlayerIndex(0); // Игрок всегда первый
+    playerIndexRef.current = 0;
+    setScores([0, 0]);
+    setRound(0);
+    setMaxRounds(10);
+    setSuddenDeath(false);
+    setSuddenDeathStartRound(0);
+    setHistory([]);
+    setScreen('game');
+    
+    // Начинаем первый раунд
+    setTimeout(() => {
+      const kickerIndex = 0; // Игрок начинает
+      handleServerMessage({
+        type: 'round_start',
+        round: 1,
+        maxRounds: 10,
+        role: kickerIndex === 0 ? 'kicker' : 'keeper',
+        scores: [0, 0],
+        suddenDeath: false,
+        history: [],
+      });
+    }, 500);
   };
 
 
