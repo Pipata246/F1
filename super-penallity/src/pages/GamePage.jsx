@@ -327,8 +327,9 @@ const GamePage = () => {
   }, []);
   
   const goHome = useCallback(() => {
-    // Очищаем состояние игры
+    // Очищаем состояние игры и отправляем на бэкенд что вышли
     if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
+      // КРИТИЧНО: Отправляем pvpLeaveRoom чтобы засчитать поражение
       apiPost({
         action: 'pvpLeaveRoom',
         initData: tgInitDataRef.current,
@@ -345,18 +346,8 @@ const GamePage = () => {
     playModeRef.current = 'idle';
     pvpRoomIdRef.current = null;
     
-    // Переходим на главную БЕЗ перезагрузки страницы
-    setScreen('stake-online');
-    setAcceptInfo(null);
-    setMatchResult(null);
-    setScores([0, 0]);
-    setRound(0);
-    setHistory([]);
-    setSuddenDeath(false);
-    setZoneLocked(false);
-    setWaitingOpponent(false);
-    setShowingResult(false);
-    setInputBlocked(false);
+    // Переходим на ГЛАВНУЮ СТРАНИЦУ (не игры, а сайта)
+    window.location.href = '/';
   }, [apiPost]);
 
   // Обработка браузерной кнопки "Назад" (не Telegram BackButton)
