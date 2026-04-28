@@ -1656,6 +1656,8 @@ function pvpDefaultSuperPenaltyState(player1Id, player2Id) {
     choices: { p1: null, p2: null },
     scores: { p1: 0, p2: 0 },
     history: [],
+    // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: добавляем moveSubmittedBy
+    moveSubmittedBy: { p1: null, p2: null },
     markers: { round: 0, match: 0 },
     players: { p1: String(player1Id), p2: String(player2Id) },
     createdAt: new Date().toISOString(),
@@ -2308,7 +2310,8 @@ function pvpResolveSuperPenaltyRound(state) {
   s.phase = "round_result";
   s.phaseAtMs = Date.now();
   s.choices = { p1: null, p2: null };
-  s.moveSubmittedBy = {};
+  // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy для следующего раунда
+  s.moveSubmittedBy = { p1: null, p2: null };
   s.lastRoundResult = {
     marker: Number(asObj(s.markers).round || 0) + 1,
     kickerIndex: kickerSide === "p1" ? 0 : 1,
@@ -2656,7 +2659,8 @@ function pvpAdvanceByTime(room) {
       if (!Number.isInteger(Number(choices.p1))) choices.p1 = Math.floor(Math.random() * 4);
       if (!Number.isInteger(Number(choices.p2))) choices.p2 = Math.floor(Math.random() * 4);
       next.choices = choices;
-      next.moveSubmittedBy = {};
+      // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при автоходе
+      next.moveSubmittedBy = { p1: null, p2: null };
       const resolved = pvpResolveSuperPenaltyRound(next);
       resolved.updatedAt = new Date().toISOString();
       return { changed: true, state: resolved };
@@ -2676,7 +2680,8 @@ function pvpAdvanceByTime(room) {
           next.phase = "turn_input";
           next.phaseAtMs = now;
           next.choices = { p1: null, p2: null };
-          next.moveSubmittedBy = {};
+          // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при переходе к новому раунду
+          next.moveSubmittedBy = { p1: null, p2: null };
         } else {
           // Ещё не прошло достаточно времени - не меняем фазу
           return { changed: false, state: s };
