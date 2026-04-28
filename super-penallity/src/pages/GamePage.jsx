@@ -92,23 +92,48 @@ const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color, sudde
   let kicks;
   if (suddenDeath) {
     // В овертайме показываем только удары ПОСЛЕ начала овертайма
-    // suddenDeathStartRound - это индекс раунда когда начался овертайм (например 10)
-    // История содержит все раунды с индексами 0-9 (основная игра) и 10+ (овертайм)
-    const overtimeKicks = allKicks.filter((_, idx) => {
-      // Считаем сколько ударов было до овертайма
-      const kicksBeforeOT = allKicks.slice(0, idx + 1).filter((k, i) => {
-        // Находим индекс этого удара в полной истории
-        const fullHistoryIdx = history.indexOf(k);
-        return fullHistoryIdx < suddenDeathStartRound;
-      }).length;
-      
-      // Если этот удар после начала овертайма
-      const fullHistoryIdx = history.indexOf(allKicks[idx]);
+    const overtimeKicks = allKicks.filter((k) => {
+      const fullHistoryIdx = history.indexOf(k);
       return fullHistoryIdx >= suddenDeathStartRound;
     });
     
-    // Показываем последние totalKicks ударов овертайма
-    kicks = overtimeKicks.slice(-totalKicks);
+    // ИСПРАВЛЕНИЕ: Определяем текущий цикл овертайма
+    // Каждый цикл = 2 удара (по 1 от каждого игрока)
+    // Если после цикла счёт равный - начинается новый цикл
+    
+    // Группируем удары по циклам (каждые 2 раунда = 1 цикл)
+    const cycleSize = 2; // Каждый игрок делает 1 удар за цикл
+    const totalOvertimeRounds = history.length - suddenDeathStartRound;
+    const completedCycles = Math.floor(totalOvertimeRounds / cycleSize);
+    
+    // Проверяем счёт после каждого завершённого цикла
+    let currentCycleStart = suddenDeathStartRound;
+    
+    for (let cycle = 0; cycle < completedCycles; cycle++) {
+      const cycleEnd = suddenDeathStartRound + (cycle + 1) * cycleSize;
+      
+      // Считаем голы обоих игроков в этом цикле
+      const cycleHistory = history.slice(currentCycleStart, cycleEnd);
+      const p1Goals = cycleHistory.filter(h => h.kickerIndex === 0 && h.isGoal).length;
+      const p2Goals = cycleHistory.filter(h => h.kickerIndex === 1 && h.isGoal).length;
+      
+      // Если счёт НЕ равный - кто-то выиграл, показываем все удары этого цикла
+      if (p1Goals !== p2Goals) {
+        break;
+      }
+      
+      // Счёт равный - это был полный цикл, начинается новый
+      currentCycleStart = cycleEnd;
+    }
+    
+    // Показываем только удары текущего цикла
+    const currentCycleKicks = overtimeKicks.filter((k) => {
+      const fullHistoryIdx = history.indexOf(k);
+      return fullHistoryIdx >= currentCycleStart;
+    });
+    
+    // Показываем последние totalKicks ударов текущего цикла
+    kicks = currentCycleKicks.slice(-totalKicks);
   } else {
     // В основной игре показываем первые totalKicks ударов
     kicks = allKicks.slice(0, totalKicks);
@@ -200,6 +225,8 @@ const GamePage = () => {
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
   const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
+  const PVP_POLL_FAST_MS = 300; // Быстрый polling в критические моменты
+  const pvpPollFastModeRef = useRef(false); // Флаг быстрого режима
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
@@ -536,6 +563,10 @@ const GamePage = () => {
     setScores(msg.scores);
     if (msg.history) setHistory(msg.history);
 
+    // КРИТИЧЕСКИЙ МОМЕНТ: Включаем быстрый polling
+    // Может начаться овертайм или закончиться игра
+    enableFastPolling();
+
     const { kickerZone, keeperZone, isGoal, kickerIndex } = msg;
     const iAmKicker = playerIndexRef.current === kickerIndex;
 
@@ -618,15 +649,21 @@ const GamePage = () => {
       if (!showingResultRef.current) return;
 
       if (playModeRef.current === 'pvp') {
-        // Force unlock if still stuck
+        // УСИЛЕННАЯ ЗАЩИТА: Принудительно запрашиваем состояние
+        pvpPollState();
+        
+        // Force unlock if still stuck after 1 more second
         setTimeout(() => {
           if (!showingResultRef.current) return;
+          console.log('[UNLOCK] Принудительная разблокировка после результата');
           setShowingResult(false);
           setResultMessage(null);
           setZoneLocked(false);
           setWaitingOpponent(false);
           setInputBlocked(false);
-        }, 500);
+          // Ещё один poll для синхронизации
+          pvpPollState();
+        }, 1000);
         return;
       }
 
@@ -656,11 +693,23 @@ const GamePage = () => {
 
   const startPvpPolling = useCallback(() => {
     stopPvpPolling();
+    const interval = pvpPollFastModeRef.current ? PVP_POLL_FAST_MS : PVP_POLL_MS;
     pvpPollTimerRef.current = setInterval(() => {
       pvpPollState();
-    }, PVP_POLL_MS);
+    }, interval);
     pvpPollState(); // Сразу первый запрос
   }, [stopPvpPolling]); // eslint-disable-line
+
+  const enableFastPolling = useCallback(() => {
+    if (pvpPollFastModeRef.current) return; // Уже включен
+    pvpPollFastModeRef.current = true;
+    startPvpPolling(); // Перезапускаем с новым интервалом
+    // Автоматически выключаем через 10 секунд
+    setTimeout(() => {
+      pvpPollFastModeRef.current = false;
+      if (pvpPollTimerRef.current) startPvpPolling(); // Возвращаем нормальный интервал
+    }, 10000);
+  }, [startPvpPolling]);
 
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
@@ -849,27 +898,45 @@ const GamePage = () => {
         stopTimer();
 
         let penAttempts = 0;
+        let moveConfirmed = false;
+        
         const submitPenMove = () => {
           penAttempts++;
+          console.log(`[MOVE] Отправка хода zone=${zone}, попытка ${penAttempts}`);
+          
           apiPost({
             action: 'pvpSubmitMove',
             initData: tgInitDataRef.current,
             roomId: pvpRoomIdRef.current,
             move: { zone },
           }).then((data2) => {
-            if (data2?.ok && data2.room) {
-              applyPvpRoomState(data2.room);
-            } else if (penAttempts < 3) {
-              setTimeout(submitPenMove, 500);
+            if (data2?.ok) {
+              moveConfirmed = true;
+              console.log('[MOVE] Ход подтверждён сервером');
+              
+              if (data2.room) {
+                applyPvpRoomState(data2.room);
+              }
+              
+              // Сразу запрашиваем обновлённое состояние
+              setTimeout(() => pvpPollState(), 200);
             } else {
-              // Failed after 3 attempts - unlock and allow retry
-              setZoneLocked(false);
-              setWaitingOpponent(false);
-              showBottomNotice('Ошибка отправки хода. Попробуй снова.');
+              console.log('[MOVE] Ошибка от сервера:', data2?.error);
+              
+              if (penAttempts < 3) {
+                setTimeout(submitPenMove, 400);
+              } else {
+                // Failed after 3 attempts - unlock and allow retry
+                setZoneLocked(false);
+                setWaitingOpponent(false);
+                showBottomNotice('Ошибка отправки хода. Попробуй снова.');
+              }
             }
-          }).catch(() => {
+          }).catch((err) => {
+            console.log('[MOVE] Ошибка сети:', err);
+            
             if (penAttempts < 3) {
-              setTimeout(submitPenMove, 500);
+              setTimeout(submitPenMove, 400);
             } else {
               setZoneLocked(false);
               setWaitingOpponent(false);
@@ -879,23 +946,28 @@ const GamePage = () => {
         };
         submitPenMove();
 
-        // ИСПРАВЛЕНИЕ: Уменьшили watchdog с 8 сек до 5 сек
-        // Если через 5 сек нет ответа — форсируем poll и разблокируем
+        // ИСПРАВЛЕНИЕ: Уменьшили watchdog с 5 сек до 4 сек
+        // Если через 4 сек нет подтверждения — форсируем poll и проверяем
         clearMoveWatchdog();
         pvpMoveWatchdogTimerRef.current = setTimeout(() => {
-          if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
-            // Форсируем poll
+          if (!moveConfirmed && zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
+            console.log('[WATCHDOG] Ход не подтверждён, форсируем poll');
+            // Форсируем несколько poll подряд
             pvpPollState();
+            setTimeout(() => pvpPollState(), 300);
+            setTimeout(() => pvpPollState(), 600);
+            
             // Если через ещё 2 сек всё ещё зависло — разблокируем
             setTimeout(() => {
               if (zoneLocked && waitingOpponent) {
+                console.log('[WATCHDOG] Принудительная разблокировка');
                 setZoneLocked(false);
                 setWaitingOpponent(false);
                 showBottomNotice('Ошибка синхронизации. Попробуй снова.');
               }
             }, 2000);
           }
-        }, 5000);
+        }, 4000);
 
         // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
       }
