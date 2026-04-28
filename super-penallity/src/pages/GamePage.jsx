@@ -274,10 +274,97 @@ const GamePage = () => {
     };
   }, [waitingOpponent, screen]);
 
+  // Обработка кнопки "Назад" и перезапуска приложения
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+    
+    // Обработчик кнопки "Назад"
+    const handleBackButton = () => {
+      // При нажатии "Назад" - выходим на главную страницу
+      if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
+        // Выходим из комнаты
+        const payload = JSON.stringify({
+          action: 'pvpLeaveRoom',
+          initData: tgInitDataRef.current,
+          roomId: pvpRoomIdRef.current,
+        });
+        fetch('/api/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
+      }
+      
+      // Очищаем все таймеры и состояния
+      stopPvpPolling();
+      stopRealtimeSubscription();
+      playModeRef.current = 'idle';
+      pvpRoomIdRef.current = null;
+      
+      // Выкидываем на главную
+      goHome();
+    };
+    
+    // Обработчик перезапуска (когда пользователь возвращается после закрытия)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Если пользователь был в игре/поиске - сбрасываем
+        if (screen !== 'stake-online' && screen !== 'stake-bot') {
+          // Выходим из комнаты если были в PvP
+          if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
+            const payload = JSON.stringify({
+              action: 'pvpLeaveRoom',
+              initData: tgInitDataRef.current,
+              roomId: pvpRoomIdRef.current,
+            });
+            fetch('/api/user', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: payload,
+              keepalive: true,
+            }).catch(() => {});
+          }
+          
+          // Очищаем состояния
+          stopPvpPolling();
+          stopRealtimeSubscription();
+          playModeRef.current = 'idle';
+          pvpRoomIdRef.current = null;
+          
+          // Возвращаем на главную
+          goHome();
+        }
+      }
+    };
+    
+    // Показываем кнопку "Назад" на всех экранах кроме выбора ставки
+    if (screen !== 'stake-online' && screen !== 'stake-bot') {
+      if (tg?.BackButton) {
+        tg.BackButton.show();
+        tg.BackButton.onClick(handleBackButton);
+      }
+    } else {
+      if (tg?.BackButton) {
+        tg.BackButton.hide();
+      }
+    }
+    
+    // Подписываемся на изменение видимости
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      if (tg?.BackButton) {
+        tg.BackButton.offClick(handleBackButton);
+        tg.BackButton.hide();
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [screen, goHome, stopPvpPolling, stopRealtimeSubscription]);
+
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     tgInitDataRef.current = tg?.initData || '';
-    if (tg?.BackButton) tg.BackButton.hide();
     const u = tg?.initDataUnsafe?.user;
     const fallback = u?.first_name || 'Player';
     const init = tgInitDataRef.current;
