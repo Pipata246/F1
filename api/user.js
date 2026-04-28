@@ -1690,8 +1690,8 @@ function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
   return pvpDefaultState(player1Id, player2Id);
 }
 
-const PVP_BOT_WAIT_MIN_MS = 25_000; // 25 seconds minimum
-const PVP_BOT_WAIT_SPAN_MS = 15_000; // 25..40 sec range
+const PVP_BOT_WAIT_MIN_MS = 10_000; // 10 seconds minimum
+const PVP_BOT_WAIT_SPAN_MS = 5_000; // 10..15 sec range
 const PVP_BOT_MOVE_MIN_MS = 1000;
 const PVP_BOT_MOVE_MAX_MS = 3000;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
