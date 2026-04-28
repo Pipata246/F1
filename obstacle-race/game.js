@@ -15,7 +15,7 @@ function startRealtimeSubscription(roomId) {
   // Пустая функция - не нужен WebSocket
 }
 
-// ==================== GAME VARIABLES ====================
+// ==================== GAME VARIABLES ==================
 let ws = null;
 let playerIndex = -1;
 let opponentName = '';
