@@ -277,7 +277,33 @@ const GamePage = () => {
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     tgInitDataRef.current = tg?.initData || '';
-    if (tg?.BackButton) tg.BackButton.hide();
+    
+    // Обработка кнопки "Назад" в Telegram
+    if (tg?.BackButton) {
+      const handleBack = () => {
+        // При нажатии "Назад" всегда выкидываем на главную
+        goHome();
+      };
+      
+      tg.BackButton.onClick(handleBack);
+      
+      // Показываем кнопку "Назад" на всех экранах кроме главного
+      if (screen !== 'stake-online') {
+        tg.BackButton.show();
+      } else {
+        tg.BackButton.hide();
+      }
+      
+      return () => {
+        tg.BackButton.offClick(handleBack);
+      };
+    }
+  }, [screen]);
+
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+    tgInitDataRef.current = tg?.initData || '';
+    
     const u = tg?.initDataUnsafe?.user;
     const fallback = u?.first_name || 'Player';
     const init = tgInitDataRef.current;
@@ -305,13 +331,42 @@ const GamePage = () => {
         setBalanceTon(0);
       });
   }, []);
+  
   const showBottomNotice = useCallback((msg) => {
     setBottomNotice(String(msg || ''));
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = setTimeout(() => setBottomNotice(''), 2200);
   }, []);
+  
   const goHome = useCallback(() => {
     window.location.href = '/';
+  }, []);
+
+  // Защита от перезагрузки страницы во время игры
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      // Если пользователь в игре, поиске или выборе ставки - предупреждаем
+      if (screen === 'game' || screen === 'waiting' || screen === 'accept') {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [screen]);
+
+  // При монтировании компонента проверяем не было ли перезагрузки во время игры
+  useEffect(() => {
+    // Если пользователь не на главном экране при загрузке - выкидываем домой
+    // Это защита от перезагрузки страницы во время игры
+    const wasReloaded = performance.navigation?.type === 1 || 
+                        performance.getEntriesByType?.('navigation')?.[0]?.type === 'reload';
+    
+    if (wasReloaded && screen !== 'stake-online') {
+      // Страница была перезагружена не на главном экране - выкидываем домой
+      goHome();
+    }
   }, []);
 
 
