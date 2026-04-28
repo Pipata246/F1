@@ -63,7 +63,17 @@ const GamePage = () => {
     paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
     boxSizing: 'border-box',
   };
-  const [screen, setScreen] = useState('stake-online');
+  
+  // Определяем начальный экран на основе URL параметров (чтобы не было мелькания)
+  const getInitialScreen = () => {
+    const params = new URLSearchParams(window.location.search);
+    const launchMode = String(params.get('launch') || '').toLowerCase();
+    if (launchMode === 'demo') return 'demo-intro';
+    if (launchMode === 'play' && params.get('roomId')) return 'waiting';
+    return 'stake-online';
+  };
+  
+  const [screen, setScreen] = useState(getInitialScreen());
   const [displayName, setDisplayName] = useState('Player');
   const [opponent, setOpponent] = useState('');
   const [playerIndex, setPlayerIndex] = useState(0);
@@ -982,7 +992,7 @@ const GamePage = () => {
     if (launchMode !== 'play' && launchMode !== 'demo') return;
     launchHandledRef.current = true;
     if (launchMode === 'demo') {
-      setScreen('demo-intro');
+      // Экран уже установлен в getInitialScreen()
     } else {
       const roomId = params.get('roomId');
       if (roomId) {
@@ -993,10 +1003,8 @@ const GamePage = () => {
         // Восстанавливаем ставку из URL для кнопки "Играть снова"
         const stakeFromUrl = Number(params.get('stake') || 0);
         if (stakeFromUrl > 0) setSelectedStakeOptions([stakeFromUrl]);
-        setScreen('waiting');
+        // Экран уже установлен в getInitialScreen()
         startPvpPolling();
-      } else {
-        setScreen('stake-online');
       }
     }
   }, []);
