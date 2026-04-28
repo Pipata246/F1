@@ -1063,34 +1063,35 @@ const GamePage = () => {
           // Обновляем историю
           const newHistory = [...history, { kickerIndex, kickerZone, keeperZone, isGoal }];
           
-          // Проверяем конец основной игры (5 раундов)
-          const roundsPlayed = currentRound;
-          const maxR = 5;
+          // ИСПРАВЛЕНИЕ: Проверяем по количеству ходов в истории, а не по номеру раунда
+          // 5 раундов = 10 ходов (каждый игрок делает по 5 ударов)
+          const totalMoves = newHistory.length;
+          const maxMoves = 10; // 5 раундов × 2 хода
           
           // Проверяем нужен ли овертайм
           let needsOvertime = false;
           let startingSuddenDeath = false;
           let overtimeStartRound = suddenDeathStartRound;
           
-          if (roundsPlayed >= maxR && !suddenDeath) {
-            // Основная игра закончена - проверяем счёт
+          if (totalMoves >= maxMoves && !suddenDeath) {
+            // Основная игра закончена (10 ходов) - проверяем счёт
             if (newScores[0] === newScores[1]) {
               needsOvertime = true;
               startingSuddenDeath = true;
-              overtimeStartRound = roundsPlayed; // Запоминаем раунд начала овертайма
+              overtimeStartRound = totalMoves; // Запоминаем ход начала овертайма
             }
           }
           
           // Проверяем конец овертайма (кто-то забил больше в текущем цикле)
           let gameEnded = false;
-          if (suddenDeath && roundsPlayed > maxR) {
-            // В овертайме проверяем после каждых 2 раундов (1 цикл)
-            const overtimeRounds = roundsPlayed - suddenDeathStartRound;
-            if (overtimeRounds % 2 === 0) {
-              // Цикл завершён - проверяем счёт последних 2 раундов
-              const lastTwoRounds = newHistory.slice(-2);
-              const p1Goals = lastTwoRounds.filter(h => h.kickerIndex === 0 && h.isGoal).length;
-              const p2Goals = lastTwoRounds.filter(h => h.kickerIndex === 1 && h.isGoal).length;
+          if (suddenDeath && totalMoves > maxMoves) {
+            // В овертайме проверяем после каждых 2 ходов (1 цикл)
+            const overtimeMoves = totalMoves - suddenDeathStartRound;
+            if (overtimeMoves % 2 === 0) {
+              // Цикл завершён - проверяем счёт последних 2 ходов
+              const lastTwoMoves = newHistory.slice(-2);
+              const p1Goals = lastTwoMoves.filter(h => h.kickerIndex === 0 && h.isGoal).length;
+              const p2Goals = lastTwoMoves.filter(h => h.kickerIndex === 1 && h.isGoal).length;
               
               if (p1Goals !== p2Goals) {
                 // Кто-то выиграл овертайм
@@ -1120,7 +1121,7 @@ const GamePage = () => {
           }
           
           // Проверяем конец игры
-          if (roundsPlayed >= maxR && !needsOvertime && !suddenDeath) {
+          if (totalMoves >= maxMoves && !needsOvertime && !suddenDeath) {
             // Основная игра закончена, есть победитель
             setTimeout(() => {
               const youWon = newScores[0] > newScores[1];
@@ -1143,14 +1144,14 @@ const GamePage = () => {
           } else {
             // Следующий раунд
             setTimeout(() => {
-              const nextRound = roundsPlayed + 1;
+              const nextRound = currentRound + 1;
               const nextKickerIndex = (nextRound - 1) % 2 === 0 ? 0 : 1;
               const inSuddenDeath = needsOvertime || suddenDeath;
               
               handleServerMessage({
                 type: 'round_start',
                 round: nextRound,
-                maxRounds: inSuddenDeath ? nextRound : maxR,
+                maxRounds: inSuddenDeath ? nextRound : 5,
                 role: nextKickerIndex === 0 ? 'kicker' : 'keeper',
                 scores: newScores,
                 suddenDeath: inSuddenDeath,
