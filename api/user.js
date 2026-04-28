@@ -2271,21 +2271,21 @@ function pvpResolveSuperPenaltyRound(state) {
         // Достигнут лимит овертаймов - случайный победитель
         gameOver = true;
         winnerSide = Math.random() < 0.5 ? "p1" : "p2";
-      } else {
-        // Счёт всё ещё равный - начинаем НОВЫЙ цикл овертайма
-        // Обновляем sdStart для нового цикла и показываем модалку снова
-        s.sdStart = roundsPlayed;
-        s.kickerOverride = 0; // Первым бьёт игрок 0
-        startSuddenDeath = true; // Показываем модалку "ОВЕРТАЙМ" снова
+      }
+      // ИСПРАВЛЕНИЕ: Убрали повторный показ модалки овертайма
+      // Счёт равный - просто продолжаем овертайм без модалки
+      // Сбрасываем счёт для новой пары
+      if (!gameOver) {
+        s.scores.p1 = 0;
+        s.scores.p2 = 0;
       }
     }
     
-    if (!gameOver && !startSuddenDeath) {
-      // Определяем кто бьёт следующим в текущем цикле овертайма
+    if (!gameOver) {
+      // Определяем кто бьёт следующим в овертайме
+      // Чередуем: раунд 0 → p1, раунд 1 → p2, раунд 2 → p1, и т.д.
       const currentSdRounds = roundsPlayed - Number(s.sdStart || 0);
-      const pairNum = Math.floor(currentSdRounds / 2);
-      const withinPair = currentSdRounds % 2;
-      s.kickerOverride = (pairNum + withinPair) % 2;
+      s.kickerOverride = currentSdRounds % 2;
     }
   } else {
     // ОСНОВНАЯ ИГРА
