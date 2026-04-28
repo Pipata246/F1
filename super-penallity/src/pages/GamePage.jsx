@@ -283,6 +283,11 @@ const GamePage = () => {
       tg.BackButton.hide();
     }
     
+    // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ TELEGRAM
+    if (tg) {
+      tg.disableClosingConfirmation();
+    }
+    
     const u = tg?.initDataUnsafe?.user;
     const fallback = u?.first_name || 'Player';
     const init = tgInitDataRef.current;
@@ -330,10 +335,25 @@ const GamePage = () => {
     // Очищаем состояние игры и отправляем на бэкенд что вышли
     if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
       // КРИТИЧНО: Отправляем pvpLeaveRoom чтобы засчитать поражение
-      apiPost({
+      const payload = JSON.stringify({
         action: 'pvpLeaveRoom',
         initData: tgInitDataRef.current,
         roomId: pvpRoomIdRef.current,
+      });
+      
+      // Используем sendBeacon для надёжной отправки
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+        }
+      } catch {}
+      
+      // Дублируем обычным fetch с keepalive
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
       }).catch(() => {});
     }
     
@@ -346,55 +366,47 @@ const GamePage = () => {
     playModeRef.current = 'idle';
     pvpRoomIdRef.current = null;
     
-    // Переходим на ГЛАВНУЮ СТРАНИЦУ (не игры, а сайта)
-    window.location.href = '/';
-  }, [apiPost]);
+    // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ перед переходом
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.disableClosingConfirmation();
+    }
+    
+    // Переходим на ГЛАВНУЮ СТРАНИЦУ (не игры, а сайта) БЕЗ ЗАДЕРЖКИ
+    // Используем replace чтобы не добавлять в историю
+    window.location.replace('/');
+  }, []);
 
-  // Обработка браузерной кнопки "Назад" (не Telegram BackButton)
+  // Обработка браузерной кнопки "Назад"
   useEffect(() => {
-    const handlePopState = (e) => {
-      // При нажатии браузерной кнопки "Назад" - сбрасываем на главную
-      e.preventDefault();
-      if (screen !== 'stake-online') {
-        goHome();
-      }
+    const handlePopState = () => {
+      // При нажатии браузерной кнопки "Назад" - всегда на главную
+      goHome();
     };
     
-    // Добавляем запись в историю браузера при переходе с главного экрана
+    // Добавляем запись в историю браузера ВСЕГДА когда не на главной
     if (screen !== 'stake-online') {
-      window.history.pushState({ screen }, '');
+      window.history.pushState({ screen }, '', window.location.pathname);
     }
     
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [screen, goHome]);
 
-  // Защита от перезагрузки страницы во время игры
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      // Если пользователь в игре, поиске или выборе ставки - предупреждаем
-      if (screen === 'game' || screen === 'waiting' || screen === 'accept') {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [screen]);
+  // УБИРАЕМ ВСЕ УВЕДОМЛЕНИЯ - удаляем beforeunload полностью
+  // useEffect для beforeunload УДАЛЁН
 
-  // При монтировании компонента проверяем не было ли перезагрузки во время игры
+  // При монтировании компонента проверяем перезагрузку
   useEffect(() => {
-    // Если пользователь не на главном экране при загрузке - выкидываем домой
-    // Это защита от перезагрузки страницы во время игры
+    // При ЛЮБОЙ перезагрузке - всегда на главную
     const wasReloaded = performance.navigation?.type === 1 || 
                         performance.getEntriesByType?.('navigation')?.[0]?.type === 'reload';
     
-    if (wasReloaded && screen !== 'stake-online') {
-      // Страница была перезагружена не на главном экране - выкидываем домой
-      goHome();
+    if (wasReloaded) {
+      // Страница была перезагружена - ВСЕГДА выкидываем на главную
+      window.location.replace('/');
     }
-  }, [goHome]);
+  }, []);
 
 
   useEffect(() => {
@@ -1358,10 +1370,26 @@ const GamePage = () => {
       const rid = pvpRoomIdRef.current;
       pvpRoomIdRef.current = null;
       if (rid && tgInitDataRef.current) {
-        apiPost({
+        // Отправляем отмену поиска
+        const payload = JSON.stringify({
           action: 'pvpCancelQueue',
           initData: tgInitDataRef.current,
           roomId: rid,
+        });
+        
+        // Используем sendBeacon для надёжной отправки
+        try {
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
+          }
+        } catch {}
+        
+        // Дублируем обычным fetch
+        fetch('/api/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
         }).catch(() => {});
       }
       stopPvpPolling();
@@ -1372,7 +1400,15 @@ const GamePage = () => {
     playModeRef.current = 'idle';
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     stopRealtimeSubscription();
-    goHome();
+    
+    // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ перед переходом
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.disableClosingConfirmation();
+    }
+    
+    // Переходим на главную БЕЗ вызова goHome() чтобы избежать дублирования pvpLeaveRoom
+    window.location.replace('/');
   };
 
   const handleChooseZone = (zone) => {
@@ -1401,8 +1437,16 @@ const GamePage = () => {
     setHistory([]);
     stopPvpPolling();
     pvpRoomIdRef.current = null;
-    goHome();
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    
+    // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ перед переходом
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.disableClosingConfirmation();
+    }
+    
+    // Переходим на главную
+    window.location.replace('/');
   };
 
   const saveMatchToBackend = (youWon, finalScores, finalHistory) => {
