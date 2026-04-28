@@ -624,8 +624,9 @@ const GamePage = () => {
     }
 
     // Safety timeout: если застряли на результате - разблокируем
-    // Увеличиваем таймаут если овертайм, чтобы дать время на показ модалки
-    const safetyTimeout = msg.startSuddenDeath ? 5000 : 2500;
+    // ИСПРАВЛЕНИЕ: Одинаковый таймаут для всех случаев (2.5 сек)
+    // Модалка овертайма показывается 2.5 сек, бэкенд переходит в turn_input через 800мс
+    const safetyTimeout = 2500;
     roundStuckTimerRef.current = setTimeout(() => {
       if (!showingResultRef.current) return;
 
@@ -891,22 +892,23 @@ const GamePage = () => {
         };
         submitPenMove();
 
-        // Watchdog: если через 8 сек нет ответа — форсируем poll и разблокируем
+        // ИСПРАВЛЕНИЕ: Уменьшили watchdog с 8 сек до 5 сек
+        // Если через 5 сек нет ответа — форсируем poll и разблокируем
         clearMoveWatchdog();
         pvpMoveWatchdogTimerRef.current = setTimeout(() => {
           if (zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
             // Форсируем poll
             pvpPollState();
-            // Если через ещё 3 сек всё ещё зависло — разблокируем
+            // Если через ещё 2 сек всё ещё зависло — разблокируем
             setTimeout(() => {
               if (zoneLocked && waitingOpponent) {
                 setZoneLocked(false);
                 setWaitingOpponent(false);
                 showBottomNotice('Ошибка синхронизации. Попробуй снова.');
               }
-            }, 3000);
+            }, 2000);
           }
-        }, 8000);
+        }, 5000);
 
         // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
       }

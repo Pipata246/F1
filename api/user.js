@@ -2669,9 +2669,10 @@ function pvpAdvanceByTime(room) {
         next.winnerSide = rr.winnerSide || null;
         next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
       } else {
-        // Если начинается овертайм - даём больше времени на показ модалки (5 сек вместо 0.8)
-        const minElapsed = rr.startSuddenDeath ? 5000 : 800;
-        if (elapsed >= minElapsed) {
+        // ИСПРАВЛЕНИЕ: Убрали увеличенную задержку для овертайма
+        // Модалка на фронте показывается 2.5 сек, этого достаточно
+        // Бэкенд переходит в turn_input через 800мс как обычно
+        if (elapsed >= 800) {
           next.phase = "turn_input";
           next.phaseAtMs = now;
           next.choices = { p1: null, p2: null };
