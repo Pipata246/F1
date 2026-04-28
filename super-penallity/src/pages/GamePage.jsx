@@ -278,31 +278,10 @@ const GamePage = () => {
     const tg = window.Telegram?.WebApp;
     tgInitDataRef.current = tg?.initData || '';
     
-    // Обработка кнопки "Назад" в Telegram
+    // Скрываем кнопку "Назад" в Telegram - не используем её
     if (tg?.BackButton) {
-      const handleBack = () => {
-        // При нажатии "Назад" всегда выкидываем на главную
-        goHome();
-      };
-      
-      tg.BackButton.onClick(handleBack);
-      
-      // Показываем кнопку "Назад" на всех экранах кроме главного
-      if (screen !== 'stake-online') {
-        tg.BackButton.show();
-      } else {
-        tg.BackButton.hide();
-      }
-      
-      return () => {
-        tg.BackButton.offClick(handleBack);
-      };
+      tg.BackButton.hide();
     }
-  }, [screen]);
-
-  useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    tgInitDataRef.current = tg?.initData || '';
     
     const u = tg?.initDataUnsafe?.user;
     const fallback = u?.first_name || 'Player';
@@ -338,9 +317,66 @@ const GamePage = () => {
     noticeTimerRef.current = setTimeout(() => setBottomNotice(''), 2200);
   }, []);
   
-  const goHome = useCallback(() => {
-    window.location.href = '/';
+  const apiPost = useCallback(async (payload) => {
+    const res = await fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    return res.json();
   }, []);
+  
+  const goHome = useCallback(() => {
+    // Очищаем состояние игры
+    if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
+      apiPost({
+        action: 'pvpLeaveRoom',
+        initData: tgInitDataRef.current,
+        roomId: pvpRoomIdRef.current,
+      }).catch(() => {});
+    }
+    
+    // Останавливаем polling
+    if (pvpPollTimerRef.current) {
+      clearInterval(pvpPollTimerRef.current);
+      pvpPollTimerRef.current = null;
+    }
+    
+    playModeRef.current = 'idle';
+    pvpRoomIdRef.current = null;
+    
+    // Переходим на главную БЕЗ перезагрузки страницы
+    setScreen('stake-online');
+    setAcceptInfo(null);
+    setMatchResult(null);
+    setScores([0, 0]);
+    setRound(0);
+    setHistory([]);
+    setSuddenDeath(false);
+    setZoneLocked(false);
+    setWaitingOpponent(false);
+    setShowingResult(false);
+    setInputBlocked(false);
+  }, [apiPost]);
+
+  // Обработка браузерной кнопки "Назад" (не Telegram BackButton)
+  useEffect(() => {
+    const handlePopState = (e) => {
+      // При нажатии браузерной кнопки "Назад" - сбрасываем на главную
+      e.preventDefault();
+      if (screen !== 'stake-online') {
+        goHome();
+      }
+    };
+    
+    // Добавляем запись в историю браузера при переходе с главного экрана
+    if (screen !== 'stake-online') {
+      window.history.pushState({ screen }, '');
+    }
+    
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [screen, goHome]);
 
   // Защита от перезагрузки страницы во время игры
   useEffect(() => {
@@ -367,7 +403,7 @@ const GamePage = () => {
       // Страница была перезагружена не на главном экране - выкидываем домой
       goHome();
     }
-  }, []);
+  }, [goHome]);
 
 
   useEffect(() => {
@@ -488,15 +524,6 @@ const GamePage = () => {
         realtimeChannelRef.current = null;
       }
     };
-  }, []);
-
-  const apiPost = useCallback(async (payload) => {
-    const res = await fetch('/api/user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    });
-    return res.json();
   }, []);
 
   const handleServerMessage = useCallback((msg) => {
