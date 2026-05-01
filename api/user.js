@@ -1299,7 +1299,7 @@ async function authSession(initData) {
         last_name: tg.last_name || "",
         username: tg.username || "",
         display_name: displayNameFromTg(tg),
-        balance: 0,
+        balance: 100,
       },
     };
   }
