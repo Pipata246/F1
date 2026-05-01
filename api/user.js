@@ -3150,34 +3150,43 @@ function pvpApplyMove(room, tgId, move) {
       next?.pending?.frogCell !== null &&
       next?.pending?.frogCell !== undefined &&
       Number.isInteger(Number(next.pending.frogCell));
-    
-    // Check if move was already submitted by this player
+
     if (alreadyChosen) {
       if (next.moveSubmittedBy.frog && next.moveSubmittedBy.frog !== tgId) {
         throw new Error("Move already submitted by another player");
       }
-      // Same player trying to resubmit - just return current state
+      const incomingCell = Number(move?.frogCell);
+      const storedCell = Number(next.pending.frogCell);
+      if (Number.isInteger(incomingCell) && incomingCell !== storedCell) {
+        throw new Error("Move already submitted");
+      }
       next.updatedAt = new Date().toISOString();
       return next;
     }
-    
+
     const frogCell = Number(move?.frogCell);
     if (!Number.isInteger(frogCell) || frogCell < 0 || frogCell >= totalCells) throw new Error("Invalid frog cell");
     next.pending.frogCell = frogCell;
     next.moveSubmittedBy.frog = tgId;
   } else {
     const alreadyChosen = Array.isArray(next?.pending?.hunterCells) && next.pending.hunterCells.length === hunterShots;
-    
-    // Check if move was already submitted by this player
+
     if (alreadyChosen) {
       if (next.moveSubmittedBy.hunter && next.moveSubmittedBy.hunter !== tgId) {
         throw new Error("Move already submitted by another player");
       }
-      // Same player trying to resubmit - just return current state
+      const incomingArr = Array.isArray(move?.hunterCells) ? move.hunterCells.map(Number).filter(Number.isInteger) : null;
+      if (incomingArr && incomingArr.length === hunterShots) {
+        const incomingKey = JSON.stringify(incomingArr.slice().sort((a, b) => a - b));
+        const storedKey = JSON.stringify(next.pending.hunterCells.map(Number).slice().sort((a, b) => a - b));
+        if (incomingKey !== storedKey) {
+          throw new Error("Move already submitted");
+        }
+      }
       next.updatedAt = new Date().toISOString();
       return next;
     }
-    
+
     const arr = Array.isArray(move?.hunterCells) ? move.hunterCells : [];
     const cells = [];
     for (const c of arr) {
@@ -3444,14 +3453,21 @@ async function pvpGetRoomState(initData, roomId) {
   let nextRoom = roomForTick;
   const hb = pvpHeartbeat(advanced.state, tgId);
 
-  // Только пишем в БД если реально что-то изменилось
   if (advanced.changed || hb.changed) {
-    const patched = await sb(`pvp_rooms?id=eq.${id}`, {
-      method: "PATCH",
-      body: { state_json: hb.state, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-    });
-    if (patched?.length) nextRoom = patched[0];
+    const patched = await sb(
+      `pvp_rooms?id=eq.${id}&updated_at=eq.${encodeURIComponent(roomForTick.updated_at)}`,
+      {
+        method: "PATCH",
+        body: { state_json: hb.state, updated_at: new Date().toISOString() },
+        prefer: "return=representation",
+      }
+    );
+    if (patched?.length) {
+      nextRoom = patched[0];
+    } else {
+      const fresh = await sb(`pvp_rooms?id=eq.${id}&select=id,status,state_json,game_key,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,stake_ton,stake_options_ton,stake_settled_at,created_at,updated_at`);
+      if (fresh?.[0]) nextRoom = fresh[0];
+    }
   }
   const nextState = asObj(nextRoom?.state_json);
   if (String(nextRoom?.status || "") === "active" && String(nextState.phase || "") === "accept_match") {

@@ -26,6 +26,7 @@ var pvpLastMatchMarker = 0;
 var pvpLastTurnKey = '';
 var pvpPendingSubmit = false;
 var pvpPollInFlight = false;
+var pvpFrogCommitted = false;
 var PVP_POLL_MS = 800;
 var pvpRecovering = false;
 var pvpServerSkewMs = 0; // localNow - serverNow
@@ -474,6 +475,7 @@ function resetPvpMarkers() {
   pvpLastTiebreakMarker = 0;
   pvpLastMatchMarker = 0;
   pvpLastTurnKey = '';
+  pvpFrogCommitted = false;
 }
 
 function pvpFindMatch() {
@@ -518,10 +520,21 @@ function startPvpPolling() {
 function pvpPollState() {
   if (!pvpRoomId || !tgInitData || pvpPollInFlight) return;
   pvpPollInFlight = true;
-  apiPost({
-    action: 'pvpGetRoomState',
-    initData: tgInitData,
-    roomId: pvpRoomId
+  var controller = (typeof AbortController === 'function') ? new AbortController() : null;
+  var timeoutTimer = setTimeout(function() {
+    if (controller) try { controller.abort(); } catch (e) {}
+  }, 10000);
+  fetch('/api/user', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'pvpGetRoomState',
+      initData: tgInitData,
+      roomId: pvpRoomId
+    }),
+    signal: controller ? controller.signal : undefined
+  }).then(function(r) {
+    return r.json();
   }).then(function(data) {
     if (!data || !data.ok) {
       var err = String((data && data.error) || '');
@@ -546,8 +559,8 @@ function pvpPollState() {
     if (!data.room) return;
     applyPvpRoomState(data.room);
   }).catch(function() {
-    // При ошибке сети — не спамим
   }).finally(function() {
+    clearTimeout(timeoutTimer);
     pvpPollInFlight = false;
   });
 }
@@ -675,6 +688,7 @@ function applyPvpRoomState(room) {
     var turnKey = String(gameNum) + ':' + String(currentRound) + ':' + String(myRole);
     if (turnKey !== pvpLastTurnKey) {
       pvpPendingSubmit = false;
+      pvpFrogCommitted = false;
       pvpLastTurnKey = turnKey;
       if (myRole === 'frog') {
         onFrogTurn({
@@ -823,13 +837,19 @@ function clearPadStates() {
   var pads = document.querySelectorAll('.lilypad');
   for (var i = 0; i < pads.length; i++) {
     pads[i].classList.remove('selected-frog', 'selected-hunter', 'has-trail', 'shot', 'hit', 'has-frog');
-    // Hide icons
     var icons = pads[i].querySelectorAll('.pad-icon');
     for (var j = 0; j < icons.length; j++) icons[j].style.display = '';
   }
   selectedCells = [];
   moveChosen = false;
   $('btn-confirm').disabled = true;
+  setConfirmReady(false);
+}
+
+function setConfirmReady(ready) {
+  var btn = $('btn-confirm');
+  if (!btn) return;
+  btn.classList.toggle('ready', !!ready);
 }
 
 function showFrog(cell) {
@@ -855,11 +875,11 @@ function showShot(cell) {
 
 function onPadClick(cell) {
   if (moveChosen) return;
+  if (pvpFrogCommitted) return;
   var pond = document.querySelector('.pond');
   if (!pond) return;
 
   if (myRole === 'frog' && pond.classList.contains('choosing-frog')) {
-    // Frog: select one pad
     playSound('click');
     var pads = document.querySelectorAll('.lilypad');
     for (var i = 0; i < pads.length; i++) pads[i].classList.remove('selected-frog');
@@ -867,29 +887,28 @@ function onPadClick(cell) {
     var pad = getPad(cell);
     if (pad) pad.classList.add('selected-frog');
     $('btn-confirm').disabled = false;
+    setConfirmReady(true);
 
   } else if (myRole === 'hunter' && pond.classList.contains('choosing-hunter')) {
     // Hunter: select hunterShots pads
     var idx = selectedCells.indexOf(cell);
     if (idx >= 0) {
-      // Deselect
       selectedCells.splice(idx, 1);
       var p = getPad(cell);
       if (p) p.classList.remove('selected-hunter');
     } else {
       playSound('click');
-      // If already at max, remove the oldest selection
       if (selectedCells.length >= hunterShots) {
         var removed = selectedCells.shift();
         var rp = getPad(removed);
         if (rp) rp.classList.remove('selected-hunter');
       }
-      // Select new
       selectedCells.push(cell);
       var p2 = getPad(cell);
       if (p2) p2.classList.add('selected-hunter');
     }
     $('btn-confirm').disabled = (selectedCells.length !== hunterShots);
+    setConfirmReady(selectedCells.length === hunterShots);
   }
 }
 
@@ -897,7 +916,9 @@ function confirmChoice() {
   if (moveChosen) return;
   if (selectedCells.length === 0) return;
   moveChosen = true;
+  pvpFrogCommitted = false;
   $('btn-confirm').disabled = true;
+  setConfirmReady(false);
   stopTimer();
 
   var pond = document.querySelector('.pond');
@@ -920,43 +941,37 @@ function confirmChoice() {
         roomId: pvpRoomId,
         move: move
       }).then(function(data) {
+        if (pvpFrogCommitted) return;
         pvpPendingSubmit = false;
         if (data && data.ok && data.room) {
+          pvpFrogCommitted = true;
           applyPvpRoomState(data.room);
         } else if (frogAttempts < 3) {
           pvpPendingSubmit = true;
           setTimeout(submitFrogMove, 800);
         } else {
-          moveChosen = false;
-          $('btn-confirm').disabled = false;
-          $('hint-text').textContent = 'Ошибка отправки хода. Попробуй ещё раз.';
+          $('hint-text').textContent = 'Сервер обрабатывает... Подожди соперника.';
         }
       }).catch(function() {
+        if (pvpFrogCommitted) return;
         pvpPendingSubmit = false;
         if (frogAttempts < 3) {
           pvpPendingSubmit = true;
           setTimeout(submitFrogMove, 800);
         } else {
-          moveChosen = false;
-          $('btn-confirm').disabled = false;
-          $('hint-text').textContent = 'Ошибка отправки хода. Попробуй ещё раз.';
+          $('hint-text').textContent = 'Сервер обрабатывает... Подожди соперника.';
         }
       });
     }
     submitFrogMove();
 
-    // Watchdog: если через 8 сек нет ответа — форсируем poll и разблокируем
     if (pvpMoveWatchdogTimer) clearTimeout(pvpMoveWatchdogTimer);
     pvpMoveWatchdogTimer = setTimeout(function() {
       if (moveChosen && pvpRoomId && tgInitData) {
         pvpPollState();
-        // Если через ещё 3 сек всё ещё нет ответа — разблокируем кнопку
         setTimeout(function() {
-          if (pvpPendingSubmit) {
-            pvpPendingSubmit = false;
-            moveChosen = false;
-            $('btn-confirm').disabled = false;
-            $('hint-text').textContent = 'Ошибка. Попробуй ещё раз.';
+          if (!pvpFrogCommitted && pvpPendingSubmit) {
+            $('hint-text').textContent = 'Сервер не отвечает... Ждём.';
           }
         }, 3000);
       }
@@ -991,38 +1006,23 @@ function startTimer(ms) {
     if (pct <= 0) {
       clearInterval(timerInterval);
       if (!moveChosen) {
-        // Demo/bot: auto move locally. PvP: server resolves by timeout; we just lock UI.
-        if (isBotMode) {
-          if (myRole === 'frog') {
+        if (myRole === 'frog') {
+          if (selectedCells.length === 0) {
             selectedCells = [Math.floor(Math.random() * Math.max(1, totalCells))];
-          } else {
-            var need = Math.max(1, Number(hunterShots || 1));
-            var pick = [];
-            var maxCell = Math.max(1, totalCells);
-            while (pick.length < need) {
-              var n = Math.floor(Math.random() * maxCell);
-              if (pick.indexOf(n) === -1) pick.push(n);
-            }
-            selectedCells = pick;
           }
-          confirmChoice();
         } else {
-          // PvP: auto-submit a random move at the (server-synced) deadline.
-          // Server still has its own timeout auto-fill as a safety net.
-          if (myRole === 'frog') {
-            selectedCells = [Math.floor(Math.random() * Math.max(1, totalCells))];
-          } else {
-            var need2 = Math.max(1, Number(hunterShots || 1));
-            var pick2 = [];
-            var maxCell2 = Math.max(1, totalCells);
-            while (pick2.length < need2) {
-              var n2 = Math.floor(Math.random() * maxCell2);
-              if (pick2.indexOf(n2) === -1) pick2.push(n2);
+          var need = Math.max(1, Number(hunterShots || 1));
+          if (selectedCells.length < need) {
+            var existing = selectedCells.slice();
+            var maxCell = Math.max(1, totalCells);
+            while (existing.length < need) {
+              var n = Math.floor(Math.random() * maxCell);
+              if (existing.indexOf(n) === -1) existing.push(n);
             }
-            selectedCells = pick2;
+            selectedCells = existing;
           }
-          confirmChoice();
         }
+        confirmChoice();
       }
     }
   }, 50);

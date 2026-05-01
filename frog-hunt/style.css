@@ -471,6 +471,17 @@ input[type="text"]::placeholder { color: var(--text2); }
 }
 .timer-fill.urgent { background: var(--danger); }
 .btn-confirm { max-width: 260px; }
+.btn-confirm.ready {
+  animation: confirm-pulse 1.4s ease-in-out infinite;
+}
+@keyframes confirm-pulse {
+  0%, 100% {
+    box-shadow: 0 12px 28px rgba(72, 210, 172, 0.55), 0 0 0 0 rgba(109, 242, 198, 0.7);
+  }
+  50% {
+    box-shadow: 0 14px 34px rgba(72, 210, 172, 0.7), 0 0 0 8px rgba(109, 242, 198, 0);
+  }
+}
 
 .overlay {
   display: none;
