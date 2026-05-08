@@ -571,14 +571,19 @@ class RouletteUI {
     // ВАЖНО: Перемешиваем карточки используя SEED из round_id
     // Это гарантирует одинаковый порядок у всех пользователей
     const seed = this.state.currentRound?.id || Date.now();
+    
+    // Улучшенный seeded random (более качественное перемешивание)
     const seededRandom = (s) => {
-      const x = Math.sin(s) * 10000;
-      return x - Math.floor(x);
+      s = Math.sin(s) * 10000;
+      return s - Math.floor(s);
     };
     
-    for (let i = cards.length - 1; i > 0; i--) {
-      const j = Math.floor(seededRandom(seed + i) * (i + 1));
-      [cards[i], cards[j]] = [cards[j], cards[i]];
+    // Делаем НЕСКОЛЬКО проходов shuffle для лучшего перемешивания
+    for (let pass = 0; pass < 5; pass++) {
+      for (let i = cards.length - 1; i > 0; i--) {
+        const j = Math.floor(seededRandom(seed * (pass + 1) + i * 7) * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
     }
     
     // Сохраняем карточки в state для анимации
@@ -712,7 +717,7 @@ class RouletteUI {
         setTimeout(() => {
           console.log('[Roulette] Animation COMPLETED - resolving promise');
           resolve();
-        }, duration + 500); // +500ms для гарантии что анимация точно закончилась
+        }, duration + 800); // +800ms для гарантии что анимация точно закончилась и еще пол секунды
       }, 200); // Увеличена задержка перед стартом
     });
   }
