@@ -4164,10 +4164,62 @@ async function getMatchHistory(initData, limit = 50) {
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  
+  // Получаем обычные матчи из game_matches
   const rows = await sb(
     `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${safeLimit}`
   );
-  return rows || [];
+  
+  // Получаем матчи рулетки из pvp_balance_events
+  let rouletteMatches = [];
+  try {
+    const rouletteEvents = await sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${safeLimit}`
+    );
+    
+    // Преобразуем события рулетки в формат матчей
+    rouletteMatches = (rouletteEvents || []).map(event => {
+      const meta = event.meta || {};
+      const isWinner = event.event_type === 'win';
+      
+      return {
+        id: `roulette_${event.id}`,
+        game_key: 'roulette',
+        mode: 'multiplayer',
+        player1_tg_user_id: tgId,
+        player1_name: 'Вы',
+        player2_tg_user_id: meta.winner_user_id || null,
+        player2_name: `${meta.players_count - 1 || 1} игроков`,
+        winner_tg_user_id: meta.winner_user_id || null,
+        score_json: {
+          winner_amount: meta.winner_amount || 0,
+          total_pot: meta.total_pot || 0,
+          platform_fee: 0
+        },
+        details_json: {
+          round_id: meta.round_id,
+          players_count: meta.players_count || 2,
+          players: [{
+            user_id: tgId,
+            name: 'Вы',
+            bet: meta.my_bet || parseFloat(event.stake_ton || 0),
+            chance: meta.my_chance || 0,
+            is_winner: isWinner
+          }]
+        },
+        finished_at: event.created_at
+      };
+    });
+  } catch (e) {
+    // Игнорируем ошибки получения рулетки
+  }
+  
+  // Объединяем и сортируем по дате
+  const allMatches = [...(rows || []), ...rouletteMatches].sort((a, b) => {
+    return new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime();
+  });
+  
+  return allMatches.slice(0, safeLimit);
 }
 
 /**

@@ -362,56 +362,13 @@ async function handleSpinRoulette(body, tgUserId) {
         text: text,
         round_id: round.id,
         players_count: round.players_count,
-        total_pot: totalPot
-      }
-    });
-  }
-  
-  // Добавить записи в game_matches для истории матчей
-  // Для рулетки создаем отдельную запись для каждого игрока
-  const playersDetails = bets.map(bet => ({
-    user_id: bet.user_id,
-    name: bet.users?.username || bet.users?.first_name || "Player",
-    bet: parseFloat(bet.bet_amount),
-    chance: parseFloat(bet.chance_percent),
-    is_winner: bet.user_id === winnerId
-  }));
-  
-  for (const bet of bets) {
-    const isWinner = bet.user_id === winnerId;
-    const playerName = bet.users?.username || bet.users?.first_name || "Player";
-    
-    // Для каждого игрока создаем запись где он player1
-    // player2 будет первый другой игрок (не null)
-    const otherPlayer = bets.find(b => b.user_id !== bet.user_id);
-    
-    if (!otherPlayer) {
-      // Если только один игрок (не должно быть, но на всякий случай)
-      continue;
-    }
-    
-    const otherPlayerId = otherPlayer.user_id;
-    const otherPlayerName = otherPlayer.users?.username || otherPlayer.users?.first_name || "Player";
-    
-    await supabaseInsert("game_matches", {
-      game_key: 'roulette',
-      mode: 'multiplayer',
-      player1_tg_user_id: bet.user_id,
-      player1_name: playerName,
-      player2_tg_user_id: otherPlayerId,
-      player2_name: otherPlayerName,
-      winner_tg_user_id: winnerId,
-      score_json: {
-        winner_amount: winnerAmount,
         total_pot: totalPot,
-        platform_fee: platformFee
-      },
-      details_json: {
-        round_id: round.id,
-        players: playersDetails,
-        players_count: round.players_count
-      },
-      finished_at: new Date().toISOString()
+        winner_user_id: winnerId,
+        winner_display_name: winnerDisplayName,
+        winner_amount: winnerAmount,
+        my_chance: parseFloat(bet.chance_percent),
+        my_bet: parseFloat(bet.bet_amount)
+      }
     });
   }
   

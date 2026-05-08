@@ -555,12 +555,17 @@ class RouletteUI {
     }
 
     try {
+      // ВАЖНО: Сохраняем состояние ДО отправки ставки
+      const wasInRound = this.state.isInRound;
+      
       // Выбираем действие в зависимости от того, в раунде ли пользователь
-      const action = this.state.isInRound ? 'raiseBet' : 'joinRound';
-      const paramName = this.state.isInRound ? 'raiseAmount' : 'betAmount';
+      const action = wasInRound ? 'raiseBet' : 'joinRound';
+      const paramName = wasInRound ? 'raiseAmount' : 'betAmount';
       
       await this.callAPI(action, { [paramName]: amount });
-      this.showToast(this.state.isInRound ? 'Ставка повышена!' : 'Ставка принята!');
+      
+      // Показываем правильное уведомление на основе ПРЕДЫДУЩЕГО состояния
+      this.showToast(wasInRound ? 'Ставка повышена!' : 'Ставка принята!');
       
       // Clear input
       if (betInput) {
