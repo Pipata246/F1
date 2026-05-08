@@ -133,14 +133,22 @@ class RouletteUI {
         this.updateStatus(data.round.status);
         this.updatePot(parseFloat(data.round.pot_amount));
         
-        // Process players
-        const players = data.bets.map(bet => ({
-          id: bet.user_id,
-          name: bet.display_name,
-          bet: parseFloat(bet.bet_amount),
-          chance: parseFloat(bet.chance_percent),
-          photoUrl: bet.photo_url || null // Добавляем URL фото
-        }));
+        // Process players - ВАЖНО: проверяем что data.bets существует
+        console.log('[Roulette] Processing bets:', data.bets);
+        
+        const players = (data.bets || []).map(bet => {
+          const player = {
+            id: bet.user_id,
+            name: bet.display_name || 'Player',
+            bet: parseFloat(bet.bet_amount) || 0,
+            chance: parseFloat(bet.chance_percent) || 0,
+            photoUrl: bet.photo_url || null
+          };
+          console.log('[Roulette] Processed player:', player);
+          return player;
+        }).filter(p => p.id && p.name); // Фильтруем невалидных игроков
+        
+        console.log('[Roulette] Total players after processing:', players.length);
         
         this.updatePlayers(players);
         
