@@ -150,7 +150,12 @@ class RouletteUI {
         
         console.log('[Roulette] Total players after processing:', players.length);
         
-        this.updatePlayers(players);
+        // ВАЖНО: Не обновляем игроков если идет спин - сохраняем текущих для анимации
+        if (data.round.status !== 'spinning' || !this.state.isSpinning) {
+          this.updatePlayers(players);
+        } else {
+          console.log('[Roulette] Skipping player update - spinning in progress');
+        }
         
         // Check if I'm in this round - ВАЖНО: сравниваем как строки!
         const myUserIdStr = String(this.state.myUserId);
@@ -509,6 +514,12 @@ class RouletteUI {
   renderWheel() {
     if (!this.elements.strip) return;
 
+    // ВАЖНО: Не очищаем колесо если идет спин - сохраняем карточки для анимации
+    if (this.state.isSpinning && this.elements.strip.children.length > 0) {
+      console.log('[Roulette] Skipping wheel render - spinning in progress');
+      return;
+    }
+
     if (this.state.players.length === 0) {
       this.elements.strip.innerHTML = `
         <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
@@ -566,27 +577,32 @@ class RouletteUI {
     // Это гарантирует одинаковый порядок у всех пользователей
     const seed = this.state.currentRound?.id || Date.now();
     
-    // Улучшенный seeded random (более качественное перемешивание)
-    const seededRandom = (s) => {
-      s = Math.sin(s) * 10000;
-      return s - Math.floor(s);
-    };
-    
-    // Делаем НЕСКОЛЬКО проходов shuffle для лучшего перемешивания
-    for (let pass = 0; pass < 5; pass++) {
-      for (let i = cards.length - 1; i > 0; i--) {
-        const j = Math.floor(seededRandom(seed * (pass + 1) + i * 7) * (i + 1));
-        [cards[i], cards[j]] = [cards[j], cards[i]];
+    // Улучшенная функция seeded random (mulberry32)
+    function mulberry32(a) {
+      return function() {
+        let t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
       }
     }
     
-    // Сохраняем карточки в state для анимации
-    this.state.wheelCards = cards;
+    const rng = mulberry32(seed);
     
-    console.log('[Roulette] Shuffled with seed:', seed);
+    // Fisher-Yates shuffle с улучшенным seeded random
+    const shuffledCards = [...cards];
+    for (let i = shuffledCards.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffledCards[i], shuffledCards[j]] = [shuffledCards[j], shuffledCards[i]];
+    }
+    
+    // Сохраняем карточки в state для анимации
+    this.state.wheelCards = shuffledCards;
+    
+    console.log('[Roulette] Shuffled with Fisher-Yates + mulberry32, seed:', seed);
     
     // Генерируем HTML для всех карточек
-    const cardsHtml = cards.map((card, index) => {
+    const cardsHtml = shuffledCards.map((card, index) => {
       // Дополнительная проверка
       if (!card || !card.player || card.playerIndex === undefined) {
         console.error('[Roulette] Invalid card at index', index, card);
