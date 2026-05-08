@@ -2,6 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
+ * VERSION: 20260508-145900 - FIXED PLAYER INDEX USING USER ID HASH
  */
 
 class RouletteUI {
@@ -1092,6 +1093,9 @@ function stopRouletteUI() {
 
 // Listen for tab changes
 if (typeof window !== 'undefined') {
+  // VERSION CHECK
+  console.log('[Roulette] Script loaded - VERSION: 20260508-145900');
+  
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
     const hash = window.location.hash.slice(1);
