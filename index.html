@@ -2174,7 +2174,7 @@
     }
     
     elBet.textContent = `${formatBalanceAmountOnly(String(totalBet))} TON`;
-    elWin.textContent = `${totalWin >= 0 ? '+' : ''}${formatBalanceAmountOnly(String(totalWin))} TON`;
+    elWin.textContent = `${formatBalanceAmountOnly(String(totalWin))} TON`;
     elSub.textContent = `${gamesPlayed} ${gamesPlayed === 1 ? 'игра' : gamesPlayed <= 4 ? 'игры' : 'игр'} · ${wins} ${wins === 1 ? 'победа' : wins <= 4 ? 'победы' : 'побед'}`;
   }
 

@@ -4121,8 +4121,8 @@ async function getGameStats(initData) {
     );
     
     if (rouletteEvents && rouletteEvents.length > 0) {
-      let totalBet = 0;
-      let totalWin = 0;
+      let totalBet = 0;      // Сумма ВСЕХ ставок
+      let totalWin = 0;      // Сумма ТОЛЬКО выигрышей
       let wins = 0;
       let losses = 0;
       
@@ -4130,14 +4130,15 @@ async function getGameStats(initData) {
         const amount = Number(event.amount || 0);
         const stake = Number(event.stake_ton || 0);
         
+        // Ставка учитывается всегда
+        totalBet += stake;
+        
         if (event.event_type === 'win') {
           wins++;
-          totalWin += amount;
-          totalBet += stake;
+          totalWin += amount; // Добавляем выигрыш
         } else if (event.event_type === 'loss') {
           losses++;
-          totalBet += stake;
-          totalWin += amount; // amount уже отрицательный
+          // НЕ вычитаем проигрыш из totalWin
         }
       }
       
@@ -4146,8 +4147,8 @@ async function getGameStats(initData) {
         games_played: wins + losses,
         wins: wins,
         losses: losses,
-        total_bet: totalBet,
-        total_win: totalWin,
+        total_bet: totalBet,      // Сумма всех ставок
+        total_win: totalWin,      // Сумма только выигрышей
         win_rate_pct: (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 1000) / 10 : null
       };
     }
