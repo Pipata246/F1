@@ -149,11 +149,11 @@ class RouletteUI {
           this.updateBetButton(false); // Не в раунде
         }
         
-        // Handle timer - используем ТОЛЬКО серверное время
+        // Handle timer - используем СЕРВЕРНОЕ время из API
         if (data.round.status === 'active' && data.round.timer_ends_at) {
           const endsAt = new Date(data.round.timer_ends_at);
-          const now = new Date();
-          const remaining = Math.max(0, Math.floor((endsAt - now) / 1000));
+          const serverNow = new Date(data.serverTime); // Используем серверное время!
+          const remaining = Math.max(0, Math.floor((endsAt - serverNow) / 1000));
           
           // Показываем таймер
           this.updateTimerDisplay(remaining);
@@ -165,6 +165,15 @@ class RouletteUI {
           if (remaining <= 0 && !this.state.isSpinning) {
             this.onTimerEnd();
           }
+        } else if (data.round.status === 'spinning') {
+          // Раунд крутится - скрываем таймер и блокируем кнопку
+          if (this.elements.timerWrap) {
+            this.elements.timerWrap.classList.add('hidden');
+          }
+          if (!this.state.isSpinning) {
+            this.state.isSpinning = true;
+            this.disableBetButton();
+          }
         } else {
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.add('hidden');
@@ -172,21 +181,32 @@ class RouletteUI {
         }
         
         // ВАЖНО: Если раунд только что завершился - показываем победителя
-        if (data.round.status === 'finished' && previousStatus === 'spinning' && data.round.id === previousRoundId) {
+        if (data.round.status === 'finished' && previousStatus !== 'finished') {
           // Раунд завершился, показываем результат
           if (data.round.winner_user_id) {
             // Найти имя победителя из ставок
             const winnerBet = data.bets.find(b => String(b.user_id) === String(data.round.winner_user_id));
             const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
             
+            // Показываем модалку победителя ВСЕМ
             this.showWinner(winnerName, parseFloat(data.round.winner_amount));
             
-            // Обновить баланс если я победил
+            // Обновить баланс ТОЛЬКО если я победил (без toast)
             if (String(data.round.winner_user_id) === myUserIdStr) {
+              // Сохраняем текущий баланс чтобы не показывать toast
+              const prevBalance = window.userState?.balance;
+              
               if (typeof window.hydrateUserFromServer === 'function') {
                 await window.hydrateUserFromServer();
+                
+                // Обновляем UI баланса без toast
                 if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
                   window.refreshBalanceUiAfterHydrate();
+                }
+                
+                // Восстанавливаем prevBalance чтобы не показывать toast при следующем обновлении
+                if (window.userState && prevBalance !== undefined) {
+                  window.userState.prevBalance = window.userState.balance;
                 }
               }
             }
@@ -542,13 +562,23 @@ class RouletteUI {
       // Показываем победителя
       this.showWinner(data.winner.display_name, data.winner.amount);
       
-      // Обновляем баланс если я победил
+      // Обновляем баланс если я победил (без toast)
       const myUserIdStr = String(this.state.myUserId);
       if (String(data.winner.user_id) === myUserIdStr) {
+        // Сохраняем текущий баланс чтобы не показывать toast
+        const prevBalance = window.userState?.balance;
+        
         if (typeof window.hydrateUserFromServer === 'function') {
           await window.hydrateUserFromServer();
+          
+          // Обновляем UI баланса без toast
           if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
             window.refreshBalanceUiAfterHydrate();
+          }
+          
+          // Восстанавливаем prevBalance чтобы не показывать toast при следующем обновлении
+          if (window.userState && prevBalance !== undefined) {
+            window.userState.prevBalance = window.userState.balance;
           }
         }
       }
@@ -562,49 +592,17 @@ class RouletteUI {
       
     } catch (error) {
       console.error('[Roulette] Spin error:', error);
+      this.state.isSpinning = false;
       
-      // Если розыгрыш уже идет - просто ждем результата
-      if (error.message && error.message.includes('уже идет')) {
-        console.log('[Roulette] Spin already in progress, waiting for result...');
-        this.showToast('Ожидание результата...');
-        
-        // Проверяем результат каждую секунду
-        const checkInterval = setInterval(async () => {
-          const data = await this.callAPI('getActiveRound');
-          
-          // Если раунд завершен - показываем результат
-          if (!data.round || data.round.status === 'finished') {
-            clearInterval(checkInterval);
-            
-            // Обновляем баланс
-            if (typeof window.hydrateUserFromServer === 'function') {
-              await window.hydrateUserFromServer();
-              if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
-                window.refreshBalanceUiAfterHydrate();
-              }
-            }
-            
-            // Загружаем новый раунд
-            setTimeout(() => {
-              this.enableBetButton();
-              this.loadActiveRound();
-            }, 2000);
-          }
-        }, 1000);
-        
-        // Таймаут на 10 секунд
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          this.state.isSpinning = false;
-          this.enableBetButton();
-          this.loadActiveRound();
-        }, 10000);
-        
+      // Если розыгрыш уже идет - просто ждем результата через polling
+      if (error.message && (error.message.includes('уже идет') || error.message.includes('уже запущен'))) {
+        console.log('[Roulette] Spin already in progress, waiting via polling...');
+        this.disableBetButton();
+        // Polling автоматически обнаружит завершение раунда
       } else {
-        // Другая ошибка
-        this.showToast('Ошибка розыгрыша: ' + error.message);
+        // Другая ошибка - показываем и разблокируем
+        this.showToast('Ошибка: ' + error.message);
         setTimeout(() => {
-          this.state.isSpinning = false;
           this.enableBetButton();
           this.loadActiveRound();
         }, 2000);
