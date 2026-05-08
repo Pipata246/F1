@@ -509,12 +509,6 @@ class RouletteUI {
   renderWheel() {
     if (!this.elements.strip) return;
 
-    // Если идет спин - НЕ перерисовываем колесо
-    if (this.state.isSpinning || this.state.currentRound?.status === 'spinning') {
-      console.log('[Roulette] Skipping wheel render during spin');
-      return;
-    }
-
     if (this.state.players.length === 0) {
       this.elements.strip.innerHTML = `
         <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
