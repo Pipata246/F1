@@ -1698,6 +1698,9 @@
 
   const pages = ["onb-rules","onb-ref","games","wallet","matches","profile","roulette","random-game"];
   function go(page){
+    // Scroll to top when switching tabs
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    
     pages.forEach(p=>{
       const el = document.getElementById("page-"+p);
       if(el) el.classList.toggle("hidden", p!==page);
