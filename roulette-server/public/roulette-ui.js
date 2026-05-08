@@ -541,17 +541,23 @@ class RouletteUI {
       }
     });
     
-    // Перемешиваем карточки для случайности (используем seed для одинакового результата у всех)
-    // Используем простой shuffle без seed для разнообразия
+    // ВАЖНО: Перемешиваем карточки используя SEED из round_id
+    // Это гарантирует одинаковый порядок у всех пользователей
+    const seed = this.state.currentRound?.id || 0;
+    const seededRandom = (s) => {
+      const x = Math.sin(s) * 10000;
+      return x - Math.floor(x);
+    };
+    
     for (let i = cards.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(seededRandom(seed + i) * (i + 1));
       [cards[i], cards[j]] = [cards[j], cards[i]];
     }
     
     // Сохраняем карточки в state для анимации
     this.state.wheelCards = cards;
     
-    console.log('[Roulette] Generated', cards.length, 'cards');
+    console.log('[Roulette] Generated', cards.length, 'cards with seed:', seed);
     
     // Генерируем HTML для всех 100 карточек
     const cardsHtml = cards.map((card, index) => {
@@ -604,15 +610,22 @@ class RouletteUI {
   spinWheelAnimation(winnerUserId) {
     return new Promise((resolve) => {
       if (!this.elements.strip || !this.elements.wheelContainer) {
+        console.error('[Roulette] Missing elements for animation');
         resolve();
         return;
       }
       
+      console.log('[Roulette] Starting animation for winner:', winnerUserId);
+      
       // Находим все карточки победителя по data-user-id
       const allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
+      console.log('[Roulette] Total cards:', allCards.length);
+      
       const winnerCards = allCards.filter(card => 
         String(card.getAttribute('data-user-id')) === String(winnerUserId)
       );
+      
+      console.log('[Roulette] Winner cards found:', winnerCards.length);
       
       if (winnerCards.length === 0) {
         console.error('[Roulette] No winner cards found for user:', winnerUserId);
@@ -625,12 +638,7 @@ class RouletteUI {
       const targetCard = winnerCards[targetIndex];
       const targetCardIndex = allCards.indexOf(targetCard);
       
-      console.log('[Roulette] Animation target:', {
-        winnerUserId,
-        totalCards: allCards.length,
-        winnerCardsCount: winnerCards.length,
-        targetCardIndex
-      });
+      console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
       
       // Рассчитываем позицию для остановки (карточка должна быть в центре)
       const containerWidth = this.elements.wheelContainer.offsetWidth;
@@ -647,11 +655,11 @@ class RouletteUI {
       const extraSpins = (4 + Math.random() * 2) * allCards.length * cardWidth;
       const startPosition = finalPosition - extraSpins;
       
-      console.log('[Roulette] Animation positions:', {
+      console.log('[Roulette] Animation:', {
         startPosition,
         finalPosition,
         extraSpins,
-        centerOffset
+        duration: 7000
       });
       
       // Сброс позиции
@@ -661,19 +669,18 @@ class RouletteUI {
       // Запуск анимации через небольшую задержку
       setTimeout(() => {
         // Анимация с easing как в CS:GO (быстро → медленно)
-        // cubic-bezier для эффекта замедления
-        const duration = 6000; // 6 секунд
+        const duration = 7000; // 7 секунд - УВЕЛИЧЕНО
         this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.17, 0.67, 0.12, 0.99)`;
         this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
         
-        console.log('[Roulette] Animation started, duration:', duration);
+        console.log('[Roulette] Animation started');
         
-        // Ждем окончания анимации
+        // Ждем окончания анимации + дополнительная задержка
         setTimeout(() => {
-          console.log('[Roulette] Animation completed');
+          console.log('[Roulette] Animation COMPLETED - resolving promise');
           resolve();
-        }, duration + 100); // +100ms для гарантии
-      }, 100);
+        }, duration + 500); // +500ms для гарантии что анимация точно закончилась
+      }, 200); // Увеличена задержка перед стартом
     });
   }
 
