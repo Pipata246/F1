@@ -21,13 +21,13 @@ class RouletteUI {
       playerCount: document.getElementById('roulettePlayerCount'),
       playersList: document.getElementById('roulettePlayersList'),
       
-      // Actions
-      joinSection: document.getElementById('rouletteJoinSection'),
-      raiseSection: document.getElementById('rouletteRaiseSection'),
+      // Actions (unified section)
+      betSection: document.getElementById('rouletteBetSection'),
       betInput: document.getElementById('rouletteBetInput'),
-      raiseInput: document.getElementById('rouletteRaiseInput'),
-      joinBtn: document.getElementById('rouletteJoinBtn'),
-      raiseBtn: document.getElementById('rouletteRaiseBtn'),
+      betBtn: document.getElementById('rouletteBetBtn'),
+      betLabel: document.getElementById('rouletteBetLabel'),
+      betHint: document.getElementById('rouletteBetHint'),
+      currentBetInfo: document.getElementById('rouletteCurrentBetInfo'),
       yourBet: document.getElementById('rouletteYourBet'),
       yourChance: document.getElementById('rouletteYourChance'),
       
@@ -45,6 +45,7 @@ class RouletteUI {
       myUserId: null,
       myBet: null,
       isLoading: false,
+      isInRound: false, // Флаг: пользователь в раунде или нет
     };
 
     this.pollInterval = null;
@@ -53,13 +54,13 @@ class RouletteUI {
 
   init() {
     // Setup event listeners
-    this.elements.joinBtn?.addEventListener('click', () => this.handleJoin());
-    this.elements.raiseBtn?.addEventListener('click', () => this.handleRaise());
+    this.elements.betBtn?.addEventListener('click', () => this.handleBet());
     
     // Initialize with empty state
     this.updateStatus('waiting');
     this.updatePot(0);
     this.updatePlayers([]);
+    this.updateBetButton(false); // Начальное состояние: не в раунде
     
     // Get Telegram user ID
     if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
@@ -127,11 +128,11 @@ class RouletteUI {
         const myBet = data.bets.find(b => b.user_id === this.state.myUserId);
         if (myBet) {
           this.state.myBet = myBet;
-          this.showRaiseSection();
+          this.updateBetButton(true); // В раунде
           this.updateMyBetInfo(parseFloat(myBet.bet_amount), parseFloat(myBet.chance_percent));
         } else {
           this.state.myBet = null;
-          this.showJoinSection();
+          this.updateBetButton(false); // Не в раунде
         }
         
         // Handle timer
@@ -153,7 +154,7 @@ class RouletteUI {
         this.updateStatus('waiting');
         this.updatePot(0);
         this.updatePlayers([]);
-        this.showJoinSection();
+        this.updateBetButton(false); // Не в раунде
         this.stopTimer();
       }
     } catch (error) {
@@ -180,21 +181,37 @@ class RouletteUI {
     }
   }
 
-  showJoinSection() {
-    if (this.elements.joinSection) {
-      this.elements.joinSection.classList.remove('hidden');
-    }
-    if (this.elements.raiseSection) {
-      this.elements.raiseSection.classList.add('hidden');
-    }
-  }
-
-  showRaiseSection() {
-    if (this.elements.joinSection) {
-      this.elements.joinSection.classList.add('hidden');
-    }
-    if (this.elements.raiseSection) {
-      this.elements.raiseSection.classList.remove('hidden');
+  updateBetButton(isInRound) {
+    this.state.isInRound = isInRound;
+    
+    if (isInRound) {
+      // Пользователь в раунде - показываем режим повышения
+      if (this.elements.betBtn) {
+        this.elements.betBtn.textContent = 'Повысить ставку';
+      }
+      if (this.elements.betLabel) {
+        this.elements.betLabel.textContent = 'Повысить ставку';
+      }
+      if (this.elements.betHint) {
+        this.elements.betHint.textContent = 'Минимальное повышение: 0.1 TON';
+      }
+      if (this.elements.currentBetInfo) {
+        this.elements.currentBetInfo.classList.remove('hidden');
+      }
+    } else {
+      // Пользователь не в раунде - показываем режим входа
+      if (this.elements.betBtn) {
+        this.elements.betBtn.textContent = 'Войти в раунд';
+      }
+      if (this.elements.betLabel) {
+        this.elements.betLabel.textContent = 'Сделать ставку';
+      }
+      if (this.elements.betHint) {
+        this.elements.betHint.textContent = 'Минимальная ставка: 0.1 TON';
+      }
+      if (this.elements.currentBetInfo) {
+        this.elements.currentBetInfo.classList.add('hidden');
+      }
     }
   }
 
@@ -384,25 +401,29 @@ class RouletteUI {
   }
 
   // ==================== ACTIONS ====================
-  async handleJoin() {
+  async handleBet() {
     if (this.state.isLoading) return;
     
     const amount = parseFloat(this.elements.betInput?.value || 0);
     
     if (amount < 0.1) {
-      this.showToast('Минимальная ставка: 0.1 TON');
+      this.showToast(this.state.isInRound ? 'Минимальное повышение: 0.1 TON' : 'Минимальная ставка: 0.1 TON');
       return;
     }
 
     this.state.isLoading = true;
-    if (this.elements.joinBtn) {
-      this.elements.joinBtn.disabled = true;
-      this.elements.joinBtn.textContent = 'Отправка...';
+    if (this.elements.betBtn) {
+      this.elements.betBtn.disabled = true;
+      this.elements.betBtn.textContent = 'Отправка...';
     }
 
     try {
-      await this.callAPI('joinRound', { betAmount: amount });
-      this.showToast('Ставка принята!');
+      // Выбираем действие в зависимости от того, в раунде ли пользователь
+      const action = this.state.isInRound ? 'raiseBet' : 'joinRound';
+      const paramName = this.state.isInRound ? 'raiseAmount' : 'betAmount';
+      
+      await this.callAPI(action, { [paramName]: amount });
+      this.showToast(this.state.isInRound ? 'Ставка повышена!' : 'Ставка принята!');
       
       // Clear input
       if (this.elements.betInput) {
@@ -420,58 +441,13 @@ class RouletteUI {
         }
       }
     } catch (error) {
-      this.showToast(error.message || 'Ошибка при входе в раунд');
+      this.showToast(error.message || 'Ошибка при обработке ставки');
     } finally {
       this.state.isLoading = false;
-      if (this.elements.joinBtn) {
-        this.elements.joinBtn.disabled = false;
-        this.elements.joinBtn.textContent = 'Войти в раунд';
-      }
-    }
-  }
-
-  async handleRaise() {
-    if (this.state.isLoading) return;
-    
-    const amount = parseFloat(this.elements.raiseInput?.value || 0);
-    
-    if (amount < 0.1) {
-      this.showToast('Минимальное повышение: 0.1 TON');
-      return;
-    }
-
-    this.state.isLoading = true;
-    if (this.elements.raiseBtn) {
-      this.elements.raiseBtn.disabled = true;
-      this.elements.raiseBtn.textContent = 'Отправка...';
-    }
-
-    try {
-      await this.callAPI('raiseBet', { raiseAmount: amount });
-      this.showToast('Ставка повышена!');
-      
-      // Clear input
-      if (this.elements.raiseInput) {
-        this.elements.raiseInput.value = '';
-      }
-      
-      // Reload round data
-      await this.loadActiveRound();
-      
-      // Refresh user balance
-      if (typeof window.hydrateUserFromServer === 'function') {
-        await window.hydrateUserFromServer();
-        if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
-          window.refreshBalanceUiAfterHydrate();
-        }
-      }
-    } catch (error) {
-      this.showToast(error.message || 'Ошибка при повышении ставки');
-    } finally {
-      this.state.isLoading = false;
-      if (this.elements.raiseBtn) {
-        this.elements.raiseBtn.disabled = false;
-        this.elements.raiseBtn.textContent = 'Повысить';
+      if (this.elements.betBtn) {
+        this.elements.betBtn.disabled = false;
+        // Восстанавливаем правильный текст кнопки
+        this.elements.betBtn.textContent = this.state.isInRound ? 'Повысить ставку' : 'Войти в раунд';
       }
     }
   }

@@ -1090,35 +1090,34 @@
         </div>
 
         <div class="action-section">
-          <div id="rouletteJoinSection" class="action-card">
-            <div class="action-label">Сделать ставку</div>
-            <div class="input-group">
-              <input type="number" id="rouletteBetInput" class="bet-input" placeholder="0.1" min="0.1" step="0.1"/>
-              <span class="input-currency">TON</span>
-            </div>
-            <button id="rouletteJoinBtn" class="btn primary">Войти в раунд</button>
-            <div class="action-hint">Минимальная ставка: 0.1 TON</div>
-          </div>
-
-          <div id="rouletteRaiseSection" class="action-card hidden">
-            <div class="your-bet-info">
+          <div id="rouletteBetSection" class="action-card">
+            <!-- Информация о текущей ставке (показывается только если уже в раунде) -->
+            <div id="rouletteCurrentBetInfo" class="your-bet-info hidden" style="margin-bottom:12px;">
               <div class="info-row">
                 <span class="info-label">Ваша ставка:</span>
                 <span class="info-value"><span id="rouletteYourBet">0.00</span> TON</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Ваш шанс:</span>
-                <span class="info-value info-value--accent" id="rouletteYourChance">0%</span>
+                <span class="info-value info-value--accent"><span id="rouletteYourChance">0.0</span>%</span>
               </div>
+              <div class="divider" style="margin:10px 0;"></div>
             </div>
-            <div class="divider"></div>
-            <div class="action-label">Повысить ставку</div>
+
+            <!-- Заголовок (меняется динамически) -->
+            <div class="action-label" id="rouletteBetLabel">Сделать ставку</div>
+            
+            <!-- Поле ввода -->
             <div class="input-group">
-              <input type="number" id="rouletteRaiseInput" class="bet-input" placeholder="0.1" min="0.1" step="0.1"/>
+              <input type="number" id="rouletteBetInput" class="bet-input" placeholder="0.1" min="0.1" step="0.1"/>
               <span class="input-currency">TON</span>
             </div>
-            <button id="rouletteRaiseBtn" class="btn primary">Повысить</button>
-            <div class="action-hint">Минимальное повышение: 0.1 TON</div>
+            
+            <!-- Кнопка (текст меняется динамически) -->
+            <button id="rouletteBetBtn" class="btn primary">Войти в раунд</button>
+            
+            <!-- Подсказка (текст меняется динамически) -->
+            <div class="action-hint" id="rouletteBetHint">Минимальная ставка: 0.1 TON</div>
           </div>
         </div>
 
