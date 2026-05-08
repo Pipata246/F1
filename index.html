@@ -2342,10 +2342,10 @@
       // Специальная обработка для рулетки
       const isRoulette = m.game_key === 'roulette';
       const scoreObj = m.score_json || {};
+      const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
       let myName, oppName, myScore, oppScore;
       
       if(isRoulette){
-        const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
         const players = details.players || [];
         const myPlayer = players.find(p => String(p.user_id) === myTgId);
         myName = myPlayer ? myPlayer.name : "Вы";
@@ -2371,12 +2371,9 @@
         : (myScore === oppScore ? "Ничья" : (myScore > oppScore ? "Победа" : "Поражение"));
       const resultColor = result === "Победа" ? "var(--accent)" : (result === "Ничья" ? "var(--text2)" : "var(--danger)");
       const modeLabel = m.mode === "bot" ? "ДЭМО" : "PvP";
-      const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
       const stakeTonNum = Number(details.stakeTon);
       const hasStake = Number.isFinite(stakeTonNum) && stakeTonNum > 0;
       
-      // Специальная обработка для рулетки
-      const isRoulette = m.game_key === 'roulette';
       let tonLine = "";
       let tonColor = "var(--text2)";
       
