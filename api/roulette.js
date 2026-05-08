@@ -194,6 +194,38 @@ function selectWinner(bets) {
 // API HANDLERS
 // ============================================
 
+async function getTelegramPhotoUrl(userId) {
+  try {
+    const response = await fetch(
+      `https://api.telegram.org/bot${BOT_TOKEN}/getUserProfilePhotos?user_id=${userId}&limit=1`
+    );
+    const data = await response.json();
+    
+    if (data.ok && data.result?.photos?.length > 0) {
+      const photo = data.result.photos[0];
+      // Берем фото среднего размера (обычно индекс 1 или 2)
+      const fileId = photo[Math.min(1, photo.length - 1)]?.file_id;
+      
+      if (fileId) {
+        // Получаем путь к файлу
+        const fileResponse = await fetch(
+          `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`
+        );
+        const fileData = await fileResponse.json();
+        
+        if (fileData.ok && fileData.result?.file_path) {
+          return `https://api.telegram.org/file/bot${BOT_TOKEN}/${fileData.result.file_path}`;
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error fetching Telegram photo:', error);
+    return null;
+  }
+}
+
 async function handleGetActiveRound(body) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
@@ -205,14 +237,16 @@ async function handleGetActiveRound(body) {
   
   const bets = await getRoundBets(round.id);
   
-  return {
-    ok: true,
-    round,
-    bets: bets.map(bet => {
+  // Получаем фото профилей для всех игроков параллельно
+  const betsWithPhotos = await Promise.all(
+    bets.map(async (bet) => {
       // Формируем отображаемое имя из доступных полей
       const displayName = bet.users?.username 
         || bet.users?.first_name 
         || "Player";
+      
+      // Получаем URL фото профиля
+      const photoUrl = await getTelegramPhotoUrl(bet.user_id);
       
       return {
         id: bet.id,
@@ -220,9 +254,16 @@ async function handleGetActiveRound(body) {
         bet_amount: bet.bet_amount,
         chance_percent: bet.chance_percent,
         display_name: displayName,
-        created_at: bet.created_at
+        created_at: bet.created_at,
+        photo_url: photoUrl // Реальный URL фото или null
       };
-    }),
+    })
+  );
+  
+  return {
+    ok: true,
+    round,
+    bets: betsWithPhotos,
     serverTime: new Date().toISOString() // Отправляем серверное время
   };
 }
@@ -581,9 +622,20 @@ async function handleGetRecentWinners(body) {
   
   if (error) throw new Error(error.message);
   
+  // Добавляем фото профилей для победителей
+  const winnersWithPhotos = await Promise.all(
+    (data || []).map(async (winner) => {
+      const photoUrl = await getTelegramPhotoUrl(winner.winner_user_id);
+      return {
+        ...winner,
+        photo_url: photoUrl
+      };
+    })
+  );
+  
   return {
     ok: true,
-    winners: data || []
+    winners: winnersWithPhotos
   };
 }
 

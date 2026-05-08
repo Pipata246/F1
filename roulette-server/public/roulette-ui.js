@@ -135,7 +135,8 @@ class RouletteUI {
           id: bet.user_id,
           name: bet.display_name,
           bet: parseFloat(bet.bet_amount),
-          chance: parseFloat(bet.chance_percent)
+          chance: parseFloat(bet.chance_percent),
+          photoUrl: bet.photo_url || null // Добавляем URL фото
         }));
         
         this.updatePlayers(players);
@@ -195,7 +196,7 @@ class RouletteUI {
             const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
             
             // Показываем модалку победителя ВСЕМ
-            this.showWinner(winnerName, parseFloat(data.round.winner_amount));
+            this.showWinner(winnerName, parseFloat(data.round.winner_amount), data.round.winner_user_id);
             
             // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
             if (String(data.round.winner_user_id) === myUserIdStr) {
@@ -454,23 +455,30 @@ class RouletteUI {
       return;
     }
 
-    this.elements.playersList.innerHTML = this.state.players.map(player => `
-      <div class="pill" style="padding:10px 12px;">
-        <div style="display:flex; align-items:center; gap:10px; flex:1;">
-          <div style="width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg, #8CFFC1, #4DFF9A); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px; color:#07110c;">
-            ${player.name.charAt(0).toUpperCase()}
+    this.elements.playersList.innerHTML = this.state.players.map(player => {
+      // Аватар: фото или инициал
+      const avatarContent = player.photoUrl 
+        ? `<img src="${this.escapeHtml(player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:16px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`
+        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`;
+      
+      return `
+        <div class="pill" style="padding:10px 12px;">
+          <div style="display:flex; align-items:center; gap:10px; flex:1;">
+            <div style="width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg, #8CFFC1, #4DFF9A); overflow:hidden; flex-shrink:0;">
+              ${avatarContent}
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:800; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(player.name)}</div>
+              <div style="font-size:11px; color:var(--muted);">Ставка: <span style="color:var(--text); font-weight:700;">${player.bet.toFixed(2)} TON</span></div>
+            </div>
           </div>
-          <div style="flex:1; min-width:0;">
-            <div style="font-weight:800; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(player.name)}</div>
-            <div style="font-size:11px; color:var(--muted);">Ставка: <span style="color:var(--text); font-weight:700;">${player.bet.toFixed(2)} TON</span></div>
+          <div style="text-align:right;">
+            <div style="font-size:18px; font-weight:900; color:var(--accent);">${player.chance.toFixed(1)}%</div>
+            <div style="font-size:10px; color:var(--muted);">шанс</div>
           </div>
         </div>
-        <div style="text-align:right;">
-          <div style="font-size:18px; font-weight:900; color:var(--accent);">${player.chance.toFixed(1)}%</div>
-          <div style="font-size:10px; color:var(--muted);">шанс</div>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   }
 
   // ==================== WHEEL ====================
@@ -500,6 +508,11 @@ class RouletteUI {
       // Width based on chance (minimum 80px for visibility)
       const width = Math.max(80, player.chance * 4);
 
+      // Аватар: фото или инициал
+      const avatarContent = player.photoUrl 
+        ? `<img src="${this.escapeHtml(player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`
+        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`;
+
       return `
         <div style="
           min-width:${width}px;
@@ -512,8 +525,8 @@ class RouletteUI {
           padding:0 16px;
           border-right:2px solid rgba(0,0,0,0.3);
         ">
-          <div style="width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.9); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c; margin-bottom:4px;">
-            ${player.name.charAt(0).toUpperCase()}
+          <div style="width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.9); overflow:hidden; margin-bottom:4px; flex-shrink:0;">
+            ${avatarContent}
           </div>
           <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
             ${this.escapeHtml(player.name)}
@@ -608,7 +621,7 @@ class RouletteUI {
       console.log('[Roulette] Winner:', data.winner);
       
       // Показываем победителя
-      this.showWinner(data.winner.display_name, data.winner.amount);
+      this.showWinner(data.winner.display_name, data.winner.amount, data.winner.user_id);
       
       // Обновляем баланс если я победил (тихо, без toast)
       const myUserIdStr = String(this.state.myUserId);
@@ -652,15 +665,43 @@ class RouletteUI {
     }
   }
 
-  showWinner(winnerName, amount) {
+  showWinner(winnerName, amount, winnerUserId) {
     if (this.elements.winnerName) {
       this.elements.winnerName.textContent = winnerName;
     }
     if (this.elements.winnerAmount) {
       this.elements.winnerAmount.textContent = amount.toFixed(2);
     }
+    
+    // Добавляем аватарку победителя
+    const winnerAvatar = document.getElementById('rouletteWinnerAvatar');
+    if (winnerAvatar && winnerUserId) {
+      // Ищем фото победителя в текущих игроках
+      const winnerPlayer = this.state.players.find(p => String(p.id) === String(winnerUserId));
+      const photoUrl = winnerPlayer?.photoUrl;
+      const initial = winnerName.charAt(0).toUpperCase();
+      
+      // Аватар: фото или инициал
+      const avatarContent = photoUrl 
+        ? `<img src="${this.escapeHtml(photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:36px; color:#07110c;">${initial}</div>`
+        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:36px; color:#07110c;">${initial}</div>`;
+      
+      winnerAvatar.innerHTML = `
+        <div style="width:80px; height:80px; border-radius:50%; background:linear-gradient(135deg, #8CFFC1, #4DFF9A); overflow:hidden; margin:0 auto 16px;">
+          ${avatarContent}
+        </div>
+      `;
+    }
+    
     if (this.elements.winnerModal) {
       this.elements.winnerModal.classList.add('show');
+      
+      // Автоматически закрываем через 5 секунд
+      setTimeout(() => {
+        if (this.elements.winnerModal) {
+          this.elements.winnerModal.classList.remove('show');
+        }
+      }, 5000);
     }
 
     // Confetti effect (if available)
@@ -704,11 +745,16 @@ class RouletteUI {
       const date = new Date(winner.created_at);
       const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       
+      // Аватар: фото или инициал
+      const avatarContent = winner.photo_url 
+        ? `<img src="${this.escapeHtml(winner.photo_url)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${winner.winner_display_name.charAt(0).toUpperCase()}</div>`
+        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${winner.winner_display_name.charAt(0).toUpperCase()}</div>`;
+      
       return `
         <div class="pill" style="padding:10px 12px;">
           <div style="display:flex; align-items:center; gap:10px; flex:1;">
-            <div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg, #fbbf24, #f59e0b); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">
-              ${winner.winner_display_name.charAt(0).toUpperCase()}
+            <div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg, #fbbf24, #f59e0b); overflow:hidden; flex-shrink:0;">
+              ${avatarContent}
             </div>
             <div style="flex:1; min-width:0;">
               <div style="font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(winner.winner_display_name)}</div>
