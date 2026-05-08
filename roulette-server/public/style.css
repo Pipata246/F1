@@ -63,30 +63,9 @@ body::before {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Back Link */
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  margin-bottom: 16px;
-  border-radius: 12px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(var(--blur));
-  color: var(--text);
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 700;
-  transition: transform .12s ease;
-}
-
-.back-link:active {
-  transform: scale(.98);
-}
-
 /* Header */
 .roulette-header {
+  position: relative;
   text-align: center;
   margin-bottom: 20px;
 }
@@ -100,8 +79,19 @@ body::before {
 }
 
 .roulette-icon {
-  font-size: 32px;
-  line-height: 1;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.roulette-icon svg {
+  width: 48px;
+  height: 48px;
+  display: block;
+  filter: drop-shadow(0 0 12px rgba(140,255,193,.35));
 }
 
 .roulette-header h1 {
@@ -109,6 +99,39 @@ body::before {
   font-size: 28px;
   font-weight: 950;
   letter-spacing: .2px;
+}
+
+.help-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--blur));
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .12s ease, background .12s ease;
+}
+
+.help-button:active {
+  transform: scale(.95);
+}
+
+.help-button:hover {
+  background: var(--glass-bg-strong);
+}
+
+.help-button svg {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 .status-text {
@@ -169,7 +192,17 @@ body::before {
 }
 
 .players-icon {
-  font-size: 16px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.players-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 /* Timer */
@@ -472,9 +505,20 @@ body::before {
 }
 
 .modal-icon {
-  font-size: 64px;
-  line-height: 1;
-  margin-bottom: 16px;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.modal-icon svg {
+  width: 80px;
+  height: 80px;
+  display: block;
+  filter: drop-shadow(0 0 20px rgba(140,255,193,.45));
 }
 
 .modal-title {
@@ -482,6 +526,111 @@ body::before {
   font-size: 24px;
   font-weight: 950;
   letter-spacing: .2px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.modal-header .modal-title {
+  margin: 0;
+  font-size: 20px;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .12s ease, background .12s ease;
+  flex-shrink: 0;
+}
+
+.modal-close:active {
+  transform: scale(.95);
+}
+
+.modal-close:hover {
+  background: var(--glass-bg-strong);
+}
+
+.modal-close svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.modal-card--rules {
+  max-width: 500px;
+  max-height: calc(var(--app-vh) - 80px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.rules-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.rule-block {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--blur));
+}
+
+.rule-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(140,255,193,.12);
+  border: 1px solid rgba(140,255,193,.25);
+  color: var(--accent);
+}
+
+.rule-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.rule-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-text h3 {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: var(--text);
+}
+
+.rule-text p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text2);
 }
 
 .modal-winner-name {
