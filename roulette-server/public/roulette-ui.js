@@ -129,6 +129,13 @@ class RouletteUI {
         
         this.state.currentRound = data.round;
         
+        // ВАЖНО: Устанавливаем флаг спина СРАЗУ если статус spinning
+        // Это должно быть ДО обработки игроков!
+        if (data.round.status === 'spinning' && !this.state.isSpinning) {
+          console.log('[Roulette] Setting isSpinning = true BEFORE processing players');
+          this.state.isSpinning = true;
+        }
+        
         // Update UI
         this.updateStatus(data.round.status);
         this.updatePot(parseFloat(data.round.pot_amount));
@@ -192,10 +199,7 @@ class RouletteUI {
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.add('hidden');
           }
-          if (!this.state.isSpinning) {
-            this.state.isSpinning = true;
-            this.disableBetButton();
-          }
+          this.disableBetButton();
         } else {
           this.stopSmoothTimer();
           if (this.elements.timerWrap) {
@@ -462,6 +466,12 @@ class RouletteUI {
 
   // ==================== PLAYERS ====================
   updatePlayers(players) {
+    // ВАЖНО: Не обновляем если идет спин - сохраняем текущих игроков
+    if (this.state.isSpinning) {
+      console.log('[Roulette] Skipping updatePlayers - spinning in progress');
+      return;
+    }
+    
     this.state.players = players;
     
     if (this.elements.playerCount) {
@@ -599,7 +609,10 @@ class RouletteUI {
     // Сохраняем карточки в state для анимации
     this.state.wheelCards = shuffledCards;
     
+    // DEBUG: Проверяем что карточки действительно перемешаны
+    const first10 = shuffledCards.slice(0, 10).map(c => c.player.name.charAt(0)).join('');
     console.log('[Roulette] Shuffled with Fisher-Yates + mulberry32, seed:', seed);
+    console.log('[Roulette] First 10 cards:', first10);
     
     // Генерируем HTML для всех карточек
     const cardsHtml = shuffledCards.map((card, index) => {
