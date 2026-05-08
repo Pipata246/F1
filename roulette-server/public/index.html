@@ -357,6 +357,12 @@
       tg.expand();
     }
 
+    // Show balance immediately (will update with real data)
+    const balanceWrap = document.getElementById('headerBalanceWrap');
+    if (balanceWrap) {
+      balanceWrap.style.display = 'flex';
+    }
+
     // Load user data and balance
     async function loadUserData() {
       try {
@@ -377,17 +383,18 @@
           }
           
           // Update balance
-          const balanceWrap = document.getElementById('headerBalanceWrap');
           const balanceVal = document.getElementById('headerBalanceVal');
           if (balanceVal && typeof data.balance === 'number') {
             balanceVal.textContent = data.balance.toFixed(2);
-            if (balanceWrap) {
-              balanceWrap.style.display = 'flex';
-            }
           }
         }
       } catch (error) {
         console.error('Failed to load user data:', error);
+        // Show default values on error
+        const userChip = document.getElementById('userChip');
+        if (userChip) {
+          userChip.textContent = 'Гость';
+        }
       }
     }
 
