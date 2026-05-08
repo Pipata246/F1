@@ -191,6 +191,9 @@ class RouletteUI {
   }
 
   updateBetButton(isInRound) {
+    // ВРЕМЕННЫЙ ALERT ДЛЯ ОТЛАДКИ
+    alert('updateBetButton вызвана! isInRound = ' + isInRound);
+    
     console.log('[Roulette] updateBetButton called, isInRound:', isInRound);
     this.state.isInRound = isInRound;
     
@@ -212,6 +215,9 @@ class RouletteUI {
       console.log('[Roulette] Setting RAISE mode');
       if (betBtn) {
         betBtn.textContent = 'Повысить ставку';
+        alert('Кнопка изменена на: ' + betBtn.textContent);
+      } else {
+        alert('ОШИБКА: betBtn не найдена!');
       }
       if (betLabel) {
         betLabel.textContent = 'Повысить ставку';
