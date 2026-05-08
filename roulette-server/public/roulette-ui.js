@@ -182,10 +182,12 @@ class RouletteUI {
   }
 
   updateBetButton(isInRound) {
+    console.log('[Roulette] updateBetButton called, isInRound:', isInRound);
     this.state.isInRound = isInRound;
     
     if (isInRound) {
       // Пользователь в раунде - показываем режим повышения
+      console.log('[Roulette] Setting RAISE mode');
       if (this.elements.betBtn) {
         this.elements.betBtn.textContent = 'Повысить ставку';
       }
@@ -197,9 +199,11 @@ class RouletteUI {
       }
       if (this.elements.currentBetInfo) {
         this.elements.currentBetInfo.classList.remove('hidden');
+        console.log('[Roulette] Showing current bet info');
       }
     } else {
       // Пользователь не в раунде - показываем режим входа
+      console.log('[Roulette] Setting JOIN mode');
       if (this.elements.betBtn) {
         this.elements.betBtn.textContent = 'Войти в раунд';
       }
@@ -211,6 +215,7 @@ class RouletteUI {
       }
       if (this.elements.currentBetInfo) {
         this.elements.currentBetInfo.classList.add('hidden');
+        console.log('[Roulette] Hiding current bet info');
       }
     }
   }
