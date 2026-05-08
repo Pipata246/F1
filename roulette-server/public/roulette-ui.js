@@ -157,6 +157,11 @@ class RouletteUI {
         
         console.log('[Roulette] Total players after processing:', players.length);
         
+        // DEBUG: Выводим информацию о каждом игроке
+        players.forEach((p, i) => {
+          console.log(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet);
+        });
+        
         // ВАЖНО: Не обновляем игроков если идет спин - сохраняем текущих для анимации
         if (data.round.status !== 'spinning' || !this.state.isSpinning) {
           this.updatePlayers(players);
@@ -539,13 +544,16 @@ class RouletteUI {
       return;
     }
 
-    // Проверяем нужно ли перерисовывать (только если состав игроков изменился)
-    const playersKey = this.state.players.map(p => `${p.id}_${p.chance}`).join('|');
+    // ВАЖНО: Проверяем нужно ли перерисовывать
+    // Используем количество игроков И их ID для определения изменений
+    const playersKey = this.state.players.length + '_' + this.state.players.map(p => `${p.id}_${p.chance.toFixed(2)}`).sort().join('|');
     if (this.state.lastPlayersKey === playersKey && this.elements.strip.children.length > 0) {
       // Игроки не изменились, не перерисовываем
       console.log('[Roulette] Skipping wheel render - players unchanged');
       return;
     }
+    
+    console.log('[Roulette] Players changed! Old key:', this.state.lastPlayersKey, 'New key:', playersKey);
     this.state.lastPlayersKey = playersKey;
 
     console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
@@ -610,9 +618,9 @@ class RouletteUI {
     this.state.wheelCards = shuffledCards;
     
     // DEBUG: Проверяем что карточки действительно перемешаны
-    const first10 = shuffledCards.slice(0, 10).map(c => c.player.name.charAt(0)).join('');
+    const first20 = shuffledCards.slice(0, 20).map(c => c.player.name.charAt(0)).join('');
     console.log('[Roulette] Shuffled with Fisher-Yates + mulberry32, seed:', seed);
-    console.log('[Roulette] First 10 cards:', first10);
+    console.log('[Roulette] First 20 cards:', first20);
     
     // Генерируем HTML для всех карточек
     const cardsHtml = shuffledCards.map((card, index) => {
@@ -664,7 +672,7 @@ class RouletteUI {
     this.elements.strip.style.transform = 'translateX(0)';
     this.elements.strip.style.transition = 'none';
     
-    console.log('[Roulette] Wheel rendered successfully');
+    console.log('[Roulette] Wheel rendered successfully with', shuffledCards.length, 'cards');
   }
   
   // Анимация вращения рулетки (как в CS:GO кейсах)
