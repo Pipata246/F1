@@ -382,11 +382,16 @@ async function handleSpinRoulette(body, tgUserId) {
     const playerName = bet.users?.username || bet.users?.first_name || "Player";
     
     // Для каждого игрока создаем запись где он player1
-    // player2 будет победитель (если это не он сам)
-    const otherPlayerId = isWinner ? (bets.find(b => b.user_id !== winnerId)?.user_id || null) : winnerId;
-    const otherPlayerName = isWinner 
-      ? (bets.find(b => b.user_id !== winnerId)?.users?.username || bets.find(b => b.user_id !== winnerId)?.users?.first_name || "Player")
-      : winnerDisplayName;
+    // player2 будет первый другой игрок (не null)
+    const otherPlayer = bets.find(b => b.user_id !== bet.user_id);
+    
+    if (!otherPlayer) {
+      // Если только один игрок (не должно быть, но на всякий случай)
+      continue;
+    }
+    
+    const otherPlayerId = otherPlayer.user_id;
+    const otherPlayerName = otherPlayer.users?.username || otherPlayer.users?.first_name || "Player";
     
     await supabaseInsert("game_matches", {
       game_key: 'roulette',
