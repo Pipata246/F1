@@ -199,24 +199,30 @@ class RouletteUI {
           // Отмечаем что модалку для этого раунда показали
           this.state.shownWinnerRoundId = data.round.id;
           
+          console.log('[Roulette] Round finished via polling, showing animation');
+          
           // Найти имя победителя из ставок
           const winnerBet = data.bets.find(b => String(b.user_id) === String(data.round.winner_user_id));
           const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
           
+          // Блокируем UI
+          this.disableBetButton();
+          this.updateStatus('spinning');
+          
           // ВАЖНО: Сначала запускаем анимацию вращения
+          console.log('[Roulette] Starting animation for winner:', data.round.winner_user_id);
           await this.spinWheelAnimation(data.round.winner_user_id);
+          console.log('[Roulette] Animation completed via polling');
           
           // ТОЛЬКО ПОСЛЕ анимации показываем победителя
           this.showWinner(winnerName, parseFloat(data.round.winner_amount), data.round.winner_user_id);
           
           // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
           if (String(data.round.winner_user_id) === myUserIdStr) {
-            // Обновляем баланс напрямую в state
             if (window.userState && typeof window.userState.balance === 'number') {
               window.userState.balance = window.userState.balance + parseFloat(data.round.winner_amount);
-              window.userState.prevBalance = window.userState.balance; // Чтобы не показывать toast
+              window.userState.prevBalance = window.userState.balance;
               
-              // Обновляем UI
               if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
                 window.refreshBalanceUiAfterHydrate();
               }
@@ -495,6 +501,12 @@ class RouletteUI {
   renderWheel() {
     if (!this.elements.strip) return;
 
+    // Если идет спин - НЕ перерисовываем колесо
+    if (this.state.isSpinning || this.state.currentRound?.status === 'spinning') {
+      console.log('[Roulette] Skipping wheel render during spin');
+      return;
+    }
+
     if (this.state.players.length === 0) {
       this.elements.strip.innerHTML = `
         <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
@@ -508,9 +520,12 @@ class RouletteUI {
     const playersKey = this.state.players.map(p => `${p.id}_${p.chance}`).join('|');
     if (this.state.lastPlayersKey === playersKey && this.elements.strip.children.length > 0) {
       // Игроки не изменились, не перерисовываем
+      console.log('[Roulette] Skipping wheel render - players unchanged');
       return;
     }
     this.state.lastPlayersKey = playersKey;
+
+    console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
 
     // Создаем массив из 100 карточек на основе шансов игроков
     const cards = [];
@@ -535,6 +550,8 @@ class RouletteUI {
     
     // Сохраняем карточки в state для анимации
     this.state.wheelCards = cards;
+    
+    console.log('[Roulette] Generated', cards.length, 'cards');
     
     // Генерируем HTML для всех 100 карточек
     const cardsHtml = cards.map((card, index) => {
@@ -579,6 +596,8 @@ class RouletteUI {
     this.elements.strip.innerHTML = cardsHtml;
     this.elements.strip.style.transform = 'translateX(0)';
     this.elements.strip.style.transition = 'none';
+    
+    console.log('[Roulette] Wheel rendered successfully');
   }
   
   // Анимация вращения рулетки (как в CS:GO кейсах)
@@ -730,13 +749,19 @@ class RouletteUI {
     try {
       console.log('[Roulette] Spinning...');
       
-      // Вызываем API
+      // Блокируем UI
+      this.disableBetButton();
+      this.updateStatus('spinning');
+      
+      // Вызываем API для получения победителя
       const data = await this.callAPI('spinRoulette');
       
-      console.log('[Roulette] Winner:', data.winner);
+      console.log('[Roulette] Winner from API:', data.winner);
       
-      // ВАЖНО: Сначала запускаем анимацию вращения
+      // ВАЖНО: Сначала запускаем анимацию вращения с победителем из API
+      console.log('[Roulette] Starting animation...');
       await this.spinWheelAnimation(data.winner.user_id);
+      console.log('[Roulette] Animation completed');
       
       // ТОЛЬКО ПОСЛЕ анимации показываем победителя
       this.showWinner(data.winner.display_name, data.winner.amount, data.winner.user_id);
@@ -744,19 +769,17 @@ class RouletteUI {
       // Обновляем баланс если я победил (тихо, без toast)
       const myUserIdStr = String(this.state.myUserId);
       if (String(data.winner.user_id) === myUserIdStr) {
-        // Обновляем баланс напрямую в state без вызова hydrateUserFromServer
         if (window.userState && typeof window.userState.balance === 'number') {
           window.userState.balance = window.userState.balance + data.winner.amount;
-          window.userState.prevBalance = window.userState.balance; // Чтобы не показывать toast
+          window.userState.prevBalance = window.userState.balance;
           
-          // Обновляем UI
           if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
             window.refreshBalanceUiAfterHydrate();
           }
         }
       }
       
-      // Через 5 секунд загружаем новый раунд и разблокируем кнопку
+      // Через 5 секунд загружаем новый раунд
       setTimeout(() => {
         this.state.isSpinning = false;
         this.enableBetButton();
@@ -767,13 +790,13 @@ class RouletteUI {
       console.error('[Roulette] Spin error:', error);
       this.state.isSpinning = false;
       
-      // Если розыгрыш уже идет - просто ждем результата через polling
-      if (error.message && (error.message.includes('уже идет') || error.message.includes('уже запущен'))) {
-        console.log('[Roulette] Spin already in progress, waiting via polling...');
+      // Если розыгрыш уже идет - НЕ показываем ошибку, просто ждем через polling
+      if (error.message && (error.message.includes('уже идет') || error.message.includes('уже запущен') || error.message.includes('уже завершен'))) {
+        console.log('[Roulette] Spin already in progress or finished, waiting via polling...');
         this.disableBetButton();
-        // Polling автоматически обнаружит завершение раунда
+        // Polling автоматически обнаружит завершение раунда и покажет анимацию
       } else {
-        // Другая ошибка - показываем и разблокируем
+        // Другая ошибка - показываем
         this.showToast('Ошибка: ' + error.message);
         setTimeout(() => {
           this.enableBetButton();
