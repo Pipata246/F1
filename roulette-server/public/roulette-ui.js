@@ -146,17 +146,26 @@ class RouletteUI {
           this.updateBetButton(false); // Не в раунде
         }
         
-        // Handle timer
+        // Handle timer - используем ТОЛЬКО серверное время
         if (data.round.status === 'active' && data.round.timer_ends_at) {
           const endsAt = new Date(data.round.timer_ends_at);
           const now = new Date();
           const remaining = Math.max(0, Math.floor((endsAt - now) / 1000));
           
-          if (remaining > 0) {
-            this.startTimer(remaining);
+          // Показываем таймер
+          this.updateTimerDisplay(remaining);
+          if (this.elements.timerWrap) {
+            this.elements.timerWrap.classList.remove('hidden');
+          }
+          
+          // Если время истекло - запускаем спин (только один раз)
+          if (remaining <= 0 && !this.state.isSpinning) {
+            this.onTimerEnd();
           }
         } else {
-          this.stopTimer();
+          if (this.elements.timerWrap) {
+            this.elements.timerWrap.classList.add('hidden');
+          }
         }
       } else {
         // No active round
@@ -269,27 +278,6 @@ class RouletteUI {
   }
 
   // ==================== TIMER ====================
-  startTimer(seconds) {
-    if (this.elements.timerWrap) {
-      this.elements.timerWrap.classList.remove('hidden');
-    }
-
-    let remaining = seconds;
-    this.updateTimerDisplay(remaining);
-
-    if (this.timerInterval) clearInterval(this.timerInterval);
-    
-    this.timerInterval = setInterval(() => {
-      remaining--;
-      this.updateTimerDisplay(remaining);
-
-      if (remaining <= 0) {
-        clearInterval(this.timerInterval);
-        this.onTimerEnd();
-      }
-    }, 1000);
-  }
-
   updateTimerDisplay(seconds) {
     if (this.elements.timer) {
       this.elements.timer.textContent = seconds;
@@ -305,18 +293,11 @@ class RouletteUI {
     }
   }
 
-  stopTimer() {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = null;
-    }
-    if (this.elements.timerWrap) {
-      this.elements.timerWrap.classList.add('hidden');
-    }
-  }
-
   onTimerEnd() {
-    this.stopTimer();
+    // Защита от повторного вызова
+    if (this.state.isSpinning) return;
+    
+    this.state.isSpinning = true;
     this.updateStatus('spinning');
     
     // Блокируем кнопку ставки
@@ -542,6 +523,7 @@ class RouletteUI {
       
       // Через 5 секунд загружаем новый раунд и разблокируем кнопку
       setTimeout(() => {
+        this.state.isSpinning = false;
         this.enableBetButton();
         this.loadActiveRound();
       }, 5000);
@@ -581,6 +563,7 @@ class RouletteUI {
         // Таймаут на 10 секунд
         setTimeout(() => {
           clearInterval(checkInterval);
+          this.state.isSpinning = false;
           this.enableBetButton();
           this.loadActiveRound();
         }, 10000);
@@ -589,6 +572,7 @@ class RouletteUI {
         // Другая ошибка
         this.showToast('Ошибка розыгрыша: ' + error.message);
         setTimeout(() => {
+          this.state.isSpinning = false;
           this.enableBetButton();
           this.loadActiveRound();
         }, 2000);
