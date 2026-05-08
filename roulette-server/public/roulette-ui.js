@@ -162,6 +162,12 @@ class RouletteUI {
           console.log(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet);
         });
         
+        // DEBUG для TMA: показываем toast с информацией о игроках
+        if (players.length > 0) {
+          const debugInfo = players.map(p => `${p.name}: ${p.chance.toFixed(1)}%`).join(', ');
+          console.log('[DEBUG TMA] Players:', debugInfo);
+        }
+        
         // ВАЖНО: Не обновляем игроков если идет спин - сохраняем текущих для анимации
         if (data.round.status !== 'spinning' || !this.state.isSpinning) {
           this.updatePlayers(players);
@@ -621,6 +627,13 @@ class RouletteUI {
     const first20 = shuffledCards.slice(0, 20).map(c => c.player.name.charAt(0)).join('');
     console.log('[Roulette] Shuffled with Fisher-Yates + mulberry32, seed:', seed);
     console.log('[Roulette] First 20 cards:', first20);
+    
+    // DEBUG: Обновляем UI с информацией о shuffle
+    const debugDiv = document.getElementById('rouletteDebug');
+    if (debugDiv) {
+      const playerInfo = this.state.players.map(p => `${p.name.substring(0,3)}:${p.chance.toFixed(0)}%`).join(' | ');
+      debugDiv.textContent = `[${playerInfo}] Cards: ${first20.substring(0,15)}... Seed: ${seed}`;
+    }
     
     // Генерируем HTML для всех карточек
     const cardsHtml = shuffledCards.map((card, index) => {
