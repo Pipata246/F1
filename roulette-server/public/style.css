@@ -157,23 +157,7 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   margin-bottom: 8px;
-}
-
-.roulette-icon {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-}
-
-.roulette-icon svg {
-  width: 40px;
-  height: 40px;
-  display: block;
 }
 
 .roulette-game-header h1 {
