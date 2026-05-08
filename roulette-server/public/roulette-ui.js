@@ -548,12 +548,51 @@ class RouletteUI {
       
     } catch (error) {
       console.error('[Roulette] Spin error:', error);
-      this.showToast('Ошибка розыгрыша: ' + error.message);
-      // Все равно перезагружаем раунд и разблокируем кнопку
-      setTimeout(() => {
-        this.enableBetButton();
-        this.loadActiveRound();
-      }, 2000);
+      
+      // Если розыгрыш уже идет - просто ждем результата
+      if (error.message && error.message.includes('уже идет')) {
+        console.log('[Roulette] Spin already in progress, waiting for result...');
+        this.showToast('Ожидание результата...');
+        
+        // Проверяем результат каждую секунду
+        const checkInterval = setInterval(async () => {
+          const data = await this.callAPI('getActiveRound');
+          
+          // Если раунд завершен - показываем результат
+          if (!data.round || data.round.status === 'finished') {
+            clearInterval(checkInterval);
+            
+            // Обновляем баланс
+            if (typeof window.hydrateUserFromServer === 'function') {
+              await window.hydrateUserFromServer();
+              if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
+                window.refreshBalanceUiAfterHydrate();
+              }
+            }
+            
+            // Загружаем новый раунд
+            setTimeout(() => {
+              this.enableBetButton();
+              this.loadActiveRound();
+            }, 2000);
+          }
+        }, 1000);
+        
+        // Таймаут на 10 секунд
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          this.enableBetButton();
+          this.loadActiveRound();
+        }, 10000);
+        
+      } else {
+        // Другая ошибка
+        this.showToast('Ошибка розыгрыша: ' + error.message);
+        setTimeout(() => {
+          this.enableBetButton();
+          this.loadActiveRound();
+        }, 2000);
+      }
     }
   }
 

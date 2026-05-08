@@ -233,26 +233,52 @@ async function handleSpinRoulette(body, tgUserId) {
     throw new Error("Нет активного раунда");
   }
   
-  // Проверить что раунд в статусе active
+  // Проверить что раунд в статусе active (не spinning и не finished)
+  if (round.status === 'spinning') {
+    // Раунд уже крутится - просто ждем
+    throw new Error("Розыгрыш уже идет, ожидайте результата");
+  }
+  
+  if (round.status === 'finished') {
+    throw new Error("Раунд уже завершен");
+  }
+  
   if (round.status !== 'active') {
     throw new Error("Раунд не активен");
   }
   
-  // Проверить что таймер истек (с запасом 2 секунды для сетевой задержки)
+  // Проверить что таймер истек (с запасом 3 секунды для сетевой задержки)
   if (round.timer_ends_at) {
     const endsAt = new Date(round.timer_ends_at);
     const now = new Date();
     const diff = now - endsAt;
     
-    // Разрешаем спин если прошло хотя бы -2 секунды (т.е. осталось меньше 2 сек или уже истекло)
-    if (diff < -2000) {
-      throw new Error(`Таймер еще не истек. Осталось ${Math.ceil(-diff / 1000)} сек`);
+    // Разрешаем спин если прошло хотя бы -3 секунды
+    if (diff < -3000) {
+      const remaining = Math.ceil(-diff / 1000);
+      throw new Error(`Таймер еще не истек. Осталось ${remaining} сек`);
     }
+  }
+  
+  // АТОМАРНО меняем статус на spinning (защита от двойного спина)
+  const { data: updated, error: updateError } = await supabase
+    .from("roulette_rounds")
+    .update({ status: "spinning" })
+    .eq("id", round.id)
+    .eq("status", "active") // Обновится только если статус все еще active
+    .select()
+    .single();
+  
+  if (updateError || !updated) {
+    // Кто-то другой уже начал спин
+    throw new Error("Розыгрыш уже запущен другим игроком");
   }
   
   // Получить все ставки
   const bets = await getRoundBets(round.id);
   if (bets.length < 2) {
+    // Откатываем статус обратно
+    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
     throw new Error("Недостаточно игроков для розыгрыша");
   }
   
@@ -261,6 +287,8 @@ async function handleSpinRoulette(body, tgUserId) {
   const winnerBet = bets.find(b => b.user_id === winnerId);
   
   if (!winnerBet) {
+    // Откатываем статус обратно
+    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
     throw new Error("Ошибка выбора победителя");
   }
   
@@ -283,7 +311,7 @@ async function handleSpinRoulette(body, tgUserId) {
       .eq("tg_user_id", winnerId);
   }
   
-  // Обновить раунд
+  // Обновить раунд на finished
   await supabaseUpdate("roulette_rounds", round.id, {
     status: "finished",
     winner_user_id: winnerId,
