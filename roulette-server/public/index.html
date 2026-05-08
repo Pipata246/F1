@@ -367,7 +367,9 @@
     async function loadUserData() {
       try {
         const initData = tg?.initData || '';
-        const response = await fetch('/api/user', {
+        
+        // Use absolute path to API (from root)
+        const response = await fetch('../../api/user', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ initData })
@@ -375,11 +377,12 @@
         
         if (response.ok) {
           const data = await response.json();
+          console.log('User data loaded:', data);
           
           // Update user chip
           const userChip = document.getElementById('userChip');
           if (userChip && data.user) {
-            userChip.textContent = data.user.first_name || 'Гость';
+            userChip.textContent = data.user.first_name || data.user.username || 'Гость';
           }
           
           // Update balance
@@ -387,6 +390,8 @@
           if (balanceVal && typeof data.balance === 'number') {
             balanceVal.textContent = data.balance.toFixed(2);
           }
+        } else {
+          console.error('API response not OK:', response.status);
         }
       } catch (error) {
         console.error('Failed to load user data:', error);
