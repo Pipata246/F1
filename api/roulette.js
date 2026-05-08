@@ -340,6 +340,66 @@ async function handleSpinRoulette(body, tgUserId) {
     winner_bet_amount: parseFloat(winnerBet.bet_amount)
   });
   
+  // Добавить записи в pvp_balance_events для истории баланса
+  for (const bet of bets) {
+    const isWinner = bet.user_id === winnerId;
+    const eventType = isWinner ? 'win' : 'loss';
+    const amount = isWinner ? winnerAmount : -parseFloat(bet.bet_amount);
+    const displayName = bet.users?.username || bet.users?.first_name || "Player";
+    const text = isWinner 
+      ? `Победа в рулетке +${winnerAmount.toFixed(2)} TON`
+      : `Проигрыш в рулетке -${parseFloat(bet.bet_amount).toFixed(2)} TON`;
+    
+    await supabaseInsert("pvp_balance_events", {
+      tg_user_id: bet.user_id,
+      room_id: null,
+      game_key: 'roulette',
+      event_type: eventType,
+      amount: amount,
+      stake_ton: parseFloat(bet.bet_amount),
+      meta: {
+        reason: 'roulette_finished',
+        text: text,
+        round_id: round.id,
+        players_count: round.players_count,
+        total_pot: totalPot
+      }
+    });
+  }
+  
+  // Добавить запись в game_matches для истории матчей
+  // Формируем список всех игроков для details_json
+  const playersDetails = bets.map(bet => ({
+    user_id: bet.user_id,
+    name: bet.users?.username || bet.users?.first_name || "Player",
+    bet: parseFloat(bet.bet_amount),
+    chance: parseFloat(bet.chance_percent),
+    is_winner: bet.user_id === winnerId
+  }));
+  
+  await supabaseInsert("game_matches", {
+    game_key: 'roulette',
+    mode: 'multiplayer',
+    player1_tg_user_id: winnerId,
+    player1_name: winnerDisplayName,
+    player2_tg_user_id: bets.find(b => b.user_id !== winnerId)?.user_id || null,
+    player2_name: bets.find(b => b.user_id !== winnerId)?.users?.username 
+      || bets.find(b => b.user_id !== winnerId)?.users?.first_name 
+      || "Player",
+    winner_tg_user_id: winnerId,
+    score_json: {
+      winner_amount: winnerAmount,
+      total_pot: totalPot,
+      platform_fee: platformFee
+    },
+    details_json: {
+      round_id: round.id,
+      players: playersDetails,
+      players_count: round.players_count
+    },
+    finished_at: new Date().toISOString()
+  });
+  
   return {
     ok: true,
     winner: {

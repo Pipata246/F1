@@ -881,28 +881,39 @@ async function getWalletHistory(initData, limit) {
       intent_status: r.status,
       expires_at: r.expires_at,
     }));
-  const stakeRows = (stakeEventsRaw || []).map((r) => ({
-    id: `pvp_${r.id}`,
-    kind: r.event_type === "win" ? "pvp_win" : r.event_type === "loss" ? "pvp_loss" : "pvp_refund",
-    amount: String(r.amount ?? ""),
-    status: "completed",
-    ton_tx_hash: null,
-    to_address: null,
-    created_at: r.created_at,
-    is_deposit_intent: false,
-    meta: {
-      game_key: r.game_key || null,
-      stake_ton: r.stake_ton != null ? String(r.stake_ton) : null,
-      room_id: r.room_id || null,
-      note:
-        r.event_type === "win"
-          ? `Победа в матче +${r.amount} TON`
-          : r.event_type === "loss"
-            ? `Поражение в матче ${r.amount} TON`
-            : `Возврат ставки ${r.amount} TON`,
-      ...(asObj(r.meta) || {}),
-    },
-  }));
+  const stakeRows = (stakeEventsRaw || []).map((r) => {
+    // Используем текст из meta если он есть, иначе формируем стандартный
+    let noteText = '';
+    const metaObj = asObj(r.meta) || {};
+    
+    if (metaObj.text) {
+      noteText = metaObj.text;
+    } else if (r.event_type === "win") {
+      noteText = `Победа в матче +${r.amount} TON`;
+    } else if (r.event_type === "loss") {
+      noteText = `Поражение в матче ${r.amount} TON`;
+    } else {
+      noteText = `Возврат ставки ${r.amount} TON`;
+    }
+    
+    return {
+      id: `pvp_${r.id}`,
+      kind: r.event_type === "win" ? "pvp_win" : r.event_type === "loss" ? "pvp_loss" : "pvp_refund",
+      amount: String(r.amount ?? ""),
+      status: "completed",
+      ton_tx_hash: null,
+      to_address: null,
+      created_at: r.created_at,
+      is_deposit_intent: false,
+      meta: {
+        game_key: r.game_key || null,
+        stake_ton: r.stake_ton != null ? String(r.stake_ton) : null,
+        room_id: r.room_id || null,
+        note: noteText,
+        ...metaObj,
+      },
+    };
+  });
   const usdtRows = (usdtRowsRaw || []).map((r) => ({
     id: `usdt_${r.id}`,
     kind: r.direction === "deposit" ? "usdt_deposit" : "usdt_withdrawal",

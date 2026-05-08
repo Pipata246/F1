@@ -2338,13 +2338,34 @@
       const p1Id = String(m.player1_tg_user_id || "");
       const p2Id = String(m.player2_tg_user_id || "");
       const isMeP1 = myTgId && p1Id === myTgId;
-      const myName = isMeP1 ? p1Name : p2Name;
-      const oppName = isMeP1 ? p2Name : p1Name;
+      
+      // Специальная обработка для рулетки
+      const isRoulette = m.game_key === 'roulette';
       const scoreObj = m.score_json || {};
-      const leftScore = Number(scoreObj.left ?? 0);
-      const rightScore = Number(scoreObj.right ?? 0);
-      const myScore = isMeP1 ? leftScore : rightScore;
-      const oppScore = isMeP1 ? rightScore : leftScore;
+      let myName, oppName, myScore, oppScore;
+      
+      if(isRoulette){
+        const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
+        const players = details.players || [];
+        const myPlayer = players.find(p => String(p.user_id) === myTgId);
+        myName = myPlayer ? myPlayer.name : "Вы";
+        
+        // Для рулетки показываем количество игроков вместо противника
+        const playersCount = details.players_count || players.length || 2;
+        oppName = `${playersCount - 1} ${playersCount === 2 ? 'игрок' : playersCount <= 4 ? 'игрока' : 'игроков'}`;
+        
+        // Для рулетки score - это шанс победы
+        myScore = myPlayer ? Math.round(myPlayer.chance || 0) : 0;
+        oppScore = 100 - myScore;
+      }else{
+        myName = isMeP1 ? p1Name : p2Name;
+        oppName = isMeP1 ? p2Name : p1Name;
+        const leftScore = Number(scoreObj.left ?? 0);
+        const rightScore = Number(scoreObj.right ?? 0);
+        myScore = isMeP1 ? leftScore : rightScore;
+        oppScore = isMeP1 ? rightScore : leftScore;
+      }
+      
       const result = m.winner_tg_user_id
         ? (String(m.winner_tg_user_id) === myTgId ? "Победа" : "Поражение")
         : (myScore === oppScore ? "Ничья" : (myScore > oppScore ? "Победа" : "Поражение"));
@@ -2353,9 +2374,30 @@
       const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
       const stakeTonNum = Number(details.stakeTon);
       const hasStake = Number.isFinite(stakeTonNum) && stakeTonNum > 0;
+      
+      // Специальная обработка для рулетки
+      const isRoulette = m.game_key === 'roulette';
       let tonLine = "";
       let tonColor = "var(--text2)";
-      if(m.mode === "bot"){
+      
+      if(isRoulette){
+        // Для рулетки используем данные из score_json
+        const winnerAmount = Number(scoreObj.winner_amount || 0);
+        const totalPot = Number(scoreObj.total_pot || 0);
+        const playersCount = details.players_count || 2;
+        
+        if(result === "Победа"){
+          tonLine = `Выигрыш: +${formatBalanceAmountOnly(String(winnerAmount))} TON (банк: ${formatBalanceAmountOnly(String(totalPot))} TON, игроков: ${playersCount})`;
+          tonColor = "var(--accent)";
+        }else{
+          // Найти ставку проигравшего из details.players
+          const players = details.players || [];
+          const myPlayer = players.find(p => String(p.user_id) === myTgId);
+          const myBet = myPlayer ? Number(myPlayer.bet || 0) : 0;
+          tonLine = `Проигрыш: -${formatBalanceAmountOnly(String(myBet))} TON (банк: ${formatBalanceAmountOnly(String(totalPot))} TON, игроков: ${playersCount})`;
+          tonColor = "var(--danger)";
+        }
+      }else if(m.mode === "bot"){
         tonLine = "ДЭМО режим (против бота)";
       }else if(hasStake){
         const absStake = formatBalanceAmountOnly(String(stakeTonNum));
@@ -2382,7 +2424,7 @@
         <div class="small" style="margin-top:4px">${formatDateTime(m.finished_at)}</div>
         <div class="row" style="margin-top:8px; justify-content:space-between; align-items:center;">
           <div class="muted" style="font-weight:700">${myName} vs ${oppName || "Бот"}</div>
-          <div style="font-weight:900">${myScore} : ${oppScore}</div>
+          <div style="font-weight:900">${isRoulette ? myScore + '%' : myScore + ' : ' + oppScore}</div>
         </div>
         <div style="margin-top:6px; font-weight:900; color:${resultColor}">${result}</div>
         <div style="margin-top:6px; font-weight:800; color:${tonColor}">${escapeHtml(tonLine)}</div>
