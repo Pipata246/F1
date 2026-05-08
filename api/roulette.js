@@ -224,6 +224,106 @@ async function handleGetActiveRound(body) {
   };
 }
 
+async function handleSpinRoulette(body, tgUserId) {
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  
+  // Получить активный раунд
+  const round = await getActiveRound();
+  if (!round) {
+    throw new Error("Нет активного раунда");
+  }
+  
+  // Проверить что раунд в статусе active
+  if (round.status !== 'active') {
+    throw new Error("Раунд не активен");
+  }
+  
+  // Проверить что таймер истек
+  if (round.timer_ends_at) {
+    const endsAt = new Date(round.timer_ends_at);
+    const now = new Date();
+    if (now < endsAt) {
+      throw new Error("Таймер еще не истек");
+    }
+  }
+  
+  // Получить все ставки
+  const bets = await getRoundBets(round.id);
+  if (bets.length < 2) {
+    throw new Error("Недостаточно игроков для розыгрыша");
+  }
+  
+  // Выбрать победителя
+  const winnerId = selectWinner(bets);
+  const winnerBet = bets.find(b => b.user_id === winnerId);
+  
+  if (!winnerBet) {
+    throw new Error("Ошибка выбора победителя");
+  }
+  
+  // Рассчитать выигрыш
+  const totalPot = parseFloat(round.pot_amount);
+  const platformFee = totalPot * (PLATFORM_FEE_PERCENT / 100);
+  const winnerAmount = totalPot - platformFee;
+  
+  // Начислить выигрыш победителю
+  const { data: winner } = await supabase
+    .from("users")
+    .select("balance")
+    .eq("tg_user_id", winnerId)
+    .single();
+  
+  if (winner) {
+    await supabase
+      .from("users")
+      .update({ balance: parseFloat(winner.balance) + winnerAmount })
+      .eq("tg_user_id", winnerId);
+  }
+  
+  // Обновить раунд
+  await supabaseUpdate("roulette_rounds", round.id, {
+    status: "finished",
+    winner_user_id: winnerId,
+    winner_amount: winnerAmount,
+    platform_fee_amount: platformFee,
+    finished_at: new Date().toISOString()
+  });
+  
+  // Сохранить результат в историю
+  const winnerDisplayName = winnerBet.users?.username 
+    || winnerBet.users?.first_name 
+    || "Player";
+  
+  await supabaseInsert("roulette_results", {
+    round_id: round.id,
+    winner_user_id: winnerId,
+    winner_amount: winnerAmount,
+    total_pot: totalPot,
+    platform_fee: platformFee,
+    players_count: round.players_count,
+    winner_chance_percent: parseFloat(winnerBet.chance_percent),
+    winner_display_name: winnerDisplayName,
+    winner_bet_amount: parseFloat(winnerBet.bet_amount)
+  });
+  
+  return {
+    ok: true,
+    winner: {
+      user_id: winnerId,
+      display_name: winnerDisplayName,
+      amount: winnerAmount,
+      chance: parseFloat(winnerBet.chance_percent),
+      bet: parseFloat(winnerBet.bet_amount)
+    },
+    round: {
+      id: round.id,
+      total_pot: totalPot,
+      platform_fee: platformFee,
+      players_count: round.players_count
+    }
+  };
+}
+
 async function handleJoinRound(body, tgUserId) {
   const { betAmount } = body;
   
@@ -405,6 +505,10 @@ module.exports = async (req, res) => {
       
       case "raiseBet":
         result = await handleRaiseBet(body, tgUserId);
+        break;
+      
+      case "spinRoulette":
+        result = await handleSpinRoulette(body, tgUserId);
         break;
       
       default:

@@ -318,8 +318,9 @@ class RouletteUI {
   onTimerEnd() {
     this.stopTimer();
     this.updateStatus('spinning');
-    // Stage 1: Just visual feedback
-    console.log('Timer ended - would trigger spin');
+    
+    // Вызываем спин рулетки
+    this.spinRoulette();
   }
 
   // ==================== PLAYERS ====================
@@ -475,6 +476,44 @@ class RouletteUI {
   }
 
   // ==================== WINNER ====================
+  async spinRoulette() {
+    try {
+      console.log('[Roulette] Spinning...');
+      
+      // Вызываем API
+      const data = await this.callAPI('spinRoulette');
+      
+      console.log('[Roulette] Winner:', data.winner);
+      
+      // Показываем победителя
+      this.showWinner(data.winner.display_name, data.winner.amount);
+      
+      // Обновляем баланс если я победил
+      const myUserIdStr = String(this.state.myUserId);
+      if (String(data.winner.user_id) === myUserIdStr) {
+        if (typeof window.hydrateUserFromServer === 'function') {
+          await window.hydrateUserFromServer();
+          if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
+            window.refreshBalanceUiAfterHydrate();
+          }
+        }
+      }
+      
+      // Через 5 секунд загружаем новый раунд
+      setTimeout(() => {
+        this.loadActiveRound();
+      }, 5000);
+      
+    } catch (error) {
+      console.error('[Roulette] Spin error:', error);
+      this.showToast('Ошибка розыгрыша: ' + error.message);
+      // Все равно перезагружаем раунд
+      setTimeout(() => {
+        this.loadActiveRound();
+      }, 2000);
+    }
+  }
+
   showWinner(winnerName, amount) {
     if (this.elements.winnerName) {
       this.elements.winnerName.textContent = winnerName;
