@@ -11,6 +11,9 @@
     },
     "api/user.js": {
       "maxDuration": 60
+    },
+    "api/roulette.js": {
+      "maxDuration": 30
     }
   }
 }
