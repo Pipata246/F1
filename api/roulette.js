@@ -501,6 +501,24 @@ async function handleRaiseBet(body, tgUserId) {
   return { ok: true, message: "Ставка повышена" };
 }
 
+async function handleGetRecentWinners(body) {
+  const { limit = 10 } = body;
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  
+  const { data, error } = await supabase
+    .from("roulette_results")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  
+  if (error) throw new Error(error.message);
+  
+  return {
+    ok: true,
+    winners: data || []
+  };
+}
+
 // ============================================
 // MAIN HANDLER
 // ============================================
@@ -518,7 +536,13 @@ module.exports = async (req, res) => {
       return res.status(400).json({ ok: false, error: "Missing action" });
     }
 
-    // Verify Telegram auth
+    // Actions that don't require auth
+    if (action === "getRecentWinners") {
+      const result = await handleGetRecentWinners(body);
+      return res.status(200).json(result);
+    }
+
+    // Verify Telegram auth for other actions
     const verification = verifyTelegramInitData(initData, BOT_TOKEN);
     if (!verification.ok) {
       return res.status(401).json({ ok: false, error: verification.error });

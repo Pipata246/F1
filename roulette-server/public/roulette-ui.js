@@ -55,9 +55,13 @@ class RouletteUI {
       myBet: null,
       isLoading: false,
       isInRound: false, // Флаг: пользователь в раунде или нет
+      lastServerTime: null, // Последнее серверное время
+      lastLocalTime: null, // Последнее локальное время
+      timerEndTime: null, // Время окончания таймера
     };
 
     this.pollInterval = null;
+    this.timerInterval = null; // Интервал для плавного обновления таймера
     this.init();
   }
 
@@ -149,24 +153,25 @@ class RouletteUI {
           this.updateBetButton(false); // Не в раунде
         }
         
-        // Handle timer - используем СЕРВЕРНОЕ время из API
+        // Handle timer - используем СЕРВЕРНОЕ время из API с локальной интерполяцией
         if (data.round.status === 'active' && data.round.timer_ends_at) {
           const endsAt = new Date(data.round.timer_ends_at);
-          const serverNow = new Date(data.serverTime); // Используем серверное время!
-          const remaining = Math.max(0, Math.floor((endsAt - serverNow) / 1000));
+          const serverNow = new Date(data.serverTime);
           
-          // Показываем таймер
-          this.updateTimerDisplay(remaining);
+          // Сохраняем синхронизацию времени
+          this.state.lastServerTime = serverNow.getTime();
+          this.state.lastLocalTime = Date.now();
+          this.state.timerEndTime = endsAt.getTime();
+          
+          // Запускаем локальный таймер для плавного отображения
+          this.startSmoothTimer();
+          
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.remove('hidden');
           }
-          
-          // Если время истекло - запускаем спин (только один раз)
-          if (remaining <= 0 && !this.state.isSpinning) {
-            this.onTimerEnd();
-          }
         } else if (data.round.status === 'spinning') {
           // Раунд крутится - скрываем таймер и блокируем кнопку
+          this.stopSmoothTimer();
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.add('hidden');
           }
@@ -175,6 +180,7 @@ class RouletteUI {
             this.disableBetButton();
           }
         } else {
+          this.stopSmoothTimer();
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.add('hidden');
           }
@@ -225,10 +231,14 @@ class RouletteUI {
         this.updatePot(0);
         this.updatePlayers([]);
         this.updateBetButton(false); // Не в раунде
+        this.stopSmoothTimer();
         if (this.elements.timerWrap) {
           this.elements.timerWrap.classList.add('hidden');
         }
       }
+      
+      // Загружаем историю победителей
+      await this.loadRecentWinners();
     } catch (error) {
       console.error('Failed to load active round:', error);
       this.showToast('Ошибка загрузки: ' + error.message);
@@ -330,6 +340,42 @@ class RouletteUI {
   }
 
   // ==================== TIMER ====================
+  startSmoothTimer() {
+    // Останавливаем предыдущий таймер
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+    }
+    
+    // Обновляем таймер каждые 100ms для плавности
+    this.timerInterval = setInterval(() => {
+      if (!this.state.timerEndTime || !this.state.lastServerTime || !this.state.lastLocalTime) {
+        return;
+      }
+      
+      // Вычисляем текущее серверное время на основе локального времени
+      const localElapsed = Date.now() - this.state.lastLocalTime;
+      const estimatedServerTime = this.state.lastServerTime + localElapsed;
+      
+      // Вычисляем оставшееся время
+      const remaining = Math.max(0, Math.floor((this.state.timerEndTime - estimatedServerTime) / 1000));
+      
+      this.updateTimerDisplay(remaining);
+      
+      // Если время истекло - запускаем спин
+      if (remaining <= 0 && !this.state.isSpinning) {
+        this.stopSmoothTimer();
+        this.onTimerEnd();
+      }
+    }, 100);
+  }
+  
+  stopSmoothTimer() {
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+  
   updateTimerDisplay(seconds) {
     if (this.elements.timer) {
       this.elements.timer.textContent = seconds;
@@ -629,6 +675,57 @@ class RouletteUI {
         origin: { y: 0.6 }
       });
     }
+  }
+
+  // ==================== RECENT WINNERS ====================
+  async loadRecentWinners() {
+    try {
+      const data = await this.callAPI('getRecentWinners', { limit: 5 });
+      
+      if (data.winners && data.winners.length > 0) {
+        this.renderRecentWinners(data.winners);
+      } else {
+        this.renderRecentWinners([]);
+      }
+    } catch (error) {
+      console.error('Failed to load recent winners:', error);
+    }
+  }
+  
+  renderRecentWinners(winners) {
+    if (!this.elements.recentWinners) return;
+    
+    if (winners.length === 0) {
+      this.elements.recentWinners.innerHTML = `
+        <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">
+          История пока пуста
+        </div>
+      `;
+      return;
+    }
+    
+    this.elements.recentWinners.innerHTML = winners.map(winner => {
+      const date = new Date(winner.created_at);
+      const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      
+      return `
+        <div class="pill" style="padding:10px 12px;">
+          <div style="display:flex; align-items:center; gap:10px; flex:1;">
+            <div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg, #fbbf24, #f59e0b); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">
+              ${winner.winner_display_name.charAt(0).toUpperCase()}
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(winner.winner_display_name)}</div>
+              <div style="font-size:11px; color:var(--muted);">${timeStr} • ${winner.players_count} игроков</div>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:16px; font-weight:900; color:var(--accent);">${parseFloat(winner.winner_amount).toFixed(2)}</div>
+            <div style="font-size:10px; color:var(--muted);">TON</div>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // ==================== UTILS ====================
