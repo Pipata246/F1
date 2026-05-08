@@ -9,12 +9,31 @@
 </head>
 <body>
 
+  <!-- Topbar (same as main page) -->
+  <div class="topbar">
+    <div class="brand">
+      <svg class="brandLogo" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="#8CFFC1" d="M3 17h9l1.6-4H7l.8-2H14l1.3-3H6.8L5.5 11H3.2l.9-2.6C4.8 6.5 6.6 5 8.7 5H21l-.8 2h-3.4L14 14h5.4l-.9 2.5C17.8 18.5 16 20 13.9 20H3z"/>
+      </svg>
+      <span>F1 Duel</span>
+    </div>
+    <div class="topbarRight">
+      <div class="chip topbarBalance" id="headerBalanceWrap" role="button" tabindex="-1" aria-label="Баланс TON, открыть вкладку">
+        <span class="topbarTonIcon" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m20.661 7.22l-7.846 12.494a1.06 1.06 0 0 1-1.794-.006L3.328 7.214A2.2 2.2 0 0 1 3 6.05a2.29 2.29 0 0 1 2.324-2.255h13.362C19.963 3.794 21 4.8 21 6.044c0 .413-.116.82-.339 1.175M5.218 6.8l5.723 8.826V5.912H5.816c-.592 0-.857.392-.598.89m7.84 8.826L18.783 6.8c.265-.497-.006-.89-.599-.89H13.06z"/></svg>
+        </span>
+        <span id="headerBalanceVal">—</span>
+      </div>
+      <div class="chip" id="userChip">Гость</div>
+    </div>
+  </div>
+
   <!-- ROULETTE GAME -->
   <div class="roulette-container">
 
-    <!-- Header -->
-    <div class="roulette-header">
-      <div class="header-title">
+    <!-- Game Header -->
+    <div class="roulette-game-header">
+      <div class="game-title-row">
         <div class="roulette-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/>
@@ -31,14 +50,14 @@
           </svg>
         </div>
         <h1>Рулетка</h1>
+        <button class="help-button" id="helpButton" aria-label="Правила игры">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </button>
       </div>
-      <button class="help-button" id="helpButton" aria-label="Правила игры">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-      </button>
       <div id="rouletteStatusText" class="status-text">Ожидание игроков</div>
     </div>
 
@@ -346,6 +365,55 @@
 
   <script src="roulette-ui.js"></script>
   <script>
+    // Initialize Telegram WebApp
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    // Load user data and balance
+    async function loadUserData() {
+      try {
+        const initData = tg?.initData || '';
+        const response = await fetch('/api/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Update user chip
+          const userChip = document.getElementById('userChip');
+          if (userChip && data.user) {
+            userChip.textContent = data.user.first_name || 'Гость';
+          }
+          
+          // Update balance
+          const balanceWrap = document.getElementById('headerBalanceWrap');
+          const balanceVal = document.getElementById('headerBalanceVal');
+          if (balanceVal && typeof data.balance === 'number') {
+            balanceVal.textContent = data.balance.toFixed(2);
+            if (balanceWrap) {
+              balanceWrap.style.display = 'flex';
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load user data:', error);
+      }
+    }
+
+    // Load data on page load
+    loadUserData();
+
+    // Balance click handler
+    document.getElementById('headerBalanceWrap')?.addEventListener('click', function() {
+      window.location.href = '/#wallet';
+    });
+
     // Help button handler
     document.getElementById('helpButton').addEventListener('click', function() {
       document.getElementById('rulesModal').classList.add('show');
