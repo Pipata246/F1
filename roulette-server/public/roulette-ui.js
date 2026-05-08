@@ -58,6 +58,7 @@ class RouletteUI {
       lastServerTime: null, // Последнее серверное время
       lastLocalTime: null, // Последнее локальное время
       timerEndTime: null, // Время окончания таймера
+      shownWinnerRoundId: null, // ID раунда, для которого уже показали модалку победителя
     };
 
     this.pollInterval = null;
@@ -188,34 +189,38 @@ class RouletteUI {
         }
         
         // ВАЖНО: Если раунд только что завершился - показываем победителя
-        if (data.round.status === 'finished' && previousStatus !== 'finished') {
-          // Раунд завершился, показываем результат
-          if (data.round.winner_user_id) {
-            // Найти имя победителя из ставок
-            const winnerBet = data.bets.find(b => String(b.user_id) === String(data.round.winner_user_id));
-            const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
-            
-            // Показываем модалку победителя ВСЕМ
-            this.showWinner(winnerName, parseFloat(data.round.winner_amount), data.round.winner_user_id);
-            
-            // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
-            if (String(data.round.winner_user_id) === myUserIdStr) {
-              // Обновляем баланс напрямую в state
-              if (window.userState && typeof window.userState.balance === 'number') {
-                window.userState.balance = window.userState.balance + parseFloat(data.round.winner_amount);
-                window.userState.prevBalance = window.userState.balance; // Чтобы не показывать toast
-                
-                // Обновляем UI
-                if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
-                  window.refreshBalanceUiAfterHydrate();
-                }
+        // Проверяем что модалку для этого раунда ещё не показывали
+        if (data.round.status === 'finished' && 
+            data.round.winner_user_id && 
+            this.state.shownWinnerRoundId !== data.round.id) {
+          
+          // Отмечаем что модалку для этого раунда показали
+          this.state.shownWinnerRoundId = data.round.id;
+          
+          // Найти имя победителя из ставок
+          const winnerBet = data.bets.find(b => String(b.user_id) === String(data.round.winner_user_id));
+          const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
+          
+          // Показываем модалку победителя ВСЕМ
+          this.showWinner(winnerName, parseFloat(data.round.winner_amount), data.round.winner_user_id);
+          
+          // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
+          if (String(data.round.winner_user_id) === myUserIdStr) {
+            // Обновляем баланс напрямую в state
+            if (window.userState && typeof window.userState.balance === 'number') {
+              window.userState.balance = window.userState.balance + parseFloat(data.round.winner_amount);
+              window.userState.prevBalance = window.userState.balance; // Чтобы не показывать toast
+              
+              // Обновляем UI
+              if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
+                window.refreshBalanceUiAfterHydrate();
               }
             }
-            
-            // Сбросить флаг спина
-            this.state.isSpinning = false;
-            this.enableBetButton();
           }
+          
+          // Сбросить флаг спина
+          this.state.isSpinning = false;
+          this.enableBetButton();
         }
         
       } else {

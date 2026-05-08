@@ -104,16 +104,37 @@ async function supabaseUpdate(table, id, data) {
 async function getActiveRound() {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
-  const { data, error } = await supabase
+  // Ищем активные раунды (waiting, active, spinning)
+  const { data: activeRound, error: activeError } = await supabase
     .from("roulette_rounds")
     .select("*")
-    .in("status", ["waiting", "active"])
+    .in("status", ["waiting", "active", "spinning"])
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
   
-  if (error && error.code !== "PGRST116") throw new Error(error.message);
-  return data || null;
+  if (activeRound) return activeRound;
+  
+  // Если нет активного, ищем недавно завершенный (finished за последние 10 секунд)
+  // Это нужно чтобы все пользователи успели увидеть модалку победителя
+  const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+  
+  const { data: finishedRound, error: finishedError } = await supabase
+    .from("roulette_rounds")
+    .select("*")
+    .eq("status", "finished")
+    .gte("finished_at", tenSecondsAgo)
+    .order("finished_at", { ascending: false })
+    .limit(1)
+    .single();
+  
+  if (finishedRound) return finishedRound;
+  
+  // Если ошибка не "не найдено", выбрасываем её
+  if (activeError && activeError.code !== "PGRST116") throw new Error(activeError.message);
+  if (finishedError && finishedError.code !== "PGRST116") throw new Error(finishedError.message);
+  
+  return null;
 }
 
 async function getRoundBets(roundId) {
