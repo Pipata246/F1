@@ -54,23 +54,10 @@ class RouletteUI {
     this.elements.joinBtn?.addEventListener('click', () => this.handleJoin());
     this.elements.raiseBtn?.addEventListener('click', () => this.handleRaise());
     
-    // Demo mode for Stage 1
-    this.loadDemoData();
-  }
-
-  // ==================== DEMO DATA (Stage 1 only) ====================
-  loadDemoData() {
-    // Simulate some players for visual testing
-    const demoPlayers = [
-      { id: '1', name: 'Игрок 1', avatar: null, bet: 1.5, chance: 37.5 },
-      { id: '2', name: 'Игрок 2', avatar: null, bet: 1.0, chance: 25.0 },
-      { id: '3', name: 'Игрок 3', avatar: null, bet: 1.5, chance: 37.5 },
-    ];
-
-    this.updatePlayers(demoPlayers);
-    this.updatePot(4.0);
-    this.updateStatus('active');
-    this.startTimer(15);
+    // Initialize with empty state
+    this.updateStatus('waiting');
+    this.updatePot(0);
+    this.updatePlayers([]);
   }
 
   // ==================== STATUS UPDATES ====================
@@ -258,12 +245,9 @@ class RouletteUI {
       return;
     }
 
-    // Stage 1: Just visual feedback
+    // TODO: Send to backend
     console.log('Join with bet:', amount);
-    this.showToast(`Ставка ${amount} TON принята (демо)`);
-    
-    // Switch to raise mode
-    this.showRaiseSection(amount);
+    this.showToast('Функция будет доступна после подключения backend');
   }
 
   handleRaise() {
@@ -274,24 +258,9 @@ class RouletteUI {
       return;
     }
 
-    // Stage 1: Just visual feedback
+    // TODO: Send to backend
     console.log('Raise bet by:', amount);
-    this.showToast(`Ставка повышена на ${amount} TON (демо)`);
-  }
-
-  showRaiseSection(currentBet) {
-    if (this.elements.joinSection) {
-      this.elements.joinSection.classList.add('hidden');
-    }
-    if (this.elements.raiseSection) {
-      this.elements.raiseSection.classList.remove('hidden');
-    }
-    if (this.elements.yourBet) {
-      this.elements.yourBet.textContent = currentBet.toFixed(2);
-    }
-    if (this.elements.yourChance) {
-      this.elements.yourChance.textContent = '25.0%'; // Demo value
-    }
+    this.showToast('Функция будет доступна после подключения backend');
   }
 
   // ==================== WINNER ====================
