@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: 20260508-145900 - FIXED PLAYER INDEX USING USER ID HASH
+ * VERSION: 20260508-150100 - FIXED SYNTAX ERROR (duplicate debugDiv)
  */
 
 class RouletteUI {
@@ -620,15 +620,6 @@ class RouletteUI {
     console.log('[Roulette] Cards distribution BEFORE shuffle:', cardsByPlayer);
     debugLog += `Distribution: ${JSON.stringify(cardsByPlayer)}\n`;
     
-    // Показываем debug log в UI
-    const debugDiv = document.getElementById('rouletteDebug');
-    if (debugDiv && cards.length < 10) {
-      // Если карточек мало - показываем полный лог
-      debugDiv.textContent = debugLog;
-      debugDiv.style.whiteSpace = 'pre-wrap';
-      debugDiv.style.fontSize = '9px';
-    }
-    
     // Проверка что карточки сгенерированы
     if (cards.length === 0) {
       console.error('[Roulette] No cards generated!');
@@ -1094,7 +1085,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-145900');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-150100 - SYNTAX FIXED');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
