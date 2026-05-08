@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Рулетка</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ROULETTE GAME -->
+  <div class="roulette-container">
+    
+    <!-- Back Link -->
+    <a href="/" class="back-link">← Назад</a>
+
+    <!-- Header -->
+    <div class="roulette-header">
+      <div class="header-title">
+        <div class="roulette-icon">🎰</div>
+        <h1>Рулетка</h1>
+      </div>
+      <div id="rouletteStatusText" class="status-text">Ожидание игроков</div>
+    </div>
+
+    <!-- Pot Display -->
+    <div class="pot-section">
+      <div class="pot-card">
+        <div class="pot-label">Банк раунда</div>
+        <div class="pot-amount">
+          <span id="roulettePotAmount">0.00</span>
+          <span class="pot-currency">TON</span>
+        </div>
+        <div class="pot-players">
+          <span class="players-icon">👥</span>
+          <span id="roulettePlayerCount">0</span> игроков
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div id="rouletteTimerWrap" class="timer-wrap hidden">
+        <div class="timer-label">До розыгрыша</div>
+        <div class="timer-display">
+          <span id="rouletteTimer">20</span>
+          <span class="timer-unit">с</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Roulette Wheel -->
+    <div class="wheel-section">
+      <div class="wheel-label">Рулетка</div>
+      <div id="rouletteWheelContainer" class="wheel-container">
+        <div class="wheel-pointer"></div>
+        <div id="rouletteStrip" class="wheel-strip">
+          <div style="padding:0 20px; text-align:center; color:rgba(255,255,255,0.46); font-size:13px;">
+            Ожидание игроков...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Players List -->
+    <div class="players-section">
+      <div class="section-header">
+        <h3>Игроки</h3>
+      </div>
+      <div id="roulettePlayersList" class="players-list">
+        <div style="text-align:center; padding:24px; color:rgba(255,255,255,0.46); font-size:13px;">
+          Пока нет игроков. Будь первым!
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-section">
+      <!-- Join Section -->
+      <div id="rouletteJoinSection" class="action-card">
+        <div class="action-label">Сделать ставку</div>
+        <div class="input-group">
+          <input 
+            type="number" 
+            id="rouletteBetInput" 
+            class="bet-input" 
+            placeholder="0.1" 
+            min="0.1" 
+            step="0.1"
+          />
+          <span class="input-currency">TON</span>
+        </div>
+        <button id="rouletteJoinBtn" class="btn btn-primary">
+          Войти в раунд
+        </button>
+        <div class="action-hint">Минимальная ставка: 0.1 TON</div>
+      </div>
+
+      <!-- Raise Section (hidden by default) -->
+      <div id="rouletteRaiseSection" class="action-card hidden">
+        <div class="your-bet-info">
+          <div class="info-row">
+            <span class="info-label">Ваша ставка:</span>
+            <span class="info-value">
+              <span id="rouletteYourBet">0.00</span> TON
+            </span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Ваш шанс:</span>
+            <span class="info-value info-value--accent" id="rouletteYourChance">0%</span>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="action-label">Повысить ставку</div>
+        <div class="input-group">
+          <input 
+            type="number" 
+            id="rouletteRaiseInput" 
+            class="bet-input" 
+            placeholder="0.1" 
+            min="0.1" 
+            step="0.1"
+          />
+          <span class="input-currency">TON</span>
+        </div>
+        <button id="rouletteRaiseBtn" class="btn btn-primary">
+          Повысить
+        </button>
+        <div class="action-hint">Минимальное повышение: 0.1 TON</div>
+      </div>
+    </div>
+
+    <!-- Recent Winners -->
+    <div class="winners-section">
+      <div class="section-header">
+        <h3>Последние победители</h3>
+      </div>
+      <div id="rouletteRecentWinners" class="winners-list">
+        <div style="text-align:center; padding:24px; color:rgba(255,255,255,0.46); font-size:13px;">
+          Пока нет победителей
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Winner Modal -->
+  <div id="rouletteWinnerModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-icon">🎉</div>
+      <h2 class="modal-title">Победитель!</h2>
+      <div class="modal-winner-name" id="rouletteWinnerName">Игрок</div>
+      <div class="modal-amount">
+        <span id="rouletteWinnerAmount">0.00</span>
+        <span class="modal-currency">TON</span>
+      </div>
+      <button class="btn btn-secondary" onclick="document.getElementById('rouletteWinnerModal').classList.remove('show')">
+        Закрыть
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Navigation Panel (same as main page) -->
+  <nav class="nav">
+    <button id="tab-games" onclick="window.location.href='/'">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/>
+        </svg>
+      </div>
+      <div>PvP Игры</div>
+    </button>
+    <button class="active">
+      <div class="icon">
+        <img src="https://img.icons8.com/ios/50/roulette.png" alt="roulette" style="width:20px; height:20px; filter:brightness(0) saturate(100%) invert(48%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(95%) contrast(88%);">
+      </div>
+      <div>Рулетка</div>
+    </button>
+    <button id="tab-wallet" onclick="window.location.href='/#wallet'">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>
+        </svg>
+      </div>
+      <div>Кошелёк</div>
+    </button>
+    <button id="tab-matches" onclick="window.location.href='/#matches'">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </div>
+      <div>Матчи</div>
+    </button>
+    <button id="tab-profile" onclick="window.location.href='/#profile'">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+      </div>
+      <div>Профиль</div>
+    </button>
+  </nav>
+
+  <script src="roulette-ui.js"></script>
+</body>
+</html>

@@ -335,6 +335,29 @@ class RouletteUI {
 
 // Initialize when page loads
 let rouletteUI;
-document.addEventListener('DOMContentLoaded', () => {
-  rouletteUI = new RouletteUI();
-});
+
+// Initialize on first tab open
+function initRouletteUI() {
+  if (!rouletteUI) {
+    rouletteUI = new RouletteUI();
+  }
+}
+
+// Listen for tab changes
+if (typeof window !== 'undefined') {
+  // Check if we're on roulette tab on load
+  window.addEventListener('DOMContentLoaded', () => {
+    const hash = window.location.hash.slice(1);
+    if (hash === 'roulette') {
+      initRouletteUI();
+    }
+  });
+
+  // Listen for hash changes (tab switches)
+  window.addEventListener('hashchange', () => {
+    const hash = window.location.hash.slice(1);
+    if (hash === 'roulette') {
+      initRouletteUI();
+    }
+  });
+}
