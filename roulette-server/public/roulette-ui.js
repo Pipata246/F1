@@ -319,8 +319,39 @@ class RouletteUI {
     this.stopTimer();
     this.updateStatus('spinning');
     
+    // Блокируем кнопку ставки
+    this.disableBetButton();
+    
     // Вызываем спин рулетки
     this.spinRoulette();
+  }
+
+  disableBetButton() {
+    const betBtn = document.getElementById('rouletteBetBtn');
+    const betInput = document.getElementById('rouletteBetInput');
+    
+    if (betBtn) {
+      betBtn.disabled = true;
+      betBtn.textContent = 'Идет розыгрыш...';
+    }
+    if (betInput) {
+      betInput.disabled = true;
+    }
+  }
+
+  enableBetButton() {
+    const betBtn = document.getElementById('rouletteBetBtn');
+    const betInput = document.getElementById('rouletteBetInput');
+    
+    if (betBtn) {
+      betBtn.disabled = false;
+    }
+    if (betInput) {
+      betInput.disabled = false;
+    }
+    
+    // Восстанавливаем правильный текст кнопки
+    this.updateBetButton(this.state.isInRound);
   }
 
   // ==================== PLAYERS ====================
@@ -435,9 +466,16 @@ class RouletteUI {
     }
 
     this.state.isLoading = true;
-    if (this.elements.betBtn) {
-      this.elements.betBtn.disabled = true;
-      this.elements.betBtn.textContent = 'Отправка...';
+    
+    const betBtn = document.getElementById('rouletteBetBtn');
+    const betInput = document.getElementById('rouletteBetInput');
+    
+    if (betBtn) {
+      betBtn.disabled = true;
+      betBtn.textContent = 'Отправка...';
+    }
+    if (betInput) {
+      betInput.disabled = true;
     }
 
     try {
@@ -449,8 +487,8 @@ class RouletteUI {
       this.showToast(this.state.isInRound ? 'Ставка повышена!' : 'Ставка принята!');
       
       // Clear input
-      if (this.elements.betInput) {
-        this.elements.betInput.value = '';
+      if (betInput) {
+        betInput.value = '';
       }
       
       // Reload round data
@@ -467,11 +505,14 @@ class RouletteUI {
       this.showToast(error.message || 'Ошибка при обработке ставки');
     } finally {
       this.state.isLoading = false;
-      if (this.elements.betBtn) {
-        this.elements.betBtn.disabled = false;
-        // Восстанавливаем правильный текст кнопки
-        this.elements.betBtn.textContent = this.state.isInRound ? 'Повысить ставку' : 'Войти в раунд';
+      if (betBtn) {
+        betBtn.disabled = false;
       }
+      if (betInput) {
+        betInput.disabled = false;
+      }
+      // Восстанавливаем правильный текст кнопки
+      this.updateBetButton(this.state.isInRound);
     }
   }
 
@@ -499,16 +540,18 @@ class RouletteUI {
         }
       }
       
-      // Через 5 секунд загружаем новый раунд
+      // Через 5 секунд загружаем новый раунд и разблокируем кнопку
       setTimeout(() => {
+        this.enableBetButton();
         this.loadActiveRound();
       }, 5000);
       
     } catch (error) {
       console.error('[Roulette] Spin error:', error);
       this.showToast('Ошибка розыгрыша: ' + error.message);
-      // Все равно перезагружаем раунд
+      // Все равно перезагружаем раунд и разблокируем кнопку
       setTimeout(() => {
+        this.enableBetButton();
         this.loadActiveRound();
       }, 2000);
     }

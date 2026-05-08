@@ -238,12 +238,15 @@ async function handleSpinRoulette(body, tgUserId) {
     throw new Error("Раунд не активен");
   }
   
-  // Проверить что таймер истек
+  // Проверить что таймер истек (с запасом 2 секунды для сетевой задержки)
   if (round.timer_ends_at) {
     const endsAt = new Date(round.timer_ends_at);
     const now = new Date();
-    if (now < endsAt) {
-      throw new Error("Таймер еще не истек");
+    const diff = now - endsAt;
+    
+    // Разрешаем спин если прошло хотя бы -2 секунды (т.е. осталось меньше 2 сек или уже истекло)
+    if (diff < -2000) {
+      throw new Error(`Таймер еще не истек. Осталось ${Math.ceil(-diff / 1000)} сек`);
     }
   }
   
