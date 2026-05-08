@@ -367,8 +367,8 @@ async function handleSpinRoulette(body, tgUserId) {
     });
   }
   
-  // Добавить запись в game_matches для истории матчей
-  // Формируем список всех игроков для details_json
+  // Добавить записи в game_matches для истории матчей
+  // Для рулетки создаем отдельную запись для каждого игрока
   const playersDetails = bets.map(bet => ({
     user_id: bet.user_id,
     name: bet.users?.username || bet.users?.first_name || "Player",
@@ -377,28 +377,38 @@ async function handleSpinRoulette(body, tgUserId) {
     is_winner: bet.user_id === winnerId
   }));
   
-  await supabaseInsert("game_matches", {
-    game_key: 'roulette',
-    mode: 'multiplayer',
-    player1_tg_user_id: winnerId,
-    player1_name: winnerDisplayName,
-    player2_tg_user_id: bets.find(b => b.user_id !== winnerId)?.user_id || null,
-    player2_name: bets.find(b => b.user_id !== winnerId)?.users?.username 
-      || bets.find(b => b.user_id !== winnerId)?.users?.first_name 
-      || "Player",
-    winner_tg_user_id: winnerId,
-    score_json: {
-      winner_amount: winnerAmount,
-      total_pot: totalPot,
-      platform_fee: platformFee
-    },
-    details_json: {
-      round_id: round.id,
-      players: playersDetails,
-      players_count: round.players_count
-    },
-    finished_at: new Date().toISOString()
-  });
+  for (const bet of bets) {
+    const isWinner = bet.user_id === winnerId;
+    const playerName = bet.users?.username || bet.users?.first_name || "Player";
+    
+    // Для каждого игрока создаем запись где он player1
+    // player2 будет победитель (если это не он сам)
+    const otherPlayerId = isWinner ? (bets.find(b => b.user_id !== winnerId)?.user_id || null) : winnerId;
+    const otherPlayerName = isWinner 
+      ? (bets.find(b => b.user_id !== winnerId)?.users?.username || bets.find(b => b.user_id !== winnerId)?.users?.first_name || "Player")
+      : winnerDisplayName;
+    
+    await supabaseInsert("game_matches", {
+      game_key: 'roulette',
+      mode: 'multiplayer',
+      player1_tg_user_id: bet.user_id,
+      player1_name: playerName,
+      player2_tg_user_id: otherPlayerId,
+      player2_name: otherPlayerName,
+      winner_tg_user_id: winnerId,
+      score_json: {
+        winner_amount: winnerAmount,
+        total_pot: totalPot,
+        platform_fee: platformFee
+      },
+      details_json: {
+        round_id: round.id,
+        players: playersDetails,
+        players_count: round.players_count
+      },
+      finished_at: new Date().toISOString()
+    });
+  }
   
   return {
     ok: true,
