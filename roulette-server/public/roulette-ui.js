@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: 20260508-150100 - FIXED SYNTAX ERROR (duplicate debugDiv)
+ * VERSION: 20260508-150300 - SORT PLAYERS BY ID, USE ARRAY INDEX
  */
 
 class RouletteUI {
@@ -571,9 +571,14 @@ class RouletteUI {
 
     console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
     
+    // ВАЖНО: Сортируем игроков по ID для стабильного порядка
+    const sortedPlayers = [...this.state.players].sort((a, b) => {
+      return String(a.id).localeCompare(String(b.id));
+    });
+    
     // DEBUG: Выводим всех игроков
-    let debugLog = `Rendering ${this.state.players.length} players:\n`;
-    this.state.players.forEach((p, i) => {
+    let debugLog = `Rendering ${sortedPlayers.length} players:\n`;
+    sortedPlayers.forEach((p, i) => {
       console.log(`[Roulette] Player ${i}: name="${p.name}", chance=${p.chance}, id=${p.id}`);
       debugLog += `P${i}: ${p.name} (ID:${p.id}) = ${p.chance}%\n`;
     });
@@ -581,29 +586,23 @@ class RouletteUI {
     // Создаем массив из 100 карточек на основе шансов игроков
     const cards = [];
     
-    this.state.players.forEach((player, arrayIndex) => {
+    sortedPlayers.forEach((player, playerIndex) => {
       // Проверка что player валидный
       if (!player || !player.id || typeof player.chance !== 'number') {
         console.error('[Roulette] Invalid player:', player);
-        debugLog += `ERROR: Invalid player ${arrayIndex}\n`;
+        debugLog += `ERROR: Invalid player ${playerIndex}\n`;
         return;
       }
       
       const count = Math.round(player.chance); // Шанс = количество карточек
       
-      // ВАЖНО: Используем хеш от user_id для уникального индекса
-      // Это гарантирует что у каждого игрока будет свой цвет
-      const playerUniqueIndex = Math.abs(String(player.id).split('').reduce((acc, char) => {
-        return acc + char.charCodeAt(0);
-      }, 0)) % 5; // 5 цветов
-      
-      console.log(`[Roulette] Player ${arrayIndex} (${player.name}, ID:${player.id}) gets ${count} cards, uniqueIndex=${playerUniqueIndex}`);
-      debugLog += `P${arrayIndex} (ID:${player.id}) gets ${count} cards, color=${playerUniqueIndex}\n`;
+      console.log(`[Roulette] Player ${playerIndex} (${player.name}, ID:${player.id}) gets ${count} cards`);
+      debugLog += `P${playerIndex} (ID:${player.id}) gets ${count} cards\n`;
       
       for (let i = 0; i < count; i++) {
         cards.push({
           player: player,
-          playerIndex: playerUniqueIndex, // Используем уникальный индекс вместо arrayIndex
+          playerIndex: playerIndex, // Просто используем индекс в отсортированном массиве
           userId: player.id // Сохраняем ID для отладки
         });
       }
@@ -670,15 +669,6 @@ class RouletteUI {
     console.log('[Roulette] Shuffled with Fisher-Yates + mulberry32, seed:', seed);
     console.log('[Roulette] First 20 cards (names):', first20Names);
     console.log('[Roulette] First 20 cards (indexes):', first20Indexes);
-    
-    // DEBUG: Обновляем UI с информацией о shuffle
-    const debugDiv = document.getElementById('rouletteDebug');
-    if (debugDiv) {
-      const playerInfo = this.state.players.map(p => `${p.name.substring(0,3)}:${p.chance.toFixed(0)}%`).join(' | ');
-      // Используем playerIndex вместо имен для отображения
-      const cardPattern = shuffledCards.slice(0, 15).map(c => c.playerIndex).join('');
-      debugDiv.textContent = `[${playerInfo}] Indexes: ${cardPattern}... Seed: ${seed}`;
-    }
     
     // Генерируем HTML для всех карточек
     const cardsHtml = shuffledCards.map((card, index) => {
@@ -1085,7 +1075,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-150100 - SYNTAX FIXED');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-150300 - SORTED BY ID');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
