@@ -197,22 +197,16 @@ class RouletteUI {
             // Показываем модалку победителя ВСЕМ
             this.showWinner(winnerName, parseFloat(data.round.winner_amount));
             
-            // Обновить баланс ТОЛЬКО если я победил (без toast)
+            // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
             if (String(data.round.winner_user_id) === myUserIdStr) {
-              // Сохраняем текущий баланс чтобы не показывать toast
-              const prevBalance = window.userState?.balance;
-              
-              if (typeof window.hydrateUserFromServer === 'function') {
-                await window.hydrateUserFromServer();
+              // Обновляем баланс напрямую в state
+              if (window.userState && typeof window.userState.balance === 'number') {
+                window.userState.balance = window.userState.balance + parseFloat(data.round.winner_amount);
+                window.userState.prevBalance = window.userState.balance; // Чтобы не показывать toast
                 
-                // Обновляем UI баланса без toast
+                // Обновляем UI
                 if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
                   window.refreshBalanceUiAfterHydrate();
-                }
-                
-                // Восстанавливаем prevBalance чтобы не показывать toast при следующем обновлении
-                if (window.userState && prevBalance !== undefined) {
-                  window.userState.prevBalance = window.userState.balance;
                 }
               }
             }
@@ -224,7 +218,7 @@ class RouletteUI {
         }
         
       } else {
-        // No active round
+        // No active round - это нормально после завершения
         this.state.currentRound = null;
         this.state.myBet = null;
         this.updateStatus('waiting');
@@ -241,7 +235,10 @@ class RouletteUI {
       await this.loadRecentWinners();
     } catch (error) {
       console.error('Failed to load active round:', error);
-      this.showToast('Ошибка загрузки: ' + error.message);
+      // Не показываем toast если просто нет активного раунда
+      if (!error.message || !error.message.includes('Нет активного раунда')) {
+        this.showToast('Ошибка загрузки: ' + error.message);
+      }
     }
   }
 
@@ -608,23 +605,17 @@ class RouletteUI {
       // Показываем победителя
       this.showWinner(data.winner.display_name, data.winner.amount);
       
-      // Обновляем баланс если я победил (без toast)
+      // Обновляем баланс если я победил (тихо, без toast)
       const myUserIdStr = String(this.state.myUserId);
       if (String(data.winner.user_id) === myUserIdStr) {
-        // Сохраняем текущий баланс чтобы не показывать toast
-        const prevBalance = window.userState?.balance;
-        
-        if (typeof window.hydrateUserFromServer === 'function') {
-          await window.hydrateUserFromServer();
+        // Обновляем баланс напрямую в state без вызова hydrateUserFromServer
+        if (window.userState && typeof window.userState.balance === 'number') {
+          window.userState.balance = window.userState.balance + data.winner.amount;
+          window.userState.prevBalance = window.userState.balance; // Чтобы не показывать toast
           
-          // Обновляем UI баланса без toast
+          // Обновляем UI
           if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
             window.refreshBalanceUiAfterHydrate();
-          }
-          
-          // Восстанавливаем prevBalance чтобы не показывать toast при следующем обновлении
-          if (window.userState && prevBalance !== undefined) {
-            window.userState.prevBalance = window.userState.balance;
           }
         }
       }
