@@ -159,7 +159,7 @@ class RouletteUI {
         
         // DEBUG: Выводим информацию о каждом игроке
         players.forEach((p, i) => {
-          console.log(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet);
+          console.log(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet, 'ID:', p.id);
         });
         
         // DEBUG для TMA: показываем toast с информацией о игроках
@@ -170,6 +170,7 @@ class RouletteUI {
         
         // ВАЖНО: Не обновляем игроков если идет спин - сохраняем текущих для анимации
         if (data.round.status !== 'spinning' || !this.state.isSpinning) {
+          console.log('[Roulette] Updating players, count:', players.length);
           this.updatePlayers(players);
         } else {
           console.log('[Roulette] Skipping player update - spinning in progress');
@@ -483,6 +484,11 @@ class RouletteUI {
       return;
     }
     
+    console.log('[Roulette] updatePlayers called with', players.length, 'players');
+    players.forEach((p, i) => {
+      console.log(`  - Player ${i}: ${p.name}, chance=${p.chance}, id=${p.id}`);
+    });
+    
     this.state.players = players;
     
     if (this.elements.playerCount) {
@@ -563,28 +569,64 @@ class RouletteUI {
     this.state.lastPlayersKey = playersKey;
 
     console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
+    
+    // DEBUG: Выводим всех игроков
+    let debugLog = `Rendering ${this.state.players.length} players:\n`;
+    this.state.players.forEach((p, i) => {
+      console.log(`[Roulette] Player ${i}: name="${p.name}", chance=${p.chance}, id=${p.id}`);
+      debugLog += `P${i}: ${p.name} (ID:${p.id}) = ${p.chance}%\n`;
+    });
 
     // Создаем массив из 100 карточек на основе шансов игроков
     const cards = [];
     
-    this.state.players.forEach((player, playerIndex) => {
+    this.state.players.forEach((player, arrayIndex) => {
       // Проверка что player валидный
       if (!player || !player.id || typeof player.chance !== 'number') {
         console.error('[Roulette] Invalid player:', player);
+        debugLog += `ERROR: Invalid player ${arrayIndex}\n`;
         return;
       }
       
       const count = Math.round(player.chance); // Шанс = количество карточек
       
+      // ВАЖНО: Используем хеш от user_id для уникального индекса
+      // Это гарантирует что у каждого игрока будет свой цвет
+      const playerUniqueIndex = Math.abs(String(player.id).split('').reduce((acc, char) => {
+        return acc + char.charCodeAt(0);
+      }, 0)) % 5; // 5 цветов
+      
+      console.log(`[Roulette] Player ${arrayIndex} (${player.name}, ID:${player.id}) gets ${count} cards, uniqueIndex=${playerUniqueIndex}`);
+      debugLog += `P${arrayIndex} (ID:${player.id}) gets ${count} cards, color=${playerUniqueIndex}\n`;
+      
       for (let i = 0; i < count; i++) {
         cards.push({
           player: player,
-          playerIndex: playerIndex
+          playerIndex: playerUniqueIndex, // Используем уникальный индекс вместо arrayIndex
+          userId: player.id // Сохраняем ID для отладки
         });
       }
     });
     
     console.log('[Roulette] Generated', cards.length, 'cards before shuffle');
+    debugLog += `Total cards: ${cards.length}\n`;
+    
+    // DEBUG: Проверяем распределение карточек ДО shuffle
+    const cardsByPlayer = {};
+    cards.forEach(c => {
+      cardsByPlayer[c.playerIndex] = (cardsByPlayer[c.playerIndex] || 0) + 1;
+    });
+    console.log('[Roulette] Cards distribution BEFORE shuffle:', cardsByPlayer);
+    debugLog += `Distribution: ${JSON.stringify(cardsByPlayer)}\n`;
+    
+    // Показываем debug log в UI
+    const debugDiv = document.getElementById('rouletteDebug');
+    if (debugDiv && cards.length < 10) {
+      // Если карточек мало - показываем полный лог
+      debugDiv.textContent = debugLog;
+      debugDiv.style.whiteSpace = 'pre-wrap';
+      debugDiv.style.fontSize = '9px';
+    }
     
     // Проверка что карточки сгенерированы
     if (cards.length === 0) {
@@ -619,6 +661,13 @@ class RouletteUI {
       const j = Math.floor(rng() * (i + 1));
       [shuffledCards[i], shuffledCards[j]] = [shuffledCards[j], shuffledCards[i]];
     }
+    
+    // DEBUG: Проверяем распределение карточек ПОСЛЕ shuffle
+    const shuffledByPlayer = {};
+    shuffledCards.forEach(c => {
+      shuffledByPlayer[c.playerIndex] = (shuffledByPlayer[c.playerIndex] || 0) + 1;
+    });
+    console.log('[Roulette] Cards distribution AFTER shuffle:', shuffledByPlayer);
     
     // Сохраняем карточки в state для анимации
     this.state.wheelCards = shuffledCards;
