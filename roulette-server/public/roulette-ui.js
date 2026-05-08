@@ -133,8 +133,10 @@ class RouletteUI {
         
         this.updatePlayers(players);
         
-        // Check if I'm in this round
-        const myBet = data.bets.find(b => b.user_id === this.state.myUserId);
+        // Check if I'm in this round - ВАЖНО: сравниваем как строки!
+        const myUserIdStr = String(this.state.myUserId);
+        const myBet = data.bets.find(b => String(b.user_id) === myUserIdStr);
+        
         if (myBet) {
           this.state.myBet = myBet;
           this.updateBetButton(true); // В раунде
@@ -191,9 +193,6 @@ class RouletteUI {
   }
 
   updateBetButton(isInRound) {
-    // ВРЕМЕННЫЙ ALERT ДЛЯ ОТЛАДКИ
-    alert('updateBetButton вызвана! isInRound = ' + isInRound);
-    
     console.log('[Roulette] updateBetButton called, isInRound:', isInRound);
     this.state.isInRound = isInRound;
     
@@ -203,21 +202,10 @@ class RouletteUI {
     const betHint = document.getElementById('rouletteBetHint');
     const currentBetInfo = document.getElementById('rouletteCurrentBetInfo');
     
-    console.log('[Roulette] Elements check:', {
-      betBtn: !!betBtn,
-      betLabel: !!betLabel,
-      betHint: !!betHint,
-      currentBetInfo: !!currentBetInfo
-    });
-    
     if (isInRound) {
       // Пользователь в раунде - показываем режим повышения
-      console.log('[Roulette] Setting RAISE mode');
       if (betBtn) {
         betBtn.textContent = 'Повысить ставку';
-        alert('Кнопка изменена на: ' + betBtn.textContent);
-      } else {
-        alert('ОШИБКА: betBtn не найдена!');
       }
       if (betLabel) {
         betLabel.textContent = 'Повысить ставку';
@@ -227,11 +215,9 @@ class RouletteUI {
       }
       if (currentBetInfo) {
         currentBetInfo.classList.remove('hidden');
-        console.log('[Roulette] Showing current bet info');
       }
     } else {
       // Пользователь не в раунде - показываем режим входа
-      console.log('[Roulette] Setting JOIN mode');
       if (betBtn) {
         betBtn.textContent = 'Войти в раунд';
       }
@@ -243,7 +229,6 @@ class RouletteUI {
       }
       if (currentBetInfo) {
         currentBetInfo.classList.add('hidden');
-        console.log('[Roulette] Hiding current bet info');
       }
     }
   }
