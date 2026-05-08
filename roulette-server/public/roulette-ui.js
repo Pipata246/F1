@@ -531,19 +531,38 @@ class RouletteUI {
     const cards = [];
     
     this.state.players.forEach((player, playerIndex) => {
+      // Проверка что player валидный
+      if (!player || !player.id || typeof player.chance !== 'number') {
+        console.error('[Roulette] Invalid player:', player);
+        return;
+      }
+      
       const count = Math.round(player.chance); // Шанс = количество карточек
       
       for (let i = 0; i < count; i++) {
         cards.push({
-          player,
-          playerIndex
+          player: player,
+          playerIndex: playerIndex
         });
       }
     });
     
+    console.log('[Roulette] Generated', cards.length, 'cards before shuffle');
+    
+    // Проверка что карточки сгенерированы
+    if (cards.length === 0) {
+      console.error('[Roulette] No cards generated!');
+      this.elements.strip.innerHTML = `
+        <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
+          Ошибка генерации карточек
+        </div>
+      `;
+      return;
+    }
+    
     // ВАЖНО: Перемешиваем карточки используя SEED из round_id
     // Это гарантирует одинаковый порядок у всех пользователей
-    const seed = this.state.currentRound?.id || 0;
+    const seed = this.state.currentRound?.id || Date.now();
     const seededRandom = (s) => {
       const x = Math.sin(s) * 10000;
       return x - Math.floor(x);
@@ -557,10 +576,16 @@ class RouletteUI {
     // Сохраняем карточки в state для анимации
     this.state.wheelCards = cards;
     
-    console.log('[Roulette] Generated', cards.length, 'cards with seed:', seed);
+    console.log('[Roulette] Shuffled with seed:', seed);
     
-    // Генерируем HTML для всех 100 карточек
+    // Генерируем HTML для всех карточек
     const cardsHtml = cards.map((card, index) => {
+      // Дополнительная проверка
+      if (!card || !card.player || card.playerIndex === undefined) {
+        console.error('[Roulette] Invalid card at index', index, card);
+        return '';
+      }
+      
       const colors = [
         'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
         'linear-gradient(135deg, #fbbf24, #f59e0b)',
@@ -597,7 +622,7 @@ class RouletteUI {
           </div>
         </div>
       `;
-    }).join('');
+    }).filter(html => html !== '').join(''); // Убираем пустые элементы
     
     this.elements.strip.innerHTML = cardsHtml;
     this.elements.strip.style.transform = 'translateX(0)';
