@@ -38,6 +38,15 @@ class RouletteUI {
       winnerAmount: document.getElementById('rouletteWinnerAmount'),
     };
 
+    // Debug: проверяем что элементы найдены
+    console.log('[Roulette] Elements found:', {
+      betBtn: !!this.elements.betBtn,
+      betLabel: !!this.elements.betLabel,
+      betHint: !!this.elements.betHint,
+      currentBetInfo: !!this.elements.currentBetInfo,
+      betInput: !!this.elements.betInput
+    });
+
     this.state = {
       currentRound: null,
       players: [],
@@ -185,47 +194,64 @@ class RouletteUI {
     console.log('[Roulette] updateBetButton called, isInRound:', isInRound);
     this.state.isInRound = isInRound;
     
+    // Ищем элементы заново (на случай если они не были найдены в конструкторе)
+    const betBtn = document.getElementById('rouletteBetBtn');
+    const betLabel = document.getElementById('rouletteBetLabel');
+    const betHint = document.getElementById('rouletteBetHint');
+    const currentBetInfo = document.getElementById('rouletteCurrentBetInfo');
+    
+    console.log('[Roulette] Elements check:', {
+      betBtn: !!betBtn,
+      betLabel: !!betLabel,
+      betHint: !!betHint,
+      currentBetInfo: !!currentBetInfo
+    });
+    
     if (isInRound) {
       // Пользователь в раунде - показываем режим повышения
       console.log('[Roulette] Setting RAISE mode');
-      if (this.elements.betBtn) {
-        this.elements.betBtn.textContent = 'Повысить ставку';
+      if (betBtn) {
+        betBtn.textContent = 'Повысить ставку';
       }
-      if (this.elements.betLabel) {
-        this.elements.betLabel.textContent = 'Повысить ставку';
+      if (betLabel) {
+        betLabel.textContent = 'Повысить ставку';
       }
-      if (this.elements.betHint) {
-        this.elements.betHint.textContent = 'Минимальное повышение: 0.1 TON';
+      if (betHint) {
+        betHint.textContent = 'Минимальное повышение: 0.1 TON';
       }
-      if (this.elements.currentBetInfo) {
-        this.elements.currentBetInfo.classList.remove('hidden');
+      if (currentBetInfo) {
+        currentBetInfo.classList.remove('hidden');
         console.log('[Roulette] Showing current bet info');
       }
     } else {
       // Пользователь не в раунде - показываем режим входа
       console.log('[Roulette] Setting JOIN mode');
-      if (this.elements.betBtn) {
-        this.elements.betBtn.textContent = 'Войти в раунд';
+      if (betBtn) {
+        betBtn.textContent = 'Войти в раунд';
       }
-      if (this.elements.betLabel) {
-        this.elements.betLabel.textContent = 'Сделать ставку';
+      if (betLabel) {
+        betLabel.textContent = 'Сделать ставку';
       }
-      if (this.elements.betHint) {
-        this.elements.betHint.textContent = 'Минимальная ставка: 0.1 TON';
+      if (betHint) {
+        betHint.textContent = 'Минимальная ставка: 0.1 TON';
       }
-      if (this.elements.currentBetInfo) {
-        this.elements.currentBetInfo.classList.add('hidden');
+      if (currentBetInfo) {
+        currentBetInfo.classList.add('hidden');
         console.log('[Roulette] Hiding current bet info');
       }
     }
   }
 
   updateMyBetInfo(betAmount, chancePercent) {
-    if (this.elements.yourBet) {
-      this.elements.yourBet.textContent = betAmount.toFixed(2);
+    // Ищем элементы заново
+    const yourBet = document.getElementById('rouletteYourBet');
+    const yourChance = document.getElementById('rouletteYourChance');
+    
+    if (yourBet) {
+      yourBet.textContent = betAmount.toFixed(2);
     }
-    if (this.elements.yourChance) {
-      this.elements.yourChance.textContent = chancePercent.toFixed(1);
+    if (yourChance) {
+      yourChance.textContent = chancePercent.toFixed(1);
     }
   }
 
