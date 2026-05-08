@@ -1,13 +1,18 @@
 -- ============================================
--- ROULETTE GAME TABLES
+-- FIX ROULETTE FOREIGN KEYS
 -- Created: 2026-05-08
--- Description: Tables for PvP Roulette game
+-- Description: Add foreign keys to existing roulette tables
 -- ============================================
+
+-- Drop existing tables (if they exist) to recreate with proper foreign keys
+DROP TABLE IF EXISTS roulette_results CASCADE;
+DROP TABLE IF EXISTS roulette_bets CASCADE;
+DROP TABLE IF EXISTS roulette_rounds CASCADE;
 
 -- ============================================
 -- 1. ROULETTE ROUNDS TABLE
 -- ============================================
-CREATE TABLE IF NOT EXISTS roulette_rounds (
+CREATE TABLE roulette_rounds (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
   -- Round status
@@ -36,14 +41,14 @@ CREATE TABLE IF NOT EXISTS roulette_rounds (
 );
 
 -- Indexes for roulette_rounds
-CREATE INDEX IF NOT EXISTS idx_roulette_rounds_status ON roulette_rounds(status);
-CREATE INDEX IF NOT EXISTS idx_roulette_rounds_created ON roulette_rounds(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_roulette_rounds_winner ON roulette_rounds(winner_user_id) WHERE winner_user_id IS NOT NULL;
+CREATE INDEX idx_roulette_rounds_status ON roulette_rounds(status);
+CREATE INDEX idx_roulette_rounds_created ON roulette_rounds(created_at DESC);
+CREATE INDEX idx_roulette_rounds_winner ON roulette_rounds(winner_user_id) WHERE winner_user_id IS NOT NULL;
 
 -- ============================================
 -- 2. ROULETTE BETS TABLE
 -- ============================================
-CREATE TABLE IF NOT EXISTS roulette_bets (
+CREATE TABLE roulette_bets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
   -- References
@@ -63,14 +68,14 @@ CREATE TABLE IF NOT EXISTS roulette_bets (
 );
 
 -- Indexes for roulette_bets
-CREATE INDEX IF NOT EXISTS idx_roulette_bets_round ON roulette_bets(round_id);
-CREATE INDEX IF NOT EXISTS idx_roulette_bets_user ON roulette_bets(user_id);
-CREATE INDEX IF NOT EXISTS idx_roulette_bets_created ON roulette_bets(created_at DESC);
+CREATE INDEX idx_roulette_bets_round ON roulette_bets(round_id);
+CREATE INDEX idx_roulette_bets_user ON roulette_bets(user_id);
+CREATE INDEX idx_roulette_bets_created ON roulette_bets(created_at DESC);
 
 -- ============================================
 -- 3. ROULETTE RESULTS TABLE (History)
 -- ============================================
-CREATE TABLE IF NOT EXISTS roulette_results (
+CREATE TABLE roulette_results (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
   -- References
@@ -96,9 +101,9 @@ CREATE TABLE IF NOT EXISTS roulette_results (
 );
 
 -- Indexes for roulette_results
-CREATE INDEX IF NOT EXISTS idx_roulette_results_winner ON roulette_results(winner_user_id);
-CREATE INDEX IF NOT EXISTS idx_roulette_results_created ON roulette_results(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_roulette_results_round ON roulette_results(round_id);
+CREATE INDEX idx_roulette_results_winner ON roulette_results(winner_user_id);
+CREATE INDEX idx_roulette_results_created ON roulette_results(created_at DESC);
+CREATE INDEX idx_roulette_results_round ON roulette_results(round_id);
 
 -- ============================================
 -- 4. HELPER FUNCTIONS
@@ -148,7 +153,6 @@ CREATE POLICY "Anyone can view results"
   USING (true);
 
 -- Policy: Only service role can insert/update/delete
--- (All writes go through Edge Functions with service role)
 CREATE POLICY "Service role can manage rounds"
   ON roulette_rounds
   FOR ALL
@@ -165,23 +169,14 @@ CREATE POLICY "Service role can manage results"
   USING (auth.role() = 'service_role');
 
 -- ============================================
--- 6. INITIAL DATA (Optional)
--- ============================================
-
--- Create first round in waiting state
--- INSERT INTO roulette_rounds (status, pot_amount, players_count)
--- VALUES ('waiting', 0, 0);
-
--- ============================================
 -- MIGRATION COMPLETE
 -- ============================================
 
--- Verify tables were created
 DO $$
 BEGIN
-  RAISE NOTICE 'Roulette tables created successfully:';
-  RAISE NOTICE '  - roulette_rounds';
-  RAISE NOTICE '  - roulette_bets';
-  RAISE NOTICE '  - roulette_results';
-  RAISE NOTICE 'Indexes and RLS policies applied.';
+  RAISE NOTICE 'Roulette tables recreated with foreign keys:';
+  RAISE NOTICE '  - roulette_rounds (with FK to users)';
+  RAISE NOTICE '  - roulette_bets (with FK to users and rounds)';
+  RAISE NOTICE '  - roulette_results (with FK to users and rounds)';
+  RAISE NOTICE 'All indexes and RLS policies applied.';
 END $$;
