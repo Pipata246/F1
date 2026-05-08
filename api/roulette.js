@@ -121,7 +121,7 @@ async function getRoundBets(roundId) {
   
   const { data, error } = await supabase
     .from("roulette_bets")
-    .select("*, users!inner(display_name, first_name)")
+    .select("*, users!inner(first_name, last_name, username)")
     .eq("round_id", roundId)
     .order("created_at", { ascending: true });
   
@@ -206,14 +206,21 @@ async function handleGetActiveRound(body) {
   return {
     ok: true,
     round,
-    bets: bets.map(bet => ({
-      id: bet.id,
-      user_id: bet.user_id,
-      bet_amount: bet.bet_amount,
-      chance_percent: bet.chance_percent,
-      display_name: bet.users?.display_name || bet.users?.first_name || "Player",
-      created_at: bet.created_at
-    }))
+    bets: bets.map(bet => {
+      // Формируем отображаемое имя из доступных полей
+      const displayName = bet.users?.username 
+        || bet.users?.first_name 
+        || "Player";
+      
+      return {
+        id: bet.id,
+        user_id: bet.user_id,
+        bet_amount: bet.bet_amount,
+        chance_percent: bet.chance_percent,
+        display_name: displayName,
+        created_at: bet.created_at
+      };
+    })
   };
 }
 
