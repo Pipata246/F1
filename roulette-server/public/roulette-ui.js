@@ -201,7 +201,10 @@ class RouletteUI {
           const winnerBet = data.bets.find(b => String(b.user_id) === String(data.round.winner_user_id));
           const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
           
-          // Показываем модалку победителя ВСЕМ
+          // ВАЖНО: Сначала запускаем анимацию вращения
+          await this.spinWheelAnimation(data.round.winner_user_id);
+          
+          // ТОЛЬКО ПОСЛЕ анимации показываем победителя
           this.showWinner(winnerName, parseFloat(data.round.winner_amount), data.round.winner_user_id);
           
           // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
@@ -499,8 +502,28 @@ class RouletteUI {
       return;
     }
 
-    // Create segments based on player chances
-    const segments = this.state.players.map((player, index) => {
+    // Создаем массив из 100 карточек на основе шансов игроков
+    const cards = [];
+    
+    this.state.players.forEach((player, playerIndex) => {
+      const count = Math.round(player.chance); // Шанс = количество карточек
+      
+      for (let i = 0; i < count; i++) {
+        cards.push({
+          player,
+          playerIndex
+        });
+      }
+    });
+    
+    // Перемешиваем карточки для случайности
+    for (let i = cards.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cards[i], cards[j]] = [cards[j], cards[i]];
+    }
+    
+    // Генерируем HTML для всех 100 карточек
+    const cardsHtml = cards.map((card, index) => {
       const colors = [
         'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
         'linear-gradient(135deg, #fbbf24, #f59e0b)',
@@ -508,44 +531,104 @@ class RouletteUI {
         'linear-gradient(135deg, #a78bfa, #8b5cf6)',
         'linear-gradient(135deg, #60a5fa, #3b82f6)',
       ];
-      const color = colors[index % colors.length];
+      const color = colors[card.playerIndex % colors.length];
       
-      // Width based on chance (minimum 80px for visibility)
-      const width = Math.max(80, player.chance * 4);
-
       // Аватар: фото или инициал
-      const avatarContent = player.photoUrl 
-        ? `<img src="${this.escapeHtml(player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`
-        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`;
+      const avatarContent = card.player.photoUrl 
+        ? `<img src="${this.escapeHtml(card.player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`
+        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`;
 
       return `
-        <div style="
-          min-width:${width}px;
+        <div class="roulette-card" data-card-index="${index}" style="
+          min-width:100px;
+          width:100px;
           height:100%;
           background:${color};
           display:flex;
           flex-direction:column;
           align-items:center;
           justify-content:center;
-          padding:0 16px;
+          padding:8px;
           border-right:2px solid rgba(0,0,0,0.3);
+          flex-shrink:0;
         ">
-          <div style="width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.9); overflow:hidden; margin-bottom:4px; flex-shrink:0;">
+          <div style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.9); overflow:hidden; margin-bottom:6px; flex-shrink:0;">
             ${avatarContent}
           </div>
-          <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
-            ${this.escapeHtml(player.name)}
-          </div>
-          <div style="font-size:10px; font-weight:700; color:rgba(0,0,0,0.6);">
-            ${player.chance.toFixed(1)}%
+          <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center;">
+            ${this.escapeHtml(card.player.name)}
           </div>
         </div>
       `;
+    }).join('');
+    
+    this.elements.strip.innerHTML = cardsHtml;
+    this.elements.strip.style.transform = 'translateX(0)';
+    this.elements.strip.style.transition = 'none';
+  }
+  
+  // Анимация вращения рулетки (как в CS2 кейсах)
+  spinWheelAnimation(winnerUserId) {
+    return new Promise((resolve) => {
+      if (!this.elements.strip) {
+        resolve();
+        return;
+      }
+      
+      // Находим все карточки победителя
+      const cards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
+      const winnerCards = cards.filter((card, index) => {
+        const cardData = this.state.players.find(p => String(p.id) === String(winnerUserId));
+        if (!cardData) return false;
+        
+        // Проверяем что это карточка победителя по содержимому
+        const nameEl = card.querySelector('div:last-child');
+        return nameEl && nameEl.textContent.trim() === cardData.name;
+      });
+      
+      if (winnerCards.length === 0) {
+        resolve();
+        return;
+      }
+      
+      // Выбираем случайную карточку победителя из середины массива
+      const middleIndex = Math.floor(winnerCards.length / 2);
+      const targetCard = winnerCards[middleIndex];
+      const targetIndex = cards.indexOf(targetCard);
+      
+      // Рассчитываем позицию для остановки (карточка должна быть в центре)
+      const containerWidth = this.elements.wheelContainer.offsetWidth;
+      const cardWidth = 100 + 2; // ширина + border
+      const centerOffset = containerWidth / 2 - cardWidth / 2;
+      
+      // Добавляем случайное смещение для реалистичности (±30px)
+      const randomOffset = (Math.random() - 0.5) * 60;
+      
+      // Финальная позиция
+      const finalPosition = -(targetIndex * cardWidth) + centerOffset + randomOffset;
+      
+      // Добавляем дополнительные обороты для эффекта (3-5 полных прокруток)
+      const extraSpins = (3 + Math.random() * 2) * cards.length * cardWidth;
+      const startPosition = finalPosition - extraSpins;
+      
+      // Сброс позиции
+      this.elements.strip.style.transition = 'none';
+      this.elements.strip.style.transform = `translateX(${startPosition}px)`;
+      
+      // Запуск анимации через небольшую задержку
+      setTimeout(() => {
+        // Анимация с easing как в CS2 (быстро → медленно)
+        // cubic-bezier для эффекта замедления
+        const duration = 5000; // 5 секунд
+        this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.25, 0.1, 0.25, 1)`;
+        this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
+        
+        // Ждем окончания анимации
+        setTimeout(() => {
+          resolve();
+        }, duration);
+      }, 50);
     });
-
-    // Repeat segments to create infinite loop effect
-    const repeatedSegments = segments.concat(segments).concat(segments);
-    this.elements.strip.innerHTML = repeatedSegments.join('');
   }
 
   // ==================== ACTIONS ====================
@@ -625,7 +708,10 @@ class RouletteUI {
       
       console.log('[Roulette] Winner:', data.winner);
       
-      // Показываем победителя
+      // ВАЖНО: Сначала запускаем анимацию вращения
+      await this.spinWheelAnimation(data.winner.user_id);
+      
+      // ТОЛЬКО ПОСЛЕ анимации показываем победителя
       this.showWinner(data.winner.display_name, data.winner.amount, data.winner.user_id);
       
       // Обновляем баланс если я победил (тихо, без toast)

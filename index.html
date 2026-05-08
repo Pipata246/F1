@@ -619,7 +619,9 @@
     .wheel-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:10px}
     .wheel-container{position:relative;height:120px;border-radius:20px;background:var(--glass-bg);border:1px solid var(--glass-border);backdrop-filter:blur(var(--blur));box-shadow:var(--shadow);overflow:hidden}
     .wheel-pointer{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:80%;background:linear-gradient(180deg,transparent,var(--accent),transparent);box-shadow:0 0 20px var(--accent-glow);z-index:10;pointer-events:none}
-    .wheel-strip{display:flex;align-items:center;height:100%;padding:0 20px;transition:transform .1s ease-out}
+    .wheel-strip{display:flex;align-items:center;height:100%;will-change:transform}
+    .roulette-card{transition:filter 0.3s ease}
+    .roulette-card:hover{filter:brightness(1.1)}
     .players-section{margin-bottom:20px}
     .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
     .section-header h3{margin:0;font-size:16px;font-weight:900;letter-spacing:.2px}
