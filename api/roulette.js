@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -59,7 +60,6 @@ function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 86400) {
 }
 
 async function supabaseQuery(query, params = []) {
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   const { data, error } = await supabase.rpc(query, params);
@@ -68,7 +68,6 @@ async function supabaseQuery(query, params = []) {
 }
 
 async function supabaseSelect(table, filters = {}) {
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   let query = supabase.from(table).select("*");
@@ -83,7 +82,6 @@ async function supabaseSelect(table, filters = {}) {
 }
 
 async function supabaseInsert(table, data) {
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   const { data: result, error } = await supabase.from(table).insert(data).select().single();
@@ -92,7 +90,6 @@ async function supabaseInsert(table, data) {
 }
 
 async function supabaseUpdate(table, id, data) {
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   const { data: result, error } = await supabase.from(table).update(data).eq("id", id).select().single();
@@ -105,7 +102,6 @@ async function supabaseUpdate(table, id, data) {
 // ============================================
 
 async function getActiveRound() {
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   const { data, error } = await supabase
@@ -121,7 +117,6 @@ async function getActiveRound() {
 }
 
 async function getRoundBets(roundId) {
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   const { data, error } = await supabase
@@ -145,7 +140,6 @@ async function createNewRound() {
 }
 
 async function calculateChances(roundId) {
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   // Получить банк раунда
@@ -230,7 +224,6 @@ async function handleJoinRound(body, tgUserId) {
     throw new Error(`Минимальная ставка: ${MIN_BET} TON`);
   }
   
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   // Проверить баланс
@@ -309,7 +302,6 @@ async function handleRaiseBet(body, tgUserId) {
     throw new Error(`Минимальное повышение: ${MIN_BET} TON`);
   }
   
-  const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
   // Проверить баланс
