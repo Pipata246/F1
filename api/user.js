@@ -4113,6 +4113,48 @@ async function getGameStats(initData) {
     const win_rate_pct = g > 0 ? Math.round((w / g) * 1000) / 10 : null;
     byGame[r.game_key] = { ...r, win_rate_pct };
   }
+  
+  // Добавляем статистику рулетки из pvp_balance_events
+  try {
+    const rouletteEvents = await sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=event_type,amount,stake_ton`
+    );
+    
+    if (rouletteEvents && rouletteEvents.length > 0) {
+      let totalBet = 0;
+      let totalWin = 0;
+      let wins = 0;
+      let losses = 0;
+      
+      for (const event of rouletteEvents) {
+        const amount = Number(event.amount || 0);
+        const stake = Number(event.stake_ton || 0);
+        
+        if (event.event_type === 'win') {
+          wins++;
+          totalWin += amount;
+          totalBet += stake;
+        } else if (event.event_type === 'loss') {
+          losses++;
+          totalBet += stake;
+          totalWin += amount; // amount уже отрицательный
+        }
+      }
+      
+      byGame.roulette = {
+        game_key: 'roulette',
+        games_played: wins + losses,
+        wins: wins,
+        losses: losses,
+        total_bet: totalBet,
+        total_win: totalWin,
+        win_rate_pct: (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 1000) / 10 : null
+      };
+    }
+  } catch (e) {
+    // Игнорируем ошибки статистики рулетки
+  }
+  
   return byGame;
 }
 

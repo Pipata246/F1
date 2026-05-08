@@ -984,6 +984,31 @@
               </div>
               <div class="profileStatSub muted" id="profStatBasketSub">Нет матчей</div>
             </div>
+            
+            <!-- Рулетка - двойная ширина -->
+            <div class="profileStatTile" style="grid-column: span 2;">
+              <div class="profileStatHead profileStatHead--withIcon">
+                <span class="gameIcon gameIcon--roulette gameIcon--sm" aria-hidden="true">
+                  <svg class="gameSvg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="#8CFFC1" stroke-width="2"/>
+                    <circle cx="12" cy="12" r="6" fill="#8CFFC1"/>
+                    <path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12" stroke="#8CFFC1" stroke-width="2"/>
+                  </svg>
+                </span>
+                <span>Рулетка</span>
+              </div>
+              <div class="profileStatBody" style="display:flex; gap:20px; justify-content:space-around;">
+                <div style="flex:1; text-align:center;">
+                  <div class="small muted" style="margin-bottom:4px;">Всего поставлено</div>
+                  <div class="profileStatMain" id="profStatRouletteBet" style="color:var(--text2);">—</div>
+                </div>
+                <div style="flex:1; text-align:center;">
+                  <div class="small muted" style="margin-bottom:4px;">Всего выиграно</div>
+                  <div class="profileStatMain" id="profStatRouletteWin" style="color:var(--accent);">—</div>
+                </div>
+              </div>
+              <div class="profileStatSub muted" id="profStatRouletteSub" style="text-align:center;">Нет игр</div>
+            </div>
           </div>
 
           <div class="divider"></div>
@@ -2128,6 +2153,30 @@
     one("profStatPenMain","profStatPenSub","profStatPenPct", stats.super_penalty, "pen");
     one("profStatBasketMain","profStatBasketSub","profStatBasketPct", stats.basketball, "basket");
   }
+  
+  function fillRouletteStats(rouletteStats){
+    const elBet = document.getElementById("profStatRouletteBet");
+    const elWin = document.getElementById("profStatRouletteWin");
+    const elSub = document.getElementById("profStatRouletteSub");
+    
+    if(!elBet || !elWin || !elSub) return;
+    
+    const totalBet = Number(rouletteStats.total_bet || 0);
+    const totalWin = Number(rouletteStats.total_win || 0);
+    const gamesPlayed = Number(rouletteStats.games_played || 0);
+    const wins = Number(rouletteStats.wins || 0);
+    
+    if(gamesPlayed === 0){
+      elBet.textContent = "—";
+      elWin.textContent = "—";
+      elSub.textContent = "Нет игр";
+      return;
+    }
+    
+    elBet.textContent = `${formatBalanceAmountOnly(String(totalBet))} TON`;
+    elWin.textContent = `${totalWin >= 0 ? '+' : ''}${formatBalanceAmountOnly(String(totalWin))} TON`;
+    elSub.textContent = `${gamesPlayed} ${gamesPlayed === 1 ? 'игра' : gamesPlayed <= 4 ? 'игры' : 'игр'} · ${wins} ${wins === 1 ? 'победа' : wins <= 4 ? 'победы' : 'побед'}`;
+  }
 
   // Fetch stats from API (same data as карточки на «Игры»)
   async function loadExternalStats(){
@@ -2160,6 +2209,10 @@
       document.getElementById("basketPoints").textContent = basket.points_for || 0;
 
       fillProfileStatTiles(s);
+      
+      // Статистика рулетки
+      const roulette = s.roulette || {};
+      fillRouletteStats(roulette);
     }catch(e){}
   }
 
