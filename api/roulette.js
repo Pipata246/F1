@@ -410,10 +410,26 @@ async function handleJoinRound(body, tgUserId) {
     throw new Error("Недостаточно средств");
   }
   
-  // Получить или создать активный раунд
+  // Получить или создать активный раунд С БЛОКИРОВКОЙ
   let round = await getActiveRound();
   if (!round) {
     round = await createNewRound();
+  }
+  
+  // Получить раунд с блокировкой FOR UPDATE
+  const { data: lockedRound, error: lockError } = await supabase
+    .rpc('get_and_lock_round', { round_id: round.id });
+  
+  if (lockError) {
+    // Если нет функции, используем обычный запрос
+    const { data: freshRound } = await supabase
+      .from("roulette_rounds")
+      .select("*")
+      .eq("id", round.id)
+      .single();
+    round = freshRound || round;
+  } else if (lockedRound && lockedRound.length > 0) {
+    round = lockedRound[0];
   }
   
   // Проверить что пользователь еще не в раунде
@@ -436,15 +452,26 @@ async function handleJoinRound(body, tgUserId) {
     chance_percent: 0
   });
   
-  // Обновить раунд
-  const newPot = parseFloat(round.pot_amount) + betAmount;
-  const newPlayersCount = round.players_count + 1;
-  const isSecondPlayer = newPlayersCount === 2;
+  // Получить ВСЕ ставки и пересчитать банк и игроков
+  const { data: allBets } = await supabase
+    .from("roulette_bets")
+    .select("user_id, bet_amount")
+    .eq("round_id", round.id);
   
+  // Считаем реальный банк из всех ставок
+  const realPot = (allBets || []).reduce((sum, bet) => sum + parseFloat(bet.bet_amount || 0), 0);
+  
+  // Считаем уникальных игроков
+  const uniquePlayerIds = [...new Set((allBets || []).map(b => b.user_id))];
+  const newPlayersCount = uniquePlayerIds.length;
+  const wasOnePlayer = round.players_count <= 1;
+  const isSecondPlayer = newPlayersCount === 2 && wasOnePlayer;
+  
+  // Обновить раунд
   const updateData = {
-    pot_amount: newPot,
+    pot_amount: realPot,
     players_count: newPlayersCount,
-    total_bets_count: round.total_bets_count + 1
+    total_bets_count: (allBets || []).length
   };
   
   // Если это второй игрок - запустить таймер
@@ -456,7 +483,7 @@ async function handleJoinRound(body, tgUserId) {
   
   await supabaseUpdate("roulette_rounds", round.id, updateData);
   
-  // Пересчитать шансы
+  // Пересчитать шансы на основе реального банка
   await calculateChances(round.id);
   
   // Списать со счета
@@ -515,13 +542,22 @@ async function handleRaiseBet(body, tgUserId) {
     })
     .eq("id", bet.id);
   
+  // Получить ВСЕ ставки и пересчитать банк
+  const { data: allBets } = await supabase
+    .from("roulette_bets")
+    .select("user_id, bet_amount")
+    .eq("round_id", round.id);
+  
+  // Считаем реальный банк из всех ставок
+  const realPot = (allBets || []).reduce((sum, b) => sum + parseFloat(b.bet_amount || 0), 0);
+  
   // Обновить раунд (таймер НЕ обновляется!)
   await supabaseUpdate("roulette_rounds", round.id, {
-    pot_amount: parseFloat(round.pot_amount) + raiseAmount,
-    total_bets_count: round.total_bets_count + 1
+    pot_amount: realPot,
+    total_bets_count: (allBets || []).length
   });
   
-  // Пересчитать шансы
+  // Пересчитать шансы на основе реального банка
   await calculateChances(round.id);
   
   // Списать со счета
