@@ -117,6 +117,9 @@ class RouletteUI {
       const data = await this.callAPI('getActiveRound');
       
       if (data.round) {
+        const previousStatus = this.state.currentRound?.status;
+        const previousRoundId = this.state.currentRound?.id;
+        
         this.state.currentRound = data.round;
         
         // Update UI
@@ -167,6 +170,33 @@ class RouletteUI {
             this.elements.timerWrap.classList.add('hidden');
           }
         }
+        
+        // ВАЖНО: Если раунд только что завершился - показываем победителя
+        if (data.round.status === 'finished' && previousStatus === 'spinning' && data.round.id === previousRoundId) {
+          // Раунд завершился, показываем результат
+          if (data.round.winner_user_id) {
+            // Найти имя победителя из ставок
+            const winnerBet = data.bets.find(b => String(b.user_id) === String(data.round.winner_user_id));
+            const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
+            
+            this.showWinner(winnerName, parseFloat(data.round.winner_amount));
+            
+            // Обновить баланс если я победил
+            if (String(data.round.winner_user_id) === myUserIdStr) {
+              if (typeof window.hydrateUserFromServer === 'function') {
+                await window.hydrateUserFromServer();
+                if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
+                  window.refreshBalanceUiAfterHydrate();
+                }
+              }
+            }
+            
+            // Сбросить флаг спина
+            this.state.isSpinning = false;
+            this.enableBetButton();
+          }
+        }
+        
       } else {
         // No active round
         this.state.currentRound = null;
@@ -175,7 +205,9 @@ class RouletteUI {
         this.updatePot(0);
         this.updatePlayers([]);
         this.updateBetButton(false); // Не в раунде
-        this.stopTimer();
+        if (this.elements.timerWrap) {
+          this.elements.timerWrap.classList.add('hidden');
+        }
       }
     } catch (error) {
       console.error('Failed to load active round:', error);
@@ -184,14 +216,14 @@ class RouletteUI {
   }
 
   startPolling() {
-    // Poll every 2 seconds
+    // Poll every 1 second for smooth timer updates
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
     }
     
     this.pollInterval = setInterval(() => {
       this.loadActiveRound();
-    }, 2000);
+    }, 1000);
   }
 
   stopPolling() {
