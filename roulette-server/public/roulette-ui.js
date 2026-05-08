@@ -624,15 +624,19 @@ class RouletteUI {
     this.state.wheelCards = shuffledCards;
     
     // DEBUG: Проверяем что карточки действительно перемешаны
-    const first20 = shuffledCards.slice(0, 20).map(c => c.player.name.charAt(0)).join('');
+    const first20Names = shuffledCards.slice(0, 20).map(c => c.player.name.charAt(0)).join('');
+    const first20Indexes = shuffledCards.slice(0, 20).map(c => c.playerIndex).join('');
     console.log('[Roulette] Shuffled with Fisher-Yates + mulberry32, seed:', seed);
-    console.log('[Roulette] First 20 cards:', first20);
+    console.log('[Roulette] First 20 cards (names):', first20Names);
+    console.log('[Roulette] First 20 cards (indexes):', first20Indexes);
     
     // DEBUG: Обновляем UI с информацией о shuffle
     const debugDiv = document.getElementById('rouletteDebug');
     if (debugDiv) {
       const playerInfo = this.state.players.map(p => `${p.name.substring(0,3)}:${p.chance.toFixed(0)}%`).join(' | ');
-      debugDiv.textContent = `[${playerInfo}] Cards: ${first20.substring(0,15)}... Seed: ${seed}`;
+      // Используем playerIndex вместо имен для отображения
+      const cardPattern = shuffledCards.slice(0, 15).map(c => c.playerIndex).join('');
+      debugDiv.textContent = `[${playerInfo}] Indexes: ${cardPattern}... Seed: ${seed}`;
     }
     
     // Генерируем HTML для всех карточек
