@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: 20260508-150300 - SORT PLAYERS BY ID, USE ARRAY INDEX
+ * VERSION: ROUNDROBIN20260508 - ROUND-ROBIN DISTRIBUTION, NO SHUFFLE
  */
 
 class RouletteUI {
@@ -557,127 +557,52 @@ class RouletteUI {
       return;
     }
 
-    // ВАЖНО: Проверяем нужно ли перерисовывать
-    // Используем количество игроков И их ID для определения изменений
-    const playersKey = this.state.players.length + '_' + this.state.players.map(p => `${p.id}_${p.chance.toFixed(2)}`).sort().join('|');
+    // Проверяем нужно ли перерисовывать
+    const playersKey = this.state.players.map(p => `${p.id}_${p.chance.toFixed(2)}`).join('|');
     if (this.state.lastPlayersKey === playersKey && this.elements.strip.children.length > 0) {
-      // Игроки не изменились, не перерисовываем
       console.log('[Roulette] Skipping wheel render - players unchanged');
       return;
     }
-    
-    console.log('[Roulette] Players changed! Old key:', this.state.lastPlayersKey, 'New key:', playersKey);
     this.state.lastPlayersKey = playersKey;
 
     console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
-    
-    // ВАЖНО: Сортируем игроков по ID для стабильного порядка
-    const sortedPlayers = [...this.state.players].sort((a, b) => {
-      return String(a.id).localeCompare(String(b.id));
-    });
-    
-    // DEBUG: Выводим всех игроков
-    let debugLog = `Rendering ${sortedPlayers.length} players:\n`;
-    sortedPlayers.forEach((p, i) => {
-      console.log(`[Roulette] Player ${i}: name="${p.name}", chance=${p.chance}, id=${p.id}`);
-      debugLog += `P${i}: ${p.name} (ID:${p.id}) = ${p.chance}%\n`;
-    });
 
-    // Создаем массив из 100 карточек на основе шансов игроков
+    // НОВЫЙ ПОДХОД: Создаем карточки БЕЗ shuffle, просто чередуем игроков
     const cards = [];
+    const totalCards = 100;
     
-    sortedPlayers.forEach((player, playerIndex) => {
-      // Проверка что player валидный
-      if (!player || !player.id || typeof player.chance !== 'number') {
-        console.error('[Roulette] Invalid player:', player);
-        debugLog += `ERROR: Invalid player ${playerIndex}\n`;
-        return;
-      }
-      
-      const count = Math.round(player.chance); // Шанс = количество карточек
-      
-      console.log(`[Roulette] Player ${playerIndex} (${player.name}, ID:${player.id}) gets ${count} cards`);
-      debugLog += `P${playerIndex} (ID:${player.id}) gets ${count} cards\n`;
-      
-      for (let i = 0; i < count; i++) {
-        cards.push({
-          player: player,
-          playerIndex: playerIndex, // Просто используем индекс в отсортированном массиве
-          userId: player.id // Сохраняем ID для отладки
-        });
-      }
-    });
+    // Вычисляем сколько карточек у каждого игрока
+    const playerCards = this.state.players.map(p => ({
+      player: p,
+      count: Math.round(p.chance),
+      colorIndex: this.getPlayerColorIndex(p.id) // Стабильный цвет для игрока
+    }));
     
-    console.log('[Roulette] Generated', cards.length, 'cards before shuffle');
-    debugLog += `Total cards: ${cards.length}\n`;
+    console.log('[Roulette] Player cards:', playerCards.map(pc => `${pc.player.name}: ${pc.count} cards, color: ${pc.colorIndex}`));
     
-    // DEBUG: Проверяем распределение карточек ДО shuffle
-    const cardsByPlayer = {};
-    cards.forEach(c => {
-      cardsByPlayer[c.playerIndex] = (cardsByPlayer[c.playerIndex] || 0) + 1;
-    });
-    console.log('[Roulette] Cards distribution BEFORE shuffle:', cardsByPlayer);
-    debugLog += `Distribution: ${JSON.stringify(cardsByPlayer)}\n`;
-    
-    // Проверка что карточки сгенерированы
-    if (cards.length === 0) {
-      console.error('[Roulette] No cards generated!');
-      this.elements.strip.innerHTML = `
-        <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
-          Ошибка генерации карточек
-        </div>
-      `;
-      return;
-    }
-    
-    // ВАЖНО: Перемешиваем карточки используя SEED из round_id
-    // Это гарантирует одинаковый порядок у всех пользователей
-    const seed = this.state.currentRound?.id || Date.now();
-    
-    // Улучшенная функция seeded random (mulberry32)
-    function mulberry32(a) {
-      return function() {
-        let t = a += 0x6D2B79F5;
-        t = Math.imul(t ^ t >>> 15, t | 1);
-        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    // Распределяем карточки РАВНОМЕРНО (round-robin)
+    let cardIndex = 0;
+    while (cardIndex < totalCards) {
+      for (let i = 0; i < playerCards.length && cardIndex < totalCards; i++) {
+        const pc = playerCards[i];
+        if (pc.count > 0) {
+          cards.push({
+            player: pc.player,
+            colorIndex: pc.colorIndex
+          });
+          pc.count--;
+          cardIndex++;
+        }
       }
     }
     
-    const rng = mulberry32(seed);
-    
-    // Fisher-Yates shuffle с улучшенным seeded random
-    const shuffledCards = [...cards];
-    for (let i = shuffledCards.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [shuffledCards[i], shuffledCards[j]] = [shuffledCards[j], shuffledCards[i]];
-    }
-    
-    // DEBUG: Проверяем распределение карточек ПОСЛЕ shuffle
-    const shuffledByPlayer = {};
-    shuffledCards.forEach(c => {
-      shuffledByPlayer[c.playerIndex] = (shuffledByPlayer[c.playerIndex] || 0) + 1;
-    });
-    console.log('[Roulette] Cards distribution AFTER shuffle:', shuffledByPlayer);
+    console.log('[Roulette] Generated', cards.length, 'cards');
     
     // Сохраняем карточки в state для анимации
-    this.state.wheelCards = shuffledCards;
+    this.state.wheelCards = cards;
     
-    // DEBUG: Проверяем что карточки действительно перемешаны
-    const first20Names = shuffledCards.slice(0, 20).map(c => c.player.name.charAt(0)).join('');
-    const first20Indexes = shuffledCards.slice(0, 20).map(c => c.playerIndex).join('');
-    console.log('[Roulette] Shuffled with Fisher-Yates + mulberry32, seed:', seed);
-    console.log('[Roulette] First 20 cards (names):', first20Names);
-    console.log('[Roulette] First 20 cards (indexes):', first20Indexes);
-    
-    // Генерируем HTML для всех карточек
-    const cardsHtml = shuffledCards.map((card, index) => {
-      // Дополнительная проверка
-      if (!card || !card.player || card.playerIndex === undefined) {
-        console.error('[Roulette] Invalid card at index', index, card);
-        return '';
-      }
-      
+    // Генерируем HTML
+    const cardsHtml = cards.map((card, index) => {
       const colors = [
         'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
         'linear-gradient(135deg, #fbbf24, #f59e0b)',
@@ -685,7 +610,7 @@ class RouletteUI {
         'linear-gradient(135deg, #a78bfa, #8b5cf6)',
         'linear-gradient(135deg, #60a5fa, #3b82f6)',
       ];
-      const color = colors[card.playerIndex % colors.length];
+      const color = colors[card.colorIndex % colors.length];
       
       // Аватар: фото или инициал
       const avatarContent = card.player.photoUrl 
@@ -714,13 +639,25 @@ class RouletteUI {
           </div>
         </div>
       `;
-    }).filter(html => html !== '').join(''); // Убираем пустые элементы
+    }).join('');
     
     this.elements.strip.innerHTML = cardsHtml;
     this.elements.strip.style.transform = 'translateX(0)';
     this.elements.strip.style.transition = 'none';
     
-    console.log('[Roulette] Wheel rendered successfully with', shuffledCards.length, 'cards');
+    console.log('[Roulette] Wheel rendered successfully with', cards.length, 'cards');
+  }
+  
+  // Получить стабильный индекс цвета для игрока на основе его ID
+  getPlayerColorIndex(userId) {
+    // Простой хеш от user_id
+    let hash = 0;
+    const str = String(userId);
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash) % 5; // 5 цветов
   }
   
   // Анимация вращения рулетки (как в CS:GO кейсах)
