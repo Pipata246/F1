@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: SUSPENSE20260508 - 10 SECOND SUSPENSEFUL ANIMATION WITH SLOW ENDING
+ * VERSION: SERVER20260508 - CARDS GENERATED ON SERVER, SAME FOR ALL USERS
  */
 
 class RouletteUI {
@@ -200,6 +200,12 @@ class RouletteUI {
           if (players.length > 0) {
             const debugInfo = players.map(p => `${p.name}: ${p.chance.toFixed(1)}%`).join(', ');
             console.log('[DEBUG TMA] Players:', debugInfo);
+          }
+          
+          // ВАЖНО: Сохраняем готовые карточки от сервера
+          if (data.wheelCards && data.wheelCards.length > 0) {
+            console.log('[Roulette] ✅ Received', data.wheelCards.length, 'cards from SERVER');
+            this.state.wheelCards = data.wheelCards;
           }
           
           // Обновляем игроков (только если НЕ идет спин)
@@ -619,53 +625,56 @@ class RouletteUI {
 
     console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
 
-    // УВЕЛИЧИВАЕМ количество карточек для лучшей видимости
-    const totalCards = 200; // Было 100, теперь 200!
+    // ВАЖНО: Используем готовые карточки от СЕРВЕРА если они есть
+    let cards = [];
     
-    // Вычисляем сколько карточек у каждого игрока (пропорционально шансу)
-    const playerCards = this.state.players.map(p => ({
-      player: p,
-      count: Math.round((p.chance / 100) * totalCards), // Пропорционально шансу
-      colorIndex: this.getPlayerColorIndex(p.id) // Стабильный цвет для игрока
-    }));
-    
-    console.log('[Roulette] Player cards:', playerCards.map(pc => `${pc.player.name}: ${pc.count} cards, color: ${pc.colorIndex}`));
-    
-    // Создаем массив карточек
-    const cards = [];
-    
-    // Распределяем карточки РАВНОМЕРНО (round-robin)
-    let cardIndex = 0;
-    let safetyCounter = 0;
-    const maxIterations = totalCards * 10; // Защита от бесконечного цикла
-    
-    while (cardIndex < totalCards && safetyCounter < maxIterations) {
-      safetyCounter++;
-      let addedInThisRound = false;
+    if (this.state.wheelCards && this.state.wheelCards.length > 0) {
+      console.log('[Roulette] ✅ Using', this.state.wheelCards.length, 'cards from SERVER');
+      cards = this.state.wheelCards;
+    } else {
+      console.log('[Roulette] ⚠️ No server cards, generating locally (fallback)');
       
-      for (let i = 0; i < playerCards.length && cardIndex < totalCards; i++) {
-        const pc = playerCards[i];
-        if (pc.count > 0) {
-          cards.push({
-            player: pc.player,
-            colorIndex: pc.colorIndex
-          });
-          pc.count--;
-          cardIndex++;
-          addedInThisRound = true;
+      // FALLBACK: Генерируем локально если сервер не прислал
+      const totalCards = 200;
+      const playerCards = this.state.players.map(p => ({
+        player: p,
+        count: Math.round((p.chance / 100) * totalCards),
+        colorIndex: this.getPlayerColorIndex(p.id)
+      }));
+      
+      let cardIndex = 0;
+      let safetyCounter = 0;
+      const maxIterations = totalCards * 10;
+      
+      while (cardIndex < totalCards && safetyCounter < maxIterations) {
+        safetyCounter++;
+        let addedInThisRound = false;
+        
+        for (let i = 0; i < playerCards.length && cardIndex < totalCards; i++) {
+          const pc = playerCards[i];
+          if (pc.count > 0) {
+            cards.push({
+              user_id: pc.player.id,
+              display_name: pc.player.name,
+              photo_url: pc.player.photoUrl,
+              colorIndex: pc.colorIndex
+            });
+            pc.count--;
+            cardIndex++;
+            addedInThisRound = true;
+          }
         }
+        
+        if (!addedInThisRound) break;
       }
       
-      // Если ни одна карточка не добавлена - выходим
-      if (!addedInThisRound) break;
+      // Сохраняем сгенерированные карточки
+      this.state.wheelCards = cards;
     }
     
-    console.log('[Roulette] Generated', cards.length, 'cards (target:', totalCards, ')');
+    console.log('[Roulette] Total cards to render:', cards.length);
     
-    // Сохраняем карточки в state для анимации
-    this.state.wheelCards = cards;
-    
-    // Генерируем HTML
+    // Генерируем HTML из карточек
     const cardsHtml = cards.map((card, index) => {
       const colors = [
         'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
@@ -677,12 +686,12 @@ class RouletteUI {
       const color = colors[card.colorIndex % colors.length];
       
       // Аватар: фото или инициал
-      const avatarContent = card.player.photoUrl 
-        ? `<img src="${this.escapeHtml(card.player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`
-        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`;
+      const avatarContent = card.photo_url 
+        ? `<img src="${this.escapeHtml(card.photo_url)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.display_name.charAt(0).toUpperCase()}</div>`
+        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.display_name.charAt(0).toUpperCase()}</div>`;
 
       return `
-        <div class="roulette-card" data-user-id="${card.player.id}" data-card-index="${index}" style="
+        <div class="roulette-card" data-user-id="${card.user_id}" data-card-index="${index}" style="
           min-width:100px;
           width:100px;
           height:100%;
@@ -699,7 +708,7 @@ class RouletteUI {
             ${avatarContent}
           </div>
           <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center;">
-            ${this.escapeHtml(card.player.name)}
+            ${this.escapeHtml(card.display_name)}
           </div>
         </div>
       `;
@@ -709,7 +718,7 @@ class RouletteUI {
     this.elements.strip.style.transform = 'translateX(0)';
     this.elements.strip.style.transition = 'none';
     
-    console.log('[Roulette] ✅ Wheel rendered with', cards.length, 'cards - Ready for animation');
+    console.log('[Roulette] ✅ Wheel rendered with', cards.length, 'SERVER cards - Ready for animation');
   }
   
   // Получить стабильный индекс цвета для игрока на основе его ID
@@ -1202,7 +1211,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-SUSPENSE - 10 SECOND SUSPENSEFUL ANIMATION');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-SERVER - CARDS FROM SERVER FOR ALL');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {

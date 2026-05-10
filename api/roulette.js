@@ -247,6 +247,60 @@ async function getTelegramPhotoUrl(userId) {
   }
 }
 
+// Генерация порядка карточек для рулетки (одинаково для всех клиентов)
+function generateWheelCards(bets, roundId) {
+  const totalCards = 200;
+  
+  // Вычисляем сколько карточек у каждого игрока
+  const playerCards = bets.map(bet => ({
+    user_id: bet.user_id,
+    display_name: bet.display_name || bet.users?.username || bet.users?.first_name || 'Player',
+    photo_url: bet.photo_url || null,
+    count: Math.round((parseFloat(bet.chance_percent) / 100) * totalCards),
+    colorIndex: Math.abs(hashCode(String(bet.user_id))) % 5
+  }));
+  
+  // Распределяем карточки равномерно (round-robin)
+  const cards = [];
+  let cardIndex = 0;
+  let safetyCounter = 0;
+  const maxIterations = totalCards * 10;
+  
+  while (cardIndex < totalCards && safetyCounter < maxIterations) {
+    safetyCounter++;
+    let addedInThisRound = false;
+    
+    for (let i = 0; i < playerCards.length && cardIndex < totalCards; i++) {
+      const pc = playerCards[i];
+      if (pc.count > 0) {
+        cards.push({
+          user_id: pc.user_id,
+          display_name: pc.display_name,
+          photo_url: pc.photo_url,
+          colorIndex: pc.colorIndex
+        });
+        pc.count--;
+        cardIndex++;
+        addedInThisRound = true;
+      }
+    }
+    
+    if (!addedInThisRound) break;
+  }
+  
+  return cards;
+}
+
+// Простая хеш-функция для стабильного цвета
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return hash;
+}
+
 async function handleGetActiveRound(body) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
@@ -281,10 +335,17 @@ async function handleGetActiveRound(body) {
     })
   );
   
+  // ВАЖНО: Генерируем порядок карточек на СЕРВЕРЕ
+  // Все клиенты получат ОДИНАКОВЫЙ порядок!
+  const wheelCards = betsWithPhotos.length > 0 
+    ? generateWheelCards(betsWithPhotos, round.id) 
+    : [];
+  
   return {
     ok: true,
     round,
     bets: betsWithPhotos,
+    wheelCards, // НОВОЕ: готовый массив карточек для всех
     serverTime: new Date().toISOString() // Отправляем серверное время
   };
 }
