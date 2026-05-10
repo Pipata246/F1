@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: JSONFIX20260508 - BETTER ERROR HANDLING FOR INVALID JSON
+ * VERSION: SYNC20260508 - SYNCHRONIZED ANIMATION FOR ALL USERS
  */
 
 class RouletteUI {
@@ -264,7 +264,7 @@ class RouletteUI {
           
           // ВАЖНО: Сначала запускаем анимацию вращения
           console.log('[Roulette] Starting animation for winner:', data.round.winner_user_id);
-          await this.spinWheelAnimation(data.round.winner_user_id);
+          await this.spinWheelAnimation(data.round.winner_user_id, data.round.id);
           console.log('[Roulette] Animation completed via polling');
           
           // ТОЛЬКО ПОСЛЕ анимации показываем победителя
@@ -725,8 +725,14 @@ class RouletteUI {
     return Math.abs(hash) % 5; // 5 цветов
   }
   
+  // Детерминированная "случайная" функция на основе seed
+  seededRandom(seed) {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  }
+  
   // Анимация вращения рулетки (как в CS:GO кейсах)
-  spinWheelAnimation(winnerUserId) {
+  spinWheelAnimation(winnerUserId, roundId) {
     return new Promise((resolve) => {
       if (!this.elements.strip || !this.elements.wheelContainer) {
         console.error('[Roulette] Missing elements for animation');
@@ -734,7 +740,7 @@ class RouletteUI {
         return;
       }
       
-      console.log('[Roulette] Starting animation for winner:', winnerUserId);
+      console.log('[Roulette] Starting SYNCHRONIZED animation for winner:', winnerUserId, 'round:', roundId);
       
       // КРИТИЧЕСКИ ВАЖНО: Проверяем что карточки существуют
       const checkCards = () => {
@@ -824,37 +830,44 @@ class RouletteUI {
         return;
       }
       
-      // Выбираем случайную карточку победителя из середины-конца массива
-      const targetIndex = Math.floor(winnerCards.length * 0.6 + Math.random() * winnerCards.length * 0.3);
+      // СИНХРОНИЗАЦИЯ: Используем roundId как seed для детерминированного выбора
+      const seed1 = roundId || 1;
+      const seed2 = seed1 + 1;
+      const seed3 = seed1 + 2;
+      
+      // Выбираем карточку победителя детерминированно (все видят одинаковую)
+      const randomFactor = this.seededRandom(seed1); // 0..1
+      const targetIndex = Math.floor(winnerCards.length * 0.6 + randomFactor * winnerCards.length * 0.3);
       const targetCard = winnerCards[targetIndex];
       const targetCardIndex = allCards.indexOf(targetCard);
       
-      console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
+      console.log('[Roulette] SYNC: Target card index:', targetCardIndex, 'of', allCards.length, 'seed:', seed1);
       
       // Рассчитываем позицию для остановки (карточка должна быть в центре)
       const containerWidth = this.elements.wheelContainer.offsetWidth;
       const cardWidth = 102; // 100px + 2px border
       const centerOffset = containerWidth / 2 - cardWidth / 2;
       
-      // Добавляем случайное смещение для реалистичности (±20px)
-      const randomOffset = (Math.random() - 0.5) * 40;
+      // Детерминированное смещение (все видят одинаковое)
+      const randomOffset = (this.seededRandom(seed2) - 0.5) * 40;
       
       // Финальная позиция
       const finalPosition = -(targetCardIndex * cardWidth) + centerOffset + randomOffset;
       
-      // Добавляем дополнительные обороты для эффекта (3-4 полных прокруток)
-      const extraSpins = (3 + Math.random() * 1) * allCards.length * cardWidth;
+      // Детерминированное количество оборотов (все видят одинаковое)
+      const extraSpins = (3 + this.seededRandom(seed3) * 1) * allCards.length * cardWidth;
       
       // КРИТИЧЕСКИ ВАЖНО: НЕ ДВИГАЕМ КАРТОЧКИ! Они должны остаться на месте!
       // Финальная позиция учитывает дополнительные обороты
       const totalDistance = extraSpins + (targetCardIndex * cardWidth) - centerOffset - randomOffset;
       
-      console.log('[Roulette] Animation:', {
+      console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
         totalDistance,
         extraSpins,
-        duration: 7000
+        duration: 7000,
+        roundId: seed1
       });
       
       // ВАЖНО: Карточки УЖЕ на месте (translateX(0)), НЕ ТРОГАЕМ ИХ!
@@ -966,7 +979,7 @@ class RouletteUI {
       
       // ВАЖНО: Сначала запускаем анимацию вращения с победителем из API
       console.log('[Roulette] Starting animation...');
-      await this.spinWheelAnimation(data.winner.user_id);
+      await this.spinWheelAnimation(data.winner.user_id, data.round_id);
       console.log('[Roulette] Animation completed');
       
       // ТОЛЬКО ПОСЛЕ анимации показываем победителя
@@ -1157,7 +1170,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-JSONFIX - BETTER ERROR HANDLING');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-SYNC - SYNCHRONIZED ANIMATION FOR ALL');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
