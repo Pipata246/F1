@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: NOSHIFT20260508 - CARDS STAY ON SCREEN, NO INITIAL SHIFT
+ * VERSION: JSONFIX20260508 - BETTER ERROR HANDLING FOR INVALID JSON
  */
 
 class RouletteUI {
@@ -107,6 +107,21 @@ class RouletteUI {
         })
       });
 
+      // Проверяем что ответ успешный
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('[Roulette] Server error:', response.status, text);
+        throw new Error(`Ошибка сервера (${response.status})`);
+      }
+
+      // Проверяем что ответ - это JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('[Roulette] Invalid response type:', contentType, 'Body:', text.substring(0, 200));
+        throw new Error('Сервер вернул некорректный ответ');
+      }
+
       const data = await response.json();
       
       if (!data.ok) {
@@ -115,7 +130,13 @@ class RouletteUI {
 
       return data;
     } catch (error) {
-      console.error('API call failed:', error);
+      console.error('[Roulette] API call failed:', action, error);
+      
+      // Если это ошибка парсинга JSON - показываем понятное сообщение
+      if (error.message && error.message.includes('JSON')) {
+        throw new Error('Ошибка связи с сервером');
+      }
+      
       throw error;
     }
   }
@@ -291,10 +312,15 @@ class RouletteUI {
       // Загружаем историю победителей
       await this.loadRecentWinners();
     } catch (error) {
-      console.error('Failed to load active round:', error);
-      // Не показываем toast если просто нет активного раунда
-      if (!error.message || !error.message.includes('Нет активного раунда')) {
-        this.showToast('Ошибка загрузки: ' + error.message);
+      console.error('[Roulette] Failed to load active round:', error);
+      
+      // Не показываем toast для обычных ошибок (нет активного раунда, ошибки связи)
+      // Показываем только критические ошибки
+      if (error.message && 
+          !error.message.includes('Нет активного раунда') && 
+          !error.message.includes('связи с сервером') &&
+          !error.message.includes('Ошибка сервера')) {
+        this.showToast('Ошибка: ' + error.message);
       }
     }
   }
@@ -1131,7 +1157,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-NOSHIFT - CARDS NEVER MOVE OFF SCREEN');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-JSONFIX - BETTER ERROR HANDLING');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
