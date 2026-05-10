@@ -337,7 +337,7 @@ function shuffleInPlace(arr, rand) {
 // Генерация массива карточек для рулетки:
 // - кол-во карточек строго пропорционально bet_amount (шансам)
 // - порядок случайный, но детерминированный по seed (чтобы все клиенты видели одинаково)
-function generateWheelCards(bets, seedInput, totalCards = 200) {
+function generateWheelCards(bets, seedInput, totalCards = 1200) {
   const sorted = [...(bets || [])].sort((a, b) => String(a.user_id).localeCompare(String(b.user_id)));
   const totalBet = sorted.reduce((sum, bet) => sum + parseFloat(bet.bet_amount || 0), 0);
   if (!(totalBet > 0) || sorted.length === 0) return [];
