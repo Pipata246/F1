@@ -768,10 +768,14 @@ async function handleJoinRound(body, tgUserId) {
     total_bets_count: (allBets || []).length
   };
   
-  // Если это второй игрок - запустить таймер
-  if (isSecondPlayer) {
+  // Таймер: стартует когда игроков стало >=2, и СБРАСЫВАЕТСЯ на 20s при каждом новом игроке.
+  // Это даёт всем "досыпать" игроков перед розыгрышем.
+  if (newPlayersCount >= 2) {
+    // Если это второй игрок — фиксируем started_at (одноразово).
+    if (isSecondPlayer) {
+      updateData.started_at = new Date().toISOString();
+    }
     updateData.status = "active";
-    updateData.started_at = new Date().toISOString();
     updateData.timer_ends_at = new Date(Date.now() + TIMER_DURATION * 1000).toISOString();
   }
   
