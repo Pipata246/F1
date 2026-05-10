@@ -3210,7 +3210,12 @@
 </script>
 
 <!-- Roulette UI Script -->
-<script src="/roulette-server/public/roulette-ui.js?v=FINAL20260508"></script>
+<script>
+// Обход кэша - добавляем timestamp
+const rouletteScript = document.createElement('script');
+rouletteScript.src = '/roulette-server/public/roulette-ui.js?nocache=' + Date.now();
+document.body.appendChild(rouletteScript);
+</script>
 
 </body>
 </html>
