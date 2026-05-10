@@ -307,33 +307,28 @@ async function handleGetActiveRound(body) {
   const round = await getActiveRound();
   
   if (!round) {
-    return { ok: true, round: null, bets: [], serverTime: new Date().toISOString() };
+    return { ok: true, round: null, bets: [], wheelCards: [], serverTime: new Date().toISOString() };
   }
   
   const bets = await getRoundBets(round.id);
   
-  // Получаем фото профилей для всех игроков параллельно
-  const betsWithPhotos = await Promise.all(
-    bets.map(async (bet) => {
-      // Формируем отображаемое имя из доступных полей
-      const displayName = bet.users?.username 
-        || bet.users?.first_name 
-        || "Player";
-      
-      // Получаем URL фото профиля
-      const photoUrl = await getTelegramPhotoUrl(bet.user_id);
-      
-      return {
-        id: bet.id,
-        user_id: bet.user_id,
-        bet_amount: bet.bet_amount,
-        chance_percent: bet.chance_percent,
-        display_name: displayName,
-        created_at: bet.created_at,
-        photo_url: photoUrl // Реальный URL фото или null
-      };
-    })
-  );
+  // ВАЖНО: НЕ ждем загрузку аватарок! Отправляем ответ БЕЗ них
+  // Аватарки загружаются в фоне и кешируются
+  const betsWithPhotos = bets.map(bet => {
+    const displayName = bet.users?.username 
+      || bet.users?.first_name 
+      || "Player";
+    
+    return {
+      id: bet.id,
+      user_id: bet.user_id,
+      bet_amount: bet.bet_amount,
+      chance_percent: bet.chance_percent,
+      display_name: displayName,
+      created_at: bet.created_at,
+      photo_url: null // ПОКА null - загружаем в фоне
+    };
+  });
   
   // ВАЖНО: Генерируем порядок карточек на СЕРВЕРЕ
   // Все клиенты получат ОДИНАКОВЫЙ порядок!
@@ -341,13 +336,52 @@ async function handleGetActiveRound(body) {
     ? generateWheelCards(betsWithPhotos, round.id) 
     : [];
   
+  // ФОНОВАЯ загрузка аватарок (НЕ блокирует ответ)
+  // Загружаем параллельно и кешируем
+  if (betsWithPhotos.length > 0) {
+    // Запускаем загрузку в фоне БЕЗ await
+    loadAvatarsInBackground(betsWithPhotos).catch(err => {
+      console.error('Background avatar loading error:', err);
+    });
+  }
+  
   return {
     ok: true,
     round,
     bets: betsWithPhotos,
-    wheelCards, // НОВОЕ: готовый массив карточек для всех
-    serverTime: new Date().toISOString() // Отправляем серверное время
+    wheelCards,
+    serverTime: new Date().toISOString()
   };
+}
+
+// Кеш для аватарок (чтобы не загружать дважды)
+const avatarCache = new Map();
+
+// Загрузка аватарок в фоне (НЕ блокирует основной ответ)
+async function loadAvatarsInBackground(bets) {
+  // Загружаем параллельно, но не ждем
+  const promises = bets.map(async (bet) => {
+    const cacheKey = `avatar_${bet.user_id}`;
+    
+    // Если уже в кеше - пропускаем
+    if (avatarCache.has(cacheKey)) {
+      bet.photo_url = avatarCache.get(cacheKey);
+      return;
+    }
+    
+    try {
+      const photoUrl = await getTelegramPhotoUrl(bet.user_id);
+      if (photoUrl) {
+        avatarCache.set(cacheKey, photoUrl);
+        bet.photo_url = photoUrl;
+      }
+    } catch (err) {
+      console.error(`Failed to load avatar for ${bet.user_id}:`, err);
+    }
+  });
+  
+  // Ждем все параллельно (но это не блокирует основной ответ)
+  await Promise.all(promises);
 }
 
 async function handleSpinRoulette(body, tgUserId) {
