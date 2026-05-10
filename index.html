@@ -1664,7 +1664,12 @@
         state.onboarding.referralAsked = true;
         const b = data.user?.balance;
         state.profile.serverBalanceTon = b != null && b !== "" ? String(b) : "0";
-        if(!skipBalToast && hadPriorServerBalance && Number.isFinite(prevN)){
+        
+        // ВАЖНО: Показываем toast ТОЛЬКО если это НЕ игра (рулетка/PvP)
+        // Проверяем что мы НЕ на вкладке рулетки
+        const isOnRoulettePage = window.location.hash === '#roulette';
+        
+        if(!skipBalToast && !isOnRoulettePage && hadPriorServerBalance && Number.isFinite(prevN)){
           const newN = parseBalanceNum(state.profile.serverBalanceTon);
           if(Number.isFinite(newN) && newN > prevN + 1e-12){
             const delta = newN - prevN;
