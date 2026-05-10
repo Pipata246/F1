@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: SILENT20260508 - NO ERROR TOASTS FOR BETTER UX
+ * VERSION: NOTOAST20260508 - NO BALANCE INCREASE TOAST IN ROULETTE
  */
 
 class RouletteUI {
@@ -951,7 +951,8 @@ class RouletteUI {
       
       // Refresh user balance
       if (typeof window.hydrateUserFromServer === 'function') {
-        await window.hydrateUserFromServer();
+        // ВАЖНО: Передаем skipBalanceIncreaseToast чтобы не показывать toast о пополнении
+        await window.hydrateUserFromServer({ skipBalanceIncreaseToast: true });
         if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
           window.refreshBalanceUiAfterHydrate();
         }
@@ -1198,7 +1199,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-SILENT - NO ERROR TOASTS');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-NOTOAST - NO BALANCE TOAST');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
