@@ -247,18 +247,37 @@ async function getTelegramPhotoUrl(userId) {
   }
 }
 
+// Детерминированная "случайная" функция на основе seed
+function seededRandom(seed) {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
 // Генерация порядка карточек для рулетки (одинаково для всех клиентов)
+// КРИТИЧЕСКИ ВАЖНО: Использует только roundId как seed, не зависит от chance_percent
 function generateWheelCards(bets, roundId) {
   const totalCards = 200;
   
-  // Вычисляем сколько карточек у каждого игрока
-  const playerCards = bets.map(bet => ({
-    user_id: bet.user_id,
-    display_name: bet.display_name || bet.users?.username || bet.users?.first_name || 'Player',
-    photo_url: bet.photo_url || null,
-    count: Math.round((parseFloat(bet.chance_percent) / 100) * totalCards),
-    colorIndex: Math.abs(hashCode(String(bet.user_id))) % 5
-  }));
+  // Сортируем ставки по user_id для консистентности
+  const sortedBets = [...bets].sort((a, b) => String(a.user_id).localeCompare(String(b.user_id)));
+  
+  // Вычисляем сколько карточек у каждого игрока на основе bet_amount
+  // ВАЖНО: Используем bet_amount, а не chance_percent (chance_percent может быть разным)
+  const totalBet = sortedBets.reduce((sum, bet) => sum + parseFloat(bet.bet_amount || 0), 0);
+  
+  const playerCards = sortedBets.map((bet, index) => {
+    const betAmount = parseFloat(bet.bet_amount || 0);
+    const percentage = totalBet > 0 ? (betAmount / totalBet) : 0;
+    const count = Math.round(percentage * totalCards);
+    
+    return {
+      user_id: bet.user_id,
+      display_name: bet.display_name || bet.users?.username || bet.users?.first_name || 'Player',
+      photo_url: bet.photo_url || null,
+      count: count,
+      colorIndex: Math.abs(hashCode(String(bet.user_id))) % 5
+    };
+  });
   
   // Распределяем карточки равномерно (round-robin)
   const cards = [];
@@ -291,6 +310,63 @@ function generateWheelCards(bets, roundId) {
   return cards;
 }
 
+// Генерация HTML карточек на СЕРВЕРЕ
+function generateWheelCardsHTML(cards) {
+  const colors = [
+    'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
+    'linear-gradient(135deg, #fbbf24, #f59e0b)',
+    'linear-gradient(135deg, #fb923c, #f97316)',
+    'linear-gradient(135deg, #a78bfa, #8b5cf6)',
+    'linear-gradient(135deg, #60a5fa, #3b82f6)',
+  ];
+  
+  return cards.map((card, index) => {
+    const color = colors[card.colorIndex % colors.length];
+    const initial = (card.display_name || 'P').charAt(0).toUpperCase();
+    
+    // Аватар: фото или инициал
+    const avatarContent = card.photo_url 
+      ? `<img src="${escapeHtml(card.photo_url)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${initial}</div>`
+      : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${initial}</div>`;
+
+    return `
+      <div class="roulette-card" data-user-id="${card.user_id}" data-card-index="${index}" style="
+        min-width:100px;
+        width:100px;
+        height:100%;
+        background:${color};
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        padding:8px;
+        border-right:2px solid rgba(0,0,0,0.3);
+        flex-shrink:0;
+      ">
+        <div style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.9); overflow:hidden; margin-bottom:6px; flex-shrink:0;">
+          ${avatarContent}
+        </div>
+        <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center;">
+          ${escapeHtml(card.display_name)}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Escape HTML на сервере
+function escapeHtml(text) {
+  if (!text) return '';
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
 // Простая хеш-функция для стабильного цвета
 function hashCode(str) {
   let hash = 0;
@@ -307,7 +383,7 @@ async function handleGetActiveRound(body) {
   const round = await getActiveRound();
   
   if (!round) {
-    return { ok: true, round: null, bets: [], wheelCards: [], serverTime: new Date().toISOString() };
+    return { ok: true, round: null, bets: [], wheelCardsHTML: '', serverTime: new Date().toISOString() };
   }
   
   const bets = await getRoundBets(round.id);
@@ -343,20 +419,23 @@ async function handleGetActiveRound(body) {
     })
   );
   
-  // КРИТИЧЕСКИ ВАЖНО: Получаем карточки из БД (не генерируем!)
-  let wheelCards = [];
-  if (round.wheel_cards && Array.isArray(round.wheel_cards)) {
-    wheelCards = round.wheel_cards;
-    console.log('[Roulette] ✅ Retrieved', wheelCards.length, 'cards from DB for round', round.id);
-  } else {
-    console.log('[Roulette] ⚠️ No cards in DB for round', round.id, '- will be generated on 2nd player join');
-  }
+  // ГЕНЕРИРУЕМ КАРТОЧКИ НА СЕРВЕРЕ
+  const wheelCards = betsWithPhotos.length > 0 
+    ? generateWheelCards(betsWithPhotos, round.id) 
+    : [];
+  
+  // ГЕНЕРИРУЕМ HTML НА СЕРВЕРЕ
+  const wheelCardsHTML = wheelCards.length > 0 
+    ? generateWheelCardsHTML(wheelCards)
+    : '';
+  
+  console.log('[Roulette API] Generated', wheelCards.length, 'cards and HTML for round', round.id, 'with', betsWithPhotos.length, 'players');
   
   return {
     ok: true,
     round,
     bets: betsWithPhotos,
-    wheelCards,
+    wheelCardsHTML,
     serverTime: new Date().toISOString()
   };
 }
@@ -609,58 +688,11 @@ async function handleJoinRound(body, tgUserId) {
     total_bets_count: (allBets || []).length
   };
   
-  // Если это второй игрок - запустить таймер И СГЕНЕРИРОВАТЬ КАРТОЧКИ
+  // Если это второй игрок - запустить таймер
   if (isSecondPlayer) {
     updateData.status = "active";
     updateData.started_at = new Date().toISOString();
     updateData.timer_ends_at = new Date(Date.now() + TIMER_DURATION * 1000).toISOString();
-    
-    // КРИТИЧЕСКИ ВАЖНО: Генерируем карточки ОДИН РАЗ и сохраняем в БД
-    // Получаем ставки с информацией о пользователях
-    const { data: betsWithUsers } = await supabase
-      .from("roulette_bets")
-      .select("*, users!inner(first_name, last_name, username)")
-      .eq("round_id", round.id)
-      .order("created_at", { ascending: true });
-    
-    // Получаем фото профилей для всех игроков ПАРАЛЛЕЛЬНО с timeout
-    const betsWithPhotos = await Promise.all(
-      (betsWithUsers || []).map(async (bet) => {
-        const displayName = bet.users?.username 
-          || bet.users?.first_name 
-          || "Player";
-        
-        // Получаем URL фото профиля с timeout (макс 2 секунды)
-        let photoUrl = null;
-        try {
-          photoUrl = await Promise.race([
-            getTelegramPhotoUrl(bet.user_id),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
-          ]);
-        } catch (err) {
-          // Timeout или ошибка - используем null (инициалы)
-          console.log(`Avatar timeout for ${bet.user_id}, using initials`);
-        }
-        
-        return {
-          id: bet.id,
-          user_id: bet.user_id,
-          bet_amount: bet.bet_amount,
-          chance_percent: bet.chance_percent,
-          display_name: displayName,
-          created_at: bet.created_at,
-          photo_url: photoUrl
-        };
-      })
-    );
-    
-    // Генерируем карточки на основе ставок
-    const wheelCards = generateWheelCards(betsWithPhotos, round.id);
-    
-    // Сохраняем карточки в БД
-    updateData.wheel_cards = wheelCards;
-    
-    console.log('[Roulette] Generated and stored', wheelCards.length, 'cards in DB for round', round.id);
   }
   
   await supabaseUpdate("roulette_rounds", round.id, updateData);

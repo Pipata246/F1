@@ -25,9 +25,6 @@ CREATE TABLE IF NOT EXISTS roulette_rounds (
   platform_fee_percent DECIMAL(5,2) NOT NULL DEFAULT 5.00,
   platform_fee_amount DECIMAL(18,9),
   
-  -- Wheel cards (generated once, used for all users)
-  wheel_cards JSONB,
-  
   -- Timestamps
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   started_at TIMESTAMPTZ, -- When 2nd player joined

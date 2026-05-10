@@ -61,7 +61,7 @@ class RouletteUI {
       timerEndTime: null, // Время окончания таймера
       shownWinnerRoundId: null, // ID раунда, для которого уже показали модалку победителя
       lastPlayersKey: null, // Ключ для проверки изменения состава игроков
-      wheelCards: [], // Карточки колеса для анимации
+      wheelCardsHTML: '', // Готовый HTML карточек от сервера
     };
 
     this.pollInterval = null;
@@ -195,10 +195,12 @@ class RouletteUI {
             console.log('[DEBUG TMA] Players:', debugInfo);
           }
           
-          // ВАЖНО: Сохраняем готовые карточки от сервера
-          if (data.wheelCards && data.wheelCards.length > 0) {
-            console.log('[Roulette] ✅ Received', data.wheelCards.length, 'cards from SERVER');
-            this.state.wheelCards = data.wheelCards;
+          // ВАЖНО: Сохраняем готовый HTML от сервера
+          if (data.wheelCardsHTML && data.wheelCardsHTML.length > 0) {
+            console.log('[Roulette] ✅ Received HTML from SERVER');
+            this.state.wheelCardsHTML = data.wheelCardsHTML;
+          } else {
+            console.log('[Roulette] ⚠️ No wheelCardsHTML from server!', { htmlLength: data.wheelCardsHTML?.length, betsCount: data.bets?.length });
           }
           
           // Обновляем игроков (только если НЕ идет спин)
@@ -605,12 +607,11 @@ class RouletteUI {
           Ожидание игроков...
         </div>
       `;
-      this.state.wheelCards = []; // Очищаем кеш карточек
       return;
     }
 
     // Проверяем нужно ли перерисовывать
-    const playersKey = this.state.players.map(p => `${p.id}_${p.chance.toFixed(2)}`).join('|');
+    const playersKey = this.state.players.map(p => `${p.id}_${p.bet.toFixed(2)}`).join('|');
     if (this.state.lastPlayersKey === playersKey && this.elements.strip.children.length > 0) {
       console.log('[Roulette] Skipping wheel render - players unchanged');
       return;
@@ -619,100 +620,25 @@ class RouletteUI {
 
     console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
 
-    // ВАЖНО: Используем готовые карточки от СЕРВЕРА если они есть
-    let cards = [];
-    
-    if (this.state.wheelCards && this.state.wheelCards.length > 0) {
-      console.log('[Roulette] ✅ Using', this.state.wheelCards.length, 'cards from SERVER');
-      cards = this.state.wheelCards;
+    // КРИТИЧЕСКИ ВАЖНО: Используем готовый HTML от СЕРВЕРА!
+    // Никаких вычислений на клиенте - просто вставляем HTML
+    if (this.state.wheelCardsHTML && this.state.wheelCardsHTML.length > 0) {
+      console.log('[Roulette] ✅ Using HTML from SERVER');
+      this.elements.strip.innerHTML = this.state.wheelCardsHTML;
     } else {
-      console.log('[Roulette] ⚠️ No server cards, generating locally (fallback)');
-      
-      // FALLBACK: Генерируем локально если сервер не прислал
-      const totalCards = 200;
-      const playerCards = this.state.players.map(p => ({
-        player: p,
-        count: Math.round((p.chance / 100) * totalCards),
-        colorIndex: this.getPlayerColorIndex(p.id)
-      }));
-      
-      let cardIndex = 0;
-      let safetyCounter = 0;
-      const maxIterations = totalCards * 10;
-      
-      while (cardIndex < totalCards && safetyCounter < maxIterations) {
-        safetyCounter++;
-        let addedInThisRound = false;
-        
-        for (let i = 0; i < playerCards.length && cardIndex < totalCards; i++) {
-          const pc = playerCards[i];
-          if (pc.count > 0) {
-            cards.push({
-              user_id: pc.player.id,
-              display_name: pc.player.name,
-              photo_url: pc.player.photoUrl,
-              colorIndex: pc.colorIndex
-            });
-            pc.count--;
-            cardIndex++;
-            addedInThisRound = true;
-          }
-        }
-        
-        if (!addedInThisRound) break;
-      }
-      
-      // Сохраняем сгенерированные карточки
-      this.state.wheelCards = cards;
-    }
-    
-    console.log('[Roulette] Total cards to render:', cards.length);
-    
-    // Генерируем HTML из карточек
-    const cardsHtml = cards.map((card, index) => {
-      const colors = [
-        'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
-        'linear-gradient(135deg, #fbbf24, #f59e0b)',
-        'linear-gradient(135deg, #fb923c, #f97316)',
-        'linear-gradient(135deg, #a78bfa, #8b5cf6)',
-        'linear-gradient(135deg, #60a5fa, #3b82f6)',
-      ];
-      const color = colors[card.colorIndex % colors.length];
-      
-      // Аватар: фото или инициал
-      const avatarContent = card.photo_url 
-        ? `<img src="${this.escapeHtml(card.photo_url)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.display_name.charAt(0).toUpperCase()}</div>`
-        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.display_name.charAt(0).toUpperCase()}</div>`;
-
-      return `
-        <div class="roulette-card" data-user-id="${card.user_id}" data-card-index="${index}" style="
-          min-width:100px;
-          width:100px;
-          height:100%;
-          background:${color};
-          display:flex;
-          flex-direction:column;
-          align-items:center;
-          justify-content:center;
-          padding:8px;
-          border-right:2px solid rgba(0,0,0,0.3);
-          flex-shrink:0;
-        ">
-          <div style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.9); overflow:hidden; margin-bottom:6px; flex-shrink:0;">
-            ${avatarContent}
-          </div>
-          <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center;">
-            ${this.escapeHtml(card.display_name)}
-          </div>
+      console.log('[Roulette] ⚠️ No HTML from server yet - waiting');
+      this.elements.strip.innerHTML = `
+        <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
+          Загрузка карточек...
         </div>
       `;
-    }).join('');
+      return;
+    }
     
-    this.elements.strip.innerHTML = cardsHtml;
     this.elements.strip.style.transform = 'translateX(0)';
     this.elements.strip.style.transition = 'none';
     
-    console.log('[Roulette] ✅ Wheel rendered with', cards.length, 'SERVER cards - Ready for animation');
+    console.log('[Roulette] ✅ Wheel rendered from SERVER HTML - Ready for animation');
   }
   
   // Получить стабильный индекс цвета для игрока на основе его ID
@@ -758,52 +684,13 @@ class RouletteUI {
         if (allCards.length === 0) {
           console.error('[Roulette] ⚠️ NO CARDS FOUND! Strip HTML length:', this.elements.strip.innerHTML.length);
           console.error('[Roulette] Strip content preview:', this.elements.strip.innerHTML.substring(0, 200));
-          console.error('[Roulette] wheelCards in state:', this.state.wheelCards.length);
+          console.error('[Roulette] wheelCardsHTML in state:', this.state.wheelCardsHTML?.length);
           
-          // ПОПЫТКА ВОССТАНОВЛЕНИЯ: Если карточки есть в state но не в DOM - рендерим заново
-          if (this.state.wheelCards.length > 0) {
-            console.log('[Roulette] 🔧 Attempting to restore cards from state...');
-            
-            const cardsHtml = this.state.wheelCards.map((card, index) => {
-              const colors = [
-                'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
-                'linear-gradient(135deg, #fbbf24, #f59e0b)',
-                'linear-gradient(135deg, #fb923c, #f97316)',
-                'linear-gradient(135deg, #a78bfa, #8b5cf6)',
-                'linear-gradient(135deg, #60a5fa, #3b82f6)',
-              ];
-              const color = colors[card.colorIndex % colors.length];
-              
-              const avatarContent = card.player.photoUrl 
-                ? `<img src="${this.escapeHtml(card.player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`
-                : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`;
-
-              return `
-                <div class="roulette-card" data-user-id="${card.player.id}" data-card-index="${index}" style="
-                  min-width:100px;
-                  width:100px;
-                  height:100%;
-                  background:${color};
-                  display:flex;
-                  flex-direction:column;
-                  align-items:center;
-                  justify-content:center;
-                  padding:8px;
-                  border-right:2px solid rgba(0,0,0,0.3);
-                  flex-shrink:0;
-                ">
-                  <div style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.9); overflow:hidden; margin-bottom:6px; flex-shrink:0;">
-                    ${avatarContent}
-                  </div>
-                  <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center;">
-                    ${this.escapeHtml(card.player.name)}
-                  </div>
-                </div>
-              `;
-            }).join('');
-            
-            this.elements.strip.innerHTML = cardsHtml;
-            console.log('[Roulette] ✅ Cards restored from state');
+          // ПОПЫТКА ВОССТАНОВЛЕНИЯ: Если HTML есть в state но не в DOM - вставляем его
+          if (this.state.wheelCardsHTML && this.state.wheelCardsHTML.length > 0) {
+            console.log('[Roulette] 🔧 Attempting to restore cards from HTML state...');
+            this.elements.strip.innerHTML = this.state.wheelCardsHTML;
+            console.log('[Roulette] ✅ Cards restored from HTML state');
             
             // Повторная проверка после восстановления
             return Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
