@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: SYNCFIX20260508 - SYNC WITH BETTER ERROR HANDLING
+ * VERSION: NOPOLL20260508 - STOP POLLING DURING SPIN TO PREVENT ERRORS
  */
 
 class RouletteUI {
@@ -142,6 +142,13 @@ class RouletteUI {
   }
 
   async loadActiveRound() {
+    // ВАЖНО: Если идет спин - НЕ загружаем данные!
+    // Polling должен быть остановлен во время анимации
+    if (this.state.isSpinning) {
+      console.log('[Roulette] 🔒 Spin in progress - skipping loadActiveRound');
+      return;
+    }
+    
     try {
       const data = await this.callAPI('getActiveRound');
       
@@ -977,6 +984,9 @@ class RouletteUI {
     try {
       console.log('[Roulette] Spinning...');
       
+      // ВАЖНО: Останавливаем polling на время спина
+      this.stopPolling();
+      
       // Блокируем UI
       this.disableBetButton();
       this.updateStatus('spinning');
@@ -1014,6 +1024,8 @@ class RouletteUI {
         this.state.isSpinning = false;
         this.enableBetButton();
         this.loadActiveRound();
+        // ВАЖНО: Запускаем polling снова
+        this.startPolling();
       }, 5000);
       
     } catch (error) {
@@ -1030,6 +1042,8 @@ class RouletteUI {
       if (error.message && (error.message.includes('уже идет') || error.message.includes('уже запущен') || error.message.includes('уже завершен'))) {
         console.log('[Roulette] Spin already in progress or finished, waiting via polling...');
         this.disableBetButton();
+        // ВАЖНО: Запускаем polling снова
+        this.startPolling();
         // Polling автоматически обнаружит завершение раунда и покажет анимацию
       } else {
         // Другая ошибка - показываем
@@ -1037,6 +1051,8 @@ class RouletteUI {
         setTimeout(() => {
           this.enableBetButton();
           this.loadActiveRound();
+          // ВАЖНО: Запускаем polling снова
+          this.startPolling();
         }, 2000);
       }
     }
@@ -1187,7 +1203,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-SYNCFIX - BETTER ERROR HANDLING + SEED FALLBACK');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-NOPOLL - STOP POLLING DURING SPIN');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
