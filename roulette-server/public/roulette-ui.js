@@ -71,6 +71,52 @@ class RouletteUI {
     this.init();
   }
 
+  // ==================== ROUND UI RESET ====================
+  clearRoundUIToWaiting() {
+    // Скрываем таймер
+    this.stopSmoothTimer();
+    if (this.elements.timerWrap) {
+      this.elements.timerWrap.classList.add('hidden');
+    }
+    if (this.elements.timer) {
+      this.elements.timer.textContent = '0';
+    }
+
+    // Сброс текста статуса/банка/игроков
+    this.updateStatus('waiting');
+    this.updatePot(0);
+    if (this.elements.playerCount) {
+      this.elements.playerCount.textContent = '0';
+    }
+
+    // Не трогаем модалку — только базовый UI раунда
+    if (this.elements.playersList) {
+      this.elements.playersList.innerHTML = `
+        <div style="text-align:center; padding:24px; color:var(--muted); font-size:13px;">
+          Пока нет игроков. Будь первым!
+        </div>
+      `;
+    }
+
+    if (this.elements.strip) {
+      this.elements.strip.style.transition = 'none';
+      this.elements.strip.style.transform = 'translateX(0)';
+      this.elements.strip.innerHTML = `
+        <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
+          Ожидание игроков...
+        </div>
+      `;
+    }
+
+    // Сброс внутренних ключей, чтобы следующий раунд точно перерисовался
+    this.state.lastPlayersKey = null;
+    this.state.wheelCardsHTML = '';
+    this.state.currentRound = null;
+    this.state.players = [];
+    this.state.myBet = null;
+    this.updateBetButton(false);
+  }
+
   init() {
     // Setup event listeners
     this.elements.betBtn?.addEventListener('click', () => this.handleBet());
@@ -315,6 +361,9 @@ class RouletteUI {
             data.round.winner_user_id,
             data.winner?.photo_url || this.state.lastWinnerPhotoUrl
           );
+
+          // Сразу очищаем UI старого раунда (чтобы он не висел под модалкой)
+          this.clearRoundUIToWaiting();
           
           // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
           if (String(data.round.winner_user_id) === myUserIdStr) {
@@ -529,6 +578,11 @@ class RouletteUI {
     console.log('[Roulette] Current players:', this.state.players.length);
     
     this.updateStatus('spinning');
+    // Инициатор спина сам останавливает polling, поэтому таймер нужно скрыть прямо тут
+    this.stopSmoothTimer();
+    if (this.elements.timerWrap) {
+      this.elements.timerWrap.classList.add('hidden');
+    }
     
     // Блокируем кнопку ставки
     this.disableBetButton();
@@ -910,6 +964,12 @@ class RouletteUI {
   async spinRoulette() {
     try {
       console.log('[Roulette] Spinning...');
+
+      // Инициатор: гарантированно скрываем таймер (polling уже остановлен)
+      this.stopSmoothTimer();
+      if (this.elements.timerWrap) {
+        this.elements.timerWrap.classList.add('hidden');
+      }
       
       // ВАЖНО: Останавливаем polling на время спина
       this.stopPolling();
@@ -939,6 +999,9 @@ class RouletteUI {
         data.winner.user_id,
         data.winner.photo_url
       );
+
+      // Сразу убираем UI старого раунда при появлении модалки
+      this.clearRoundUIToWaiting();
       
       // Обновляем баланс если я победил (тихо, без toast)
       const myUserIdStr = String(this.state.myUserId);
@@ -953,14 +1016,14 @@ class RouletteUI {
         }
       }
       
-      // Через 8 секунд загружаем новый раунд (даем время насладиться победой)
+      // После закрытия модалки загружаем новый раунд и возобновляем polling
       setTimeout(() => {
         this.state.isSpinning = false;
         this.enableBetButton();
         this.loadActiveRound();
         // ВАЖНО: Запускаем polling снова
         this.startPolling();
-      }, 8000);
+      }, 5500);
       
     } catch (error) {
       console.error('[Roulette] Spin error:', error);

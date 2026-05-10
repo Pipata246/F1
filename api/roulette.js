@@ -254,6 +254,54 @@ function withTimeout(promise, ms) {
   ]);
 }
 
+// ============================================
+// TELEGRAM AVATAR CACHE (in-memory, best-effort)
+// ============================================
+// Важно: serverless инстансы могут быть холодными, но кэш всё равно
+// резко снижает количество запросов к Telegram при частом polling.
+const AVATAR_TTL_OK_MS = 5 * 60 * 1000; // 5 минут
+const AVATAR_TTL_NULL_MS = 60 * 1000; // 1 минута (чтобы не спамить Telegram при таймаутах)
+const avatarCache = new Map(); // userId -> { url: string|null, ts: number }
+
+function cacheGet(userId) {
+  const k = String(userId || "").trim();
+  if (!k) return null;
+  const v = avatarCache.get(k);
+  if (!v) return null;
+  const age = Date.now() - Number(v.ts || 0);
+  const ttl = v.url ? AVATAR_TTL_OK_MS : AVATAR_TTL_NULL_MS;
+  if (age > ttl) {
+    avatarCache.delete(k);
+    return null;
+  }
+  return v.url || null;
+}
+
+function cacheSet(userId, url) {
+  const k = String(userId || "").trim();
+  if (!k) return;
+  avatarCache.set(k, { url: url ? String(url) : null, ts: Date.now() });
+  // Ограничим рост (простая эвикция)
+  if (avatarCache.size > 500) {
+    const firstKey = avatarCache.keys().next().value;
+    if (firstKey) avatarCache.delete(firstKey);
+  }
+}
+
+async function getTelegramPhotoUrlCached(userId, timeoutMs) {
+  const cached = cacheGet(userId);
+  if (cached !== null) return cached; // может быть строкой
+  // cached == null означает "нет в кэше или истёк" — попробуем получить
+  let url = null;
+  try {
+    url = await withTimeout(getTelegramPhotoUrl(userId), timeoutMs);
+  } catch {
+    url = null;
+  }
+  cacheSet(userId, url);
+  return url;
+}
+
 // Детерминированная "случайная" функция на основе seed
 function seededRandom(seed) {
   const x = Math.sin(seed) * 10000;
@@ -395,9 +443,25 @@ async function handleGetActiveRound(body) {
   
   const bets = await getRoundBets(round.id);
 
-  // ВАЖНО: НЕ тянем аватарки каждого игрока на каждом poll — это тормозит ответ всем клиентам.
-  // Для UI достаточно инициалов, а фото победителя отдадим отдельно при finished/spin.
-  const betsLight = (bets || []).map((bet) => {
+  // Аватарки нужны на карточках, но нельзя тормозить polling.
+  // Поэтому тянем через кэш и с коротким таймаутом (best-effort).
+  const betsWithPhotos = await Promise.all(
+    (bets || []).map(async (bet) => {
+      const displayName = bet.users?.username || bet.users?.first_name || "Player";
+      const photoUrl = await getTelegramPhotoUrlCached(bet.user_id, 650);
+      return {
+        id: bet.id,
+        user_id: bet.user_id,
+        bet_amount: bet.bet_amount,
+        chance_percent: bet.chance_percent,
+        display_name: displayName,
+        created_at: bet.created_at,
+        photo_url: photoUrl,
+      };
+    })
+  );
+
+  const betsLight = (betsWithPhotos || []).map((bet) => {
     const displayName = bet.users?.username || bet.users?.first_name || "Player";
     return {
       id: bet.id,
@@ -406,7 +470,7 @@ async function handleGetActiveRound(body) {
       chance_percent: bet.chance_percent,
       display_name: displayName,
       created_at: bet.created_at,
-      photo_url: null,
+      photo_url: bet.photo_url || null,
     };
   });
   
@@ -429,7 +493,8 @@ async function handleGetActiveRound(body) {
     const displayName = winnerBet?.display_name || "Player";
     let photoUrl = null;
     try {
-      photoUrl = await withTimeout(getTelegramPhotoUrl(round.winner_user_id), 1200);
+      // если уже есть в кэше — отлично, иначе попробуем быстро дотянуть
+      photoUrl = winnerBet?.photo_url || (await getTelegramPhotoUrlCached(round.winner_user_id, 900));
     } catch {
       photoUrl = null;
     }
