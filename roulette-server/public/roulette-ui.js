@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: LOCKWHEEL20260508 - COMPLETE WHEEL LOCK DURING SPIN
+ * VERSION: MORECARDS20260508 - 200 CARDS + AUTO RESTORE IF MISSING
  */
 
 class RouletteUI {
@@ -580,6 +580,7 @@ class RouletteUI {
           Ожидание игроков...
         </div>
       `;
+      this.state.wheelCards = []; // Очищаем кеш карточек
       return;
     }
 
@@ -593,22 +594,30 @@ class RouletteUI {
 
     console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
 
-    // НОВЫЙ ПОДХОД: Создаем карточки БЕЗ shuffle, просто чередуем игроков
-    const cards = [];
-    const totalCards = 100;
+    // УВЕЛИЧИВАЕМ количество карточек для лучшей видимости
+    const totalCards = 200; // Было 100, теперь 200!
     
-    // Вычисляем сколько карточек у каждого игрока
+    // Вычисляем сколько карточек у каждого игрока (пропорционально шансу)
     const playerCards = this.state.players.map(p => ({
       player: p,
-      count: Math.round(p.chance),
+      count: Math.round((p.chance / 100) * totalCards), // Пропорционально шансу
       colorIndex: this.getPlayerColorIndex(p.id) // Стабильный цвет для игрока
     }));
     
     console.log('[Roulette] Player cards:', playerCards.map(pc => `${pc.player.name}: ${pc.count} cards, color: ${pc.colorIndex}`));
     
+    // Создаем массив карточек
+    const cards = [];
+    
     // Распределяем карточки РАВНОМЕРНО (round-robin)
     let cardIndex = 0;
-    while (cardIndex < totalCards) {
+    let safetyCounter = 0;
+    const maxIterations = totalCards * 10; // Защита от бесконечного цикла
+    
+    while (cardIndex < totalCards && safetyCounter < maxIterations) {
+      safetyCounter++;
+      let addedInThisRound = false;
+      
       for (let i = 0; i < playerCards.length && cardIndex < totalCards; i++) {
         const pc = playerCards[i];
         if (pc.count > 0) {
@@ -618,11 +627,15 @@ class RouletteUI {
           });
           pc.count--;
           cardIndex++;
+          addedInThisRound = true;
         }
       }
+      
+      // Если ни одна карточка не добавлена - выходим
+      if (!addedInThisRound) break;
     }
     
-    console.log('[Roulette] Generated', cards.length, 'cards');
+    console.log('[Roulette] Generated', cards.length, 'cards (target:', totalCards, ')');
     
     // Сохраняем карточки в state для анимации
     this.state.wheelCards = cards;
@@ -671,7 +684,7 @@ class RouletteUI {
     this.elements.strip.style.transform = 'translateX(0)';
     this.elements.strip.style.transition = 'none';
     
-    console.log('[Roulette] ✅ Wheel rendered successfully with', cards.length, 'cards - LOCKED until spin ends');
+    console.log('[Roulette] ✅ Wheel rendered with', cards.length, 'cards - Ready for animation');
   }
   
   // Получить стабильный индекс цвета для игрока на основе его ID
@@ -697,17 +710,81 @@ class RouletteUI {
       
       console.log('[Roulette] Starting animation for winner:', winnerUserId);
       
-      // Находим все карточки победителя по data-user-id
-      const allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
-      console.log('[Roulette] Total cards:', allCards.length);
+      // КРИТИЧЕСКИ ВАЖНО: Проверяем что карточки существуют
+      const checkCards = () => {
+        const allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
+        console.log('[Roulette] Cards check - found:', allCards.length);
+        
+        if (allCards.length === 0) {
+          console.error('[Roulette] ⚠️ NO CARDS FOUND! Strip HTML length:', this.elements.strip.innerHTML.length);
+          console.error('[Roulette] Strip content preview:', this.elements.strip.innerHTML.substring(0, 200));
+          console.error('[Roulette] wheelCards in state:', this.state.wheelCards.length);
+          
+          // ПОПЫТКА ВОССТАНОВЛЕНИЯ: Если карточки есть в state но не в DOM - рендерим заново
+          if (this.state.wheelCards.length > 0) {
+            console.log('[Roulette] 🔧 Attempting to restore cards from state...');
+            
+            const cardsHtml = this.state.wheelCards.map((card, index) => {
+              const colors = [
+                'linear-gradient(135deg, #8CFFC1, #4DFF9A)',
+                'linear-gradient(135deg, #fbbf24, #f59e0b)',
+                'linear-gradient(135deg, #fb923c, #f97316)',
+                'linear-gradient(135deg, #a78bfa, #8b5cf6)',
+                'linear-gradient(135deg, #60a5fa, #3b82f6)',
+              ];
+              const color = colors[card.colorIndex % colors.length];
+              
+              const avatarContent = card.player.photoUrl 
+                ? `<img src="${this.escapeHtml(card.player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`
+                : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; color:#07110c;">${card.player.name.charAt(0).toUpperCase()}</div>`;
+
+              return `
+                <div class="roulette-card" data-user-id="${card.player.id}" data-card-index="${index}" style="
+                  min-width:100px;
+                  width:100px;
+                  height:100%;
+                  background:${color};
+                  display:flex;
+                  flex-direction:column;
+                  align-items:center;
+                  justify-content:center;
+                  padding:8px;
+                  border-right:2px solid rgba(0,0,0,0.3);
+                  flex-shrink:0;
+                ">
+                  <div style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.9); overflow:hidden; margin-bottom:6px; flex-shrink:0;">
+                    ${avatarContent}
+                  </div>
+                  <div style="font-size:11px; font-weight:800; color:rgba(0,0,0,0.8); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center;">
+                    ${this.escapeHtml(card.player.name)}
+                  </div>
+                </div>
+              `;
+            }).join('');
+            
+            this.elements.strip.innerHTML = cardsHtml;
+            console.log('[Roulette] ✅ Cards restored from state');
+            
+            // Повторная проверка после восстановления
+            return Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
+          }
+          
+          return [];
+        }
+        
+        return allCards;
+      };
       
-      // ВАЖНО: Если карточек нет - НЕ запускаем анимацию!
+      // Проверяем карточки
+      let allCards = checkCards();
+      
       if (allCards.length === 0) {
-        console.error('[Roulette] NO CARDS FOUND! Cannot animate empty wheel!');
-        console.error('[Roulette] Strip HTML:', this.elements.strip.innerHTML.substring(0, 200));
+        console.error('[Roulette] ❌ Cannot animate - no cards available even after restore attempt');
         resolve();
         return;
       }
+      
+      console.log('[Roulette] ✅ Cards verified, total:', allCards.length);
       
       const winnerCards = allCards.filter(card => 
         String(card.getAttribute('data-user-id')) === String(winnerUserId)
@@ -757,7 +834,7 @@ class RouletteUI {
       // Запуск анимации через небольшую задержку
       setTimeout(() => {
         // Анимация с easing как в CS:GO (быстро → медленно)
-        const duration = 7000; // 7 секунд - УВЕЛИЧЕНО
+        const duration = 7000; // 7 секунд
         this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.17, 0.67, 0.12, 0.99)`;
         this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
         
@@ -767,8 +844,8 @@ class RouletteUI {
         setTimeout(() => {
           console.log('[Roulette] Animation COMPLETED - resolving promise');
           resolve();
-        }, duration + 800); // +800ms для гарантии что анимация точно закончилась и еще пол секунды
-      }, 200); // Увеличена задержка перед стартом
+        }, duration + 800); // +800ms для гарантии что анимация точно закончилась
+      }, 200);
     });
   }
 
@@ -1046,7 +1123,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-LOCKWHEEL - WHEEL LOCKED DURING SPIN');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-MORECARDS - 200 CARDS + AUTO RESTORE');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
