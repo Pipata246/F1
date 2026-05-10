@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: SERVER20260508 - CARDS GENERATED ON SERVER, SAME FOR ALL USERS
+ * VERSION: NOCARDDROP20260508 - CARDS NEVER DISAPPEAR DURING SPIN
  */
 
 class RouletteUI {
@@ -142,13 +142,6 @@ class RouletteUI {
   }
 
   async loadActiveRound() {
-    // ВАЖНО: Если идет спин - НЕ загружаем данные!
-    // Polling должен быть остановлен во время анимации
-    if (this.state.isSpinning) {
-      console.log('[Roulette] 🔒 Spin in progress - skipping loadActiveRound');
-      return;
-    }
-    
     try {
       const data = await this.callAPI('getActiveRound');
       
@@ -337,7 +330,12 @@ class RouletteUI {
     }
     
     this.pollInterval = setInterval(() => {
-      this.loadActiveRound();
+      // КРИТИЧЕСКИ ВАЖНО: НЕ загружаем если идет спин!
+      if (!this.state.isSpinning) {
+        this.loadActiveRound();
+      } else {
+        console.log('[Roulette] 🔒 Polling blocked - spin in progress');
+      }
     }, 1000);
   }
 
@@ -533,24 +531,20 @@ class RouletteUI {
       console.log(`  - Player ${i}: ${p.name}, chance=${p.chance}, id=${p.id}`);
     });
     
-    // КРИТИЧЕСКИ ВАЖНО: Если идет спин - НЕ ТРОГАЕМ НИЧЕГО!
+    // КРИТИЧЕСКИ ВАЖНО: Если идет спин - ПОЛНОСТЬЮ ВЫХОДИМ!
     if (this.state.isSpinning) {
-      console.log('[Roulette] 🔒 BLOCKED: Cannot update players during spin!');
-      // Обновляем только счетчик игроков, но НЕ трогаем карточки
-      if (this.elements.playerCount) {
-        this.elements.playerCount.textContent = this.state.players.length; // Используем старое значение
-      }
-      return; // ПОЛНОСТЬЮ блокируем обновление
+      console.log('[Roulette] 🔒 BLOCKED: updatePlayers during spin - NOT TOUCHING ANYTHING');
+      return; // ПОЛНОСТЬЮ блокируем
     }
     
-    // ВАЖНО: Всегда обновляем state.players (только если НЕ идет спин)
+    // Обновляем state.players
     this.state.players = players;
     
     if (this.elements.playerCount) {
       this.elements.playerCount.textContent = players.length;
     }
 
-    // Всегда обновляем список игроков
+    // Обновляем список игроков
     this.renderPlayersList();
     
     // Рендерим колесо
@@ -1211,7 +1205,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-SERVER - CARDS FROM SERVER FOR ALL');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-NOCARDDROP - CARDS NEVER DISAPPEAR');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
