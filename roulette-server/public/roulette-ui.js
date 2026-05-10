@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: NEVERCLEARS20260508 - NEVER CLEARS PLAYERS DURING SPIN
+ * VERSION: LOCKWHEEL20260508 - COMPLETE WHEEL LOCK DURING SPIN
  */
 
 class RouletteUI {
@@ -141,38 +141,43 @@ class RouletteUI {
         this.updateStatus(data.round.status);
         this.updatePot(parseFloat(data.round.pot_amount));
         
-        // Process players - ВАЖНО: проверяем что data.bets существует
-        console.log('[Roulette] Processing bets:', data.bets);
-        
-        const players = (data.bets || []).map(bet => {
-          const player = {
-            id: bet.user_id,
-            name: bet.display_name || 'Player',
-            bet: parseFloat(bet.bet_amount) || 0,
-            chance: parseFloat(bet.chance_percent) || 0,
-            photoUrl: bet.photo_url || null
-          };
-          console.log('[Roulette] Processed player:', player);
-          return player;
-        }).filter(p => p.id && p.name); // Фильтруем невалидных игроков
-        
-        console.log('[Roulette] Total players after processing:', players.length);
-        
-        // DEBUG: Выводим информацию о каждом игроке
-        players.forEach((p, i) => {
-          console.log(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet, 'ID:', p.id);
-        });
-        
-        // DEBUG для TMA: показываем toast с информацией о игроках
-        if (players.length > 0) {
-          const debugInfo = players.map(p => `${p.name}: ${p.chance.toFixed(1)}%`).join(', ');
-          console.log('[DEBUG TMA] Players:', debugInfo);
+        // КРИТИЧЕСКИ ВАЖНО: Если идет спин - НЕ обрабатываем игроков вообще!
+        if (this.state.isSpinning) {
+          console.log('[Roulette] 🔒 Spin in progress - SKIPPING player processing completely');
+          // Не трогаем ничего - карточки уже отрисованы и заблокированы
+        } else {
+          // Process players - ВАЖНО: проверяем что data.bets существует
+          console.log('[Roulette] Processing bets:', data.bets);
+          
+          const players = (data.bets || []).map(bet => {
+            const player = {
+              id: bet.user_id,
+              name: bet.display_name || 'Player',
+              bet: parseFloat(bet.bet_amount) || 0,
+              chance: parseFloat(bet.chance_percent) || 0,
+              photoUrl: bet.photo_url || null
+            };
+            console.log('[Roulette] Processed player:', player);
+            return player;
+          }).filter(p => p.id && p.name); // Фильтруем невалидных игроков
+          
+          console.log('[Roulette] Total players after processing:', players.length);
+          
+          // DEBUG: Выводим информацию о каждом игроке
+          players.forEach((p, i) => {
+            console.log(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet, 'ID:', p.id);
+          });
+          
+          // DEBUG для TMA: показываем toast с информацией о игроках
+          if (players.length > 0) {
+            const debugInfo = players.map(p => `${p.name}: ${p.chance.toFixed(1)}%`).join(', ');
+            console.log('[DEBUG TMA] Players:', debugInfo);
+          }
+          
+          // Обновляем игроков (только если НЕ идет спин)
+          console.log('[Roulette] Updating players, count:', players.length, 'status:', data.round.status);
+          this.updatePlayers(players);
         }
-        
-        // ВАЖНО: ВСЕГДА обновляем игроков (даже при spinning)
-        // updatePlayers сам решит нужно ли перерисовывать колесо
-        console.log('[Roulette] Updating players, count:', players.length, 'status:', data.round.status);
-        this.updatePlayers(players);
         
         // Check if I'm in this round - ВАЖНО: сравниваем как строки!
         const myUserIdStr = String(this.state.myUserId);
@@ -263,18 +268,19 @@ class RouletteUI {
         
       } else {
         // No active round - это нормально после завершения
+        console.log('[Roulette] No active round from API');
+        
+        // КРИТИЧЕСКИ ВАЖНО: Если идет спин - НЕ ТРОГАЕМ НИЧЕГО!
+        if (this.state.isSpinning) {
+          console.log('[Roulette] 🔒 Spin in progress - NOT clearing anything');
+          return; // Полностью игнорируем отсутствие раунда
+        }
+        
         this.state.currentRound = null;
         this.state.myBet = null;
         this.updateStatus('waiting');
         this.updatePot(0);
-        
-        // ВАЖНО: НЕ очищаем игроков если идет спин!
-        if (!this.state.isSpinning) {
-          this.updatePlayers([]);
-        } else {
-          console.log('[Roulette] NOT clearing players - spin in progress');
-        }
-        
+        this.updatePlayers([]);
         this.updateBetButton(false); // Не в раунде
         this.stopSmoothTimer();
         if (this.elements.timerWrap) {
@@ -443,7 +449,15 @@ class RouletteUI {
     // Защита от повторного вызова
     if (this.state.isSpinning) return;
     
+    console.log('[Roulette] ⏰ Timer ended - LOCKING WHEEL');
+    
+    // КРИТИЧЕСКИ ВАЖНО: Устанавливаем флаг ПЕРЕД любыми действиями
     this.state.isSpinning = true;
+    
+    // ВАЖНО: Сохраняем текущее состояние карточек чтобы их нельзя было удалить
+    console.log('[Roulette] Current cards count:', this.elements.strip?.children.length || 0);
+    console.log('[Roulette] Current players:', this.state.players.length);
+    
     this.updateStatus('spinning');
     
     // Блокируем кнопку ставки
@@ -483,13 +497,22 @@ class RouletteUI {
 
   // ==================== PLAYERS ====================
   updatePlayers(players) {
-    console.log('[Roulette] updatePlayers called with', players.length, 'players');
+    console.log('[Roulette] updatePlayers called with', players.length, 'players, isSpinning:', this.state.isSpinning);
     players.forEach((p, i) => {
       console.log(`  - Player ${i}: ${p.name}, chance=${p.chance}, id=${p.id}`);
     });
     
-    // ВАЖНО: Всегда обновляем state.players (даже если идет спин)
-    // Это нужно для корректного отображения списка игроков
+    // КРИТИЧЕСКИ ВАЖНО: Если идет спин - НЕ ТРОГАЕМ НИЧЕГО!
+    if (this.state.isSpinning) {
+      console.log('[Roulette] 🔒 BLOCKED: Cannot update players during spin!');
+      // Обновляем только счетчик игроков, но НЕ трогаем карточки
+      if (this.elements.playerCount) {
+        this.elements.playerCount.textContent = this.state.players.length; // Используем старое значение
+      }
+      return; // ПОЛНОСТЬЮ блокируем обновление
+    }
+    
+    // ВАЖНО: Всегда обновляем state.players (только если НЕ идет спин)
     this.state.players = players;
     
     if (this.elements.playerCount) {
@@ -499,13 +522,8 @@ class RouletteUI {
     // Всегда обновляем список игроков
     this.renderPlayersList();
     
-    // ВАЖНО: Рендерим колесо ТОЛЬКО если НЕ идет спин
-    // Если спин идет - карточки уже отрисованы и не должны меняться
-    if (!this.state.isSpinning) {
-      this.renderWheel();
-    } else {
-      console.log('[Roulette] Skipping wheel render - spinning in progress, cards already rendered');
-    }
+    // Рендерим колесо
+    this.renderWheel();
   }
 
   renderPlayersList() {
@@ -682,6 +700,14 @@ class RouletteUI {
       // Находим все карточки победителя по data-user-id
       const allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
       console.log('[Roulette] Total cards:', allCards.length);
+      
+      // ВАЖНО: Если карточек нет - НЕ запускаем анимацию!
+      if (allCards.length === 0) {
+        console.error('[Roulette] NO CARDS FOUND! Cannot animate empty wheel!');
+        console.error('[Roulette] Strip HTML:', this.elements.strip.innerHTML.substring(0, 200));
+        resolve();
+        return;
+      }
       
       const winnerCards = allCards.filter(card => 
         String(card.getAttribute('data-user-id')) === String(winnerUserId)
@@ -1020,7 +1046,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-150300 - SORTED BY ID');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-LOCKWHEEL - WHEEL LOCKED DURING SPIN');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
