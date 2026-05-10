@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: PRELOAD20260508 - PRELOAD CARDS, NEVER CLEAR DURING SPIN
+ * VERSION: LOCKED20260508 - WHEEL LOCKED DURING SPIN, NEVER CLEARS
  */
 
 class RouletteUI {
@@ -543,9 +543,9 @@ class RouletteUI {
   renderWheel() {
     if (!this.elements.strip) return;
 
-    // ВАЖНО: Не очищаем колесо если идет спин - сохраняем карточки для анимации
-    if (this.state.isSpinning && this.elements.strip.children.length > 0) {
-      console.log('[Roulette] Skipping wheel render - spinning in progress');
+    // ВАЖНО: НИКОГДА не перерисовываем если идет спин!
+    if (this.state.isSpinning) {
+      console.log('[Roulette] BLOCKED: Cannot render wheel during spin!');
       return;
     }
 
@@ -646,7 +646,7 @@ class RouletteUI {
     this.elements.strip.style.transform = 'translateX(0)';
     this.elements.strip.style.transition = 'none';
     
-    console.log('[Roulette] Wheel rendered successfully with', cards.length, 'cards');
+    console.log('[Roulette] ✅ Wheel rendered successfully with', cards.length, 'cards - LOCKED until spin ends');
   }
   
   // Получить стабильный индекс цвета для игрока на основе его ID
