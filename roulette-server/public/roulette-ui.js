@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: NOPOLL20260508 - STOP POLLING DURING SPIN TO PREVENT ERRORS
+ * VERSION: SILENT20260508 - NO ERROR TOASTS FOR BETTER UX
  */
 
 class RouletteUI {
@@ -320,15 +320,7 @@ class RouletteUI {
       await this.loadRecentWinners();
     } catch (error) {
       console.error('[Roulette] Failed to load active round:', error);
-      
-      // Не показываем toast для обычных ошибок (нет активного раунда, ошибки связи)
-      // Показываем только критические ошибки
-      if (error.message && 
-          !error.message.includes('Нет активного раунда') && 
-          !error.message.includes('связи с сервером') &&
-          !error.message.includes('Ошибка сервера')) {
-        this.showToast('Ошибка: ' + error.message);
-      }
+      // НЕ показываем toast - тихо логируем ошибку
     }
   }
 
@@ -965,7 +957,9 @@ class RouletteUI {
         }
       }
     } catch (error) {
-      this.showToast(error.message || 'Ошибка при обработке ставки');
+      console.error('[Roulette] Bet error:', error);
+      // НЕ показываем toast - только логируем
+      // this.showToast(error.message || 'Ошибка при обработке ставки');
     } finally {
       this.state.isLoading = false;
       if (betBtn) {
@@ -1046,8 +1040,9 @@ class RouletteUI {
         this.startPolling();
         // Polling автоматически обнаружит завершение раунда и покажет анимацию
       } else {
-        // Другая ошибка - показываем
-        this.showToast('Ошибка: ' + error.message);
+        // Другая ошибка - НЕ показываем toast, только логируем
+        console.error('[Roulette] Spin error - not showing to user');
+        // this.showToast('Ошибка: ' + error.message);
         setTimeout(() => {
           this.enableBetButton();
           this.loadActiveRound();
@@ -1203,7 +1198,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-NOPOLL - STOP POLLING DURING SPIN');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-SILENT - NO ERROR TOASTS');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
