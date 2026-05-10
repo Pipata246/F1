@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: MORECARDS20260508 - 200 CARDS + AUTO RESTORE IF MISSING
+ * VERSION: NOSHIFT20260508 - CARDS STAY ON SCREEN, NO INITIAL SHIFT
  */
 
 class RouletteUI {
@@ -816,36 +816,44 @@ class RouletteUI {
       // Финальная позиция
       const finalPosition = -(targetCardIndex * cardWidth) + centerOffset + randomOffset;
       
-      // Добавляем дополнительные обороты для эффекта (4-6 полных прокруток)
-      const extraSpins = (4 + Math.random() * 2) * allCards.length * cardWidth;
-      const startPosition = finalPosition - extraSpins;
+      // Добавляем дополнительные обороты для эффекта (3-4 полных прокруток)
+      const extraSpins = (3 + Math.random() * 1) * allCards.length * cardWidth;
+      
+      // КРИТИЧЕСКИ ВАЖНО: НЕ ДВИГАЕМ КАРТОЧКИ! Они должны остаться на месте!
+      // Финальная позиция учитывает дополнительные обороты
+      const totalDistance = extraSpins + (targetCardIndex * cardWidth) - centerOffset - randomOffset;
       
       console.log('[Roulette] Animation:', {
-        startPosition,
+        currentPosition: 0,
         finalPosition,
+        totalDistance,
         extraSpins,
         duration: 7000
       });
       
-      // Сброс позиции
+      // ВАЖНО: Карточки УЖЕ на месте (translateX(0)), НЕ ТРОГАЕМ ИХ!
+      // Просто убеждаемся что transition выключен
       this.elements.strip.style.transition = 'none';
-      this.elements.strip.style.transform = `translateX(${startPosition}px)`;
+      // Карточки остаются на месте!
+      this.elements.strip.style.transform = 'translateX(0)';
       
-      // Запуск анимации через небольшую задержку
-      setTimeout(() => {
-        // Анимация с easing как в CS:GO (быстро → медленно)
-        const duration = 7000; // 7 секунд
-        this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.17, 0.67, 0.12, 0.99)`;
-        this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
-        
-        console.log('[Roulette] Animation started');
-        
-        // Ждем окончания анимации + дополнительная задержка
-        setTimeout(() => {
-          console.log('[Roulette] Animation COMPLETED - resolving promise');
-          resolve();
-        }, duration + 800); // +800ms для гарантии что анимация точно закончилась
-      }, 200);
+      // Даем браузеру время применить (хотя ничего не меняется)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          // Теперь запускаем анимацию к финальной позиции
+          const duration = 7000; // 7 секунд
+          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.17, 0.67, 0.12, 0.99)`;
+          this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
+          
+          console.log('[Roulette] ✅ Animation started - cards STAY VISIBLE!');
+          
+          // Ждем окончания анимации + дополнительная задержка
+          setTimeout(() => {
+            console.log('[Roulette] Animation COMPLETED - resolving promise');
+            resolve();
+          }, duration + 800);
+        });
+      });
     });
   }
 
@@ -1123,7 +1131,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-MORECARDS - 200 CARDS + AUTO RESTORE');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-NOSHIFT - CARDS NEVER MOVE OFF SCREEN');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
