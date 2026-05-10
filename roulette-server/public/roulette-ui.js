@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: NOTOAST20260508 - NO BALANCE INCREASE TOAST IN ROULETTE
+ * VERSION: SUSPENSE20260508 - 10 SECOND SUSPENSEFUL ANIMATION WITH SLOW ENDING
  */
 
 class RouletteUI {
@@ -887,18 +887,21 @@ class RouletteUI {
       // Даем браузеру время применить (хотя ничего не меняется)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Теперь запускаем анимацию к финальной позиции
-          const duration = 7000; // 7 секунд
-          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.17, 0.67, 0.12, 0.99)`;
+          // ИНТРИГА: Длинная анимация с медленным финалом
+          const duration = 10000; // 10 секунд для интриги!
+          
+          // Easing: быстрый старт → медленный финал (максимальная интрига!)
+          // cubic-bezier(0.33, 1, 0.68, 1) - очень медленный финал
+          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.33, 1, 0.68, 1)`;
           this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
           
-          console.log('[Roulette] ✅ Animation started - cards STAY VISIBLE!');
+          console.log('[Roulette] ✅ Animation started - SUSPENSE MODE (10s)!');
           
           // Ждем окончания анимации + дополнительная задержка
           setTimeout(() => {
             console.log('[Roulette] Animation COMPLETED - resolving promise');
             resolve();
-          }, duration + 800);
+          }, duration + 1000); // +1 секунда для паузы после остановки
         });
       });
     });
@@ -1014,14 +1017,14 @@ class RouletteUI {
         }
       }
       
-      // Через 5 секунд загружаем новый раунд
+      // Через 8 секунд загружаем новый раунд (даем время насладиться победой)
       setTimeout(() => {
         this.state.isSpinning = false;
         this.enableBetButton();
         this.loadActiveRound();
         // ВАЖНО: Запускаем polling снова
         this.startPolling();
-      }, 5000);
+      }, 8000);
       
     } catch (error) {
       console.error('[Roulette] Spin error:', error);
@@ -1199,7 +1202,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-NOTOAST - NO BALANCE TOAST');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-SUSPENSE - 10 SECOND SUSPENSEFUL ANIMATION');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
