@@ -303,65 +303,114 @@ async function getTelegramPhotoUrlCached(userId, timeoutMs) {
 }
 
 // Детерминированная "случайная" функция на основе seed
-function seededRandom(seed) {
-  const x = Math.sin(seed) * 10000;
-  return x - Math.floor(x);
+function fnv1a32(str) {
+  let h = 0x811c9dc5;
+  const s = String(str ?? "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
 }
 
-// Генерация порядка карточек для рулетки (одинаково для всех клиентов)
-// КРИТИЧЕСКИ ВАЖНО: Использует только roundId как seed, не зависит от chance_percent
-function generateWheelCards(bets, roundId) {
-  const totalCards = 200;
-  
-  // Сортируем ставки по user_id для консистентности
-  const sortedBets = [...bets].sort((a, b) => String(a.user_id).localeCompare(String(b.user_id)));
-  
-  // Вычисляем сколько карточек у каждого игрока на основе bet_amount
-  // ВАЖНО: Используем bet_amount, а не chance_percent (chance_percent может быть разным)
-  const totalBet = sortedBets.reduce((sum, bet) => sum + parseFloat(bet.bet_amount || 0), 0);
-  
-  const playerCards = sortedBets.map((bet, index) => {
-    const betAmount = parseFloat(bet.bet_amount || 0);
-    const percentage = totalBet > 0 ? (betAmount / totalBet) : 0;
-    const count = Math.round(percentage * totalCards);
-    
+function mulberry32(seed) {
+  let a = (seed >>> 0) || 1;
+  return function next() {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleInPlace(arr, rand) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+// Генерация массива карточек для рулетки:
+// - кол-во карточек строго пропорционально bet_amount (шансам)
+// - порядок случайный, но детерминированный по seed (чтобы все клиенты видели одинаково)
+function generateWheelCards(bets, seedInput, totalCards = 200) {
+  const sorted = [...(bets || [])].sort((a, b) => String(a.user_id).localeCompare(String(b.user_id)));
+  const totalBet = sorted.reduce((sum, bet) => sum + parseFloat(bet.bet_amount || 0), 0);
+  if (!(totalBet > 0) || sorted.length === 0) return [];
+
+  // 1) каждому игроку с ненулевой ставкой минимум 1 карточка (иначе может стать "0%" на колесе)
+  const basePlayers = sorted.filter((b) => parseFloat(b.bet_amount || 0) > 0);
+  const minEach = Math.min(basePlayers.length, totalCards);
+  let remaining = totalCards - minEach;
+
+  const raw = basePlayers.map((bet) => {
+    const amt = parseFloat(bet.bet_amount || 0);
+    const share = amt / totalBet;
     return {
       user_id: bet.user_id,
-      display_name: bet.display_name || bet.users?.username || bet.users?.first_name || 'Player',
+      display_name: bet.display_name || bet.users?.username || bet.users?.first_name || "Player",
       photo_url: bet.photo_url || null,
-      count: count,
-      colorIndex: Math.abs(hashCode(String(bet.user_id))) % 5
+      colorIndex: Math.abs(hashCode(String(bet.user_id))) % 5,
+      share,
+      base: 1,
+      extra: 0,
+      frac: 0,
     };
   });
-  
-  // Распределяем карточки равномерно (round-robin)
-  const cards = [];
-  let cardIndex = 0;
-  let safetyCounter = 0;
-  const maxIterations = totalCards * 10;
-  
-  while (cardIndex < totalCards && safetyCounter < maxIterations) {
-    safetyCounter++;
-    let addedInThisRound = false;
-    
-    for (let i = 0; i < playerCards.length && cardIndex < totalCards; i++) {
-      const pc = playerCards[i];
-      if (pc.count > 0) {
-        cards.push({
-          user_id: pc.user_id,
-          display_name: pc.display_name,
-          photo_url: pc.photo_url,
-          colorIndex: pc.colorIndex
-        });
-        pc.count--;
-        cardIndex++;
-        addedInThisRound = true;
-      }
+
+  // 2) распределяем оставшиеся карточки методом наибольших дробных частей
+  if (remaining > 0) {
+    let sumFloor = 0;
+    for (const p of raw) {
+      const want = p.share * remaining;
+      const f = Math.floor(want);
+      p.extra = f;
+      p.frac = want - f;
+      sumFloor += f;
     }
-    
-    if (!addedInThisRound) break;
+    let left = remaining - sumFloor;
+    raw.sort((a, b) => b.frac - a.frac);
+    for (let i = 0; i < raw.length && left > 0; i++, left--) {
+      raw[i].extra += 1;
+    }
+    // возвращаем порядок к стабильному (по user_id), но shuffle ниже всё равно всё перемешает
+    raw.sort((a, b) => String(a.user_id).localeCompare(String(b.user_id)));
   }
-  
+
+  // 3) наполняем массив карточек
+  const cards = [];
+  for (const p of raw) {
+    const count = p.base + p.extra;
+    for (let i = 0; i < count; i++) {
+      cards.push({
+        user_id: p.user_id,
+        display_name: p.display_name,
+        photo_url: p.photo_url,
+        colorIndex: p.colorIndex,
+      });
+    }
+  }
+
+  // 4) на всякий случай подгоняем размер (из-за minEach / remaining крайних случаев)
+  if (cards.length > totalCards) cards.length = totalCards;
+  while (cards.length < totalCards) {
+    const p = raw[cards.length % raw.length];
+    cards.push({
+      user_id: p.user_id,
+      display_name: p.display_name,
+      photo_url: p.photo_url,
+      colorIndex: p.colorIndex,
+    });
+  }
+
+  // 5) детерминированный shuffle
+  const seed = fnv1a32(seedInput);
+  const rand = mulberry32(seed);
+  shuffleInPlace(cards, rand);
   return cards;
 }
 
@@ -475,8 +524,11 @@ async function handleGetActiveRound(body) {
   });
   
   // ГЕНЕРИРУЕМ КАРТОЧКИ НА СЕРВЕРЕ
+  // seed для колеса: пока раунд не завершён — только round.id.
+  // после завершения — round.id + spin_seed (чтобы можно было восстановить тот же порядок).
+  const wheelSeed = round.spin_seed != null ? `${round.id}:${round.spin_seed}` : `${round.id}`;
   const wheelCards = betsLight.length > 0 
-    ? generateWheelCards(betsLight, round.id) 
+    ? generateWheelCards(betsLight, wheelSeed) 
     : [];
   
   // ГЕНЕРИРУЕМ HTML НА СЕРВЕРЕ
@@ -508,6 +560,8 @@ async function handleGetActiveRound(body) {
     wheelCardsHTML,
     serverTime: new Date().toISOString(),
     winner,
+    winner_card_index: round.winner_card_index ?? null,
+    spin_seed: round.spin_seed ?? null,
   };
 }
 
@@ -569,9 +623,22 @@ async function handleSpinRoulette(body, tgUserId) {
     throw new Error("Недостаточно игроков для розыгрыша");
   }
   
-  // Выбрать победителя
-  const winnerId = selectWinner(bets);
-  const winnerBet = bets.find(b => b.user_id === winnerId);
+  // Синхронизация "серверный победитель == выпавшая карточка":
+  // 1) строим колесо из 200 карточек строго по шансам
+  // 2) выбираем случайный индекс карты (crypto)
+  // 3) победитель = колесо[index]
+  const spinSeed = crypto.randomBytes(4).readUInt32BE(0);
+  const wheelSeed = `${round.id}:${spinSeed}`;
+  const wheelCards = generateWheelCards(bets, wheelSeed);
+  if (!wheelCards.length) {
+    // Откатываем статус обратно
+    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
+    throw new Error("Ошибка генерации колеса");
+  }
+
+  const winnerCardIndex = crypto.randomBytes(4).readUInt32BE(0) % wheelCards.length;
+  const winnerId = wheelCards[winnerCardIndex]?.user_id;
+  const winnerBet = bets.find(b => String(b.user_id) === String(winnerId));
   
   if (!winnerBet) {
     // Откатываем статус обратно
@@ -604,7 +671,9 @@ async function handleSpinRoulette(body, tgUserId) {
     winner_user_id: winnerId,
     winner_amount: winnerAmount,
     platform_fee_amount: platformFee,
-    finished_at: new Date().toISOString()
+    finished_at: new Date().toISOString(),
+    spin_seed: spinSeed,
+    winner_card_index: winnerCardIndex
   });
   
   // Сохранить результат в историю
@@ -675,6 +744,8 @@ async function handleSpinRoulette(body, tgUserId) {
       photo_url: winnerPhotoUrl
     },
     round_id: round.id, // ВАЖНО: для синхронизации анимации
+    winner_card_index: winnerCardIndex,
+    spin_seed: spinSeed,
     round: {
       id: round.id,
       total_pot: totalPot,

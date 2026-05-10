@@ -351,7 +351,7 @@ class RouletteUI {
           
           // ВАЖНО: Сначала запускаем анимацию вращения
           console.log('[Roulette] Starting animation for winner:', data.round.winner_user_id);
-          await this.spinWheelAnimation(data.round.winner_user_id, data.round.id);
+      await this.spinWheelAnimation(data.round.winner_user_id, data.round.id, data.winner_card_index);
           console.log('[Roulette] Animation completed via polling');
           
           // ТОЛЬКО ПОСЛЕ анимации показываем победителя
@@ -759,7 +759,7 @@ class RouletteUI {
   }
   
   // Анимация вращения рулетки (как в CS:GO кейсах)
-  spinWheelAnimation(winnerUserId, roundId) {
+  spinWheelAnimation(winnerUserId, roundId, winnerCardIndex = null) {
     return new Promise((resolve) => {
       if (!this.elements.strip || !this.elements.wheelContainer) {
         console.error('[Roulette] Missing elements for animation');
@@ -806,33 +806,41 @@ class RouletteUI {
       
       console.log('[Roulette] ✅ Cards verified, total:', allCards.length);
       
-      const winnerCards = allCards.filter(card => 
-        String(card.getAttribute('data-user-id')) === String(winnerUserId)
-      );
-      
-      console.log('[Roulette] Winner cards found:', winnerCards.length);
-      
-      if (winnerCards.length === 0) {
-        console.error('[Roulette] No winner cards found for user:', winnerUserId);
-        resolve();
-        return;
+      // Сервер теперь может отдавать точный winner_card_index (индекс в общем массиве карточек).
+      // Это гарантирует совпадение результата на сервере и визуального выпадения.
+      let targetCardIndex = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
+      if (targetCardIndex != null) {
+        if (targetCardIndex < 0 || targetCardIndex >= allCards.length) {
+          console.warn('[Roulette] Invalid winnerCardIndex from server:', targetCardIndex);
+          targetCardIndex = null;
+        }
       }
       
-      // СИНХРОНИЗАЦИЯ: Используем roundId как seed для детерминированного выбора
-      // Если roundId нет - используем winnerId как fallback
+      // Fallback для старого бэка: выбрать одну из карточек победителя детерминированно
       const seed1 = roundId || winnerUserId || Date.now();
       const seed2 = seed1 + 1;
       const seed3 = seed1 + 2;
       
-      console.log('[Roulette] Using seed:', seed1, 'from roundId:', roundId);
+      if (targetCardIndex == null) {
+        const winnerCards = allCards.filter(card => 
+          String(card.getAttribute('data-user-id')) === String(winnerUserId)
+        );
+        
+        console.log('[Roulette] Winner cards found (fallback):', winnerCards.length);
+        
+        if (winnerCards.length === 0) {
+          console.error('[Roulette] No winner cards found for user:', winnerUserId);
+          resolve();
+          return;
+        }
+        
+        const randomFactor = this.seededRandom(seed1); // 0..1
+        const targetIndex = Math.floor(winnerCards.length * 0.6 + randomFactor * winnerCards.length * 0.3);
+        const targetCard = winnerCards[targetIndex];
+        targetCardIndex = allCards.indexOf(targetCard);
+      }
       
-      // Выбираем карточку победителя детерминированно (все видят одинаковую)
-      const randomFactor = this.seededRandom(seed1); // 0..1
-      const targetIndex = Math.floor(winnerCards.length * 0.6 + randomFactor * winnerCards.length * 0.3);
-      const targetCard = winnerCards[targetIndex];
-      const targetCardIndex = allCards.indexOf(targetCard);
-      
-      console.log('[Roulette] SYNC: Target card index:', targetCardIndex, 'of', allCards.length, 'seed:', seed1);
+      console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
       
       // Рассчитываем позицию для остановки (карточка должна быть в центре)
       const containerWidth = this.elements.wheelContainer.offsetWidth;
@@ -988,7 +996,7 @@ class RouletteUI {
       // ВАЖНО: Сначала запускаем анимацию вращения с победителем из API
       console.log('[Roulette] Starting animation...');
       this.state.isAnimating = true;
-      await this.spinWheelAnimation(data.winner.user_id, data.round_id);
+      await this.spinWheelAnimation(data.winner.user_id, data.round_id, data.winner_card_index);
       this.state.isAnimating = false;
       console.log('[Roulette] Animation completed');
       
