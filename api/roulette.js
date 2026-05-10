@@ -443,6 +443,7 @@ async function handleSpinRoulette(body, tgUserId) {
       chance: parseFloat(winnerBet.chance_percent),
       bet: parseFloat(winnerBet.bet_amount)
     },
+    round_id: round.id, // ВАЖНО: для синхронизации анимации
     round: {
       id: round.id,
       total_pot: totalPot,
