@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: LOCKED20260508 - WHEEL LOCKED DURING SPIN, NEVER CLEARS
+ * VERSION: NEVERCLEARS20260508 - NEVER CLEARS PLAYERS DURING SPIN
  */
 
 class RouletteUI {
@@ -267,7 +267,14 @@ class RouletteUI {
         this.state.myBet = null;
         this.updateStatus('waiting');
         this.updatePot(0);
-        this.updatePlayers([]);
+        
+        // ВАЖНО: НЕ очищаем игроков если идет спин!
+        if (!this.state.isSpinning) {
+          this.updatePlayers([]);
+        } else {
+          console.log('[Roulette] NOT clearing players - spin in progress');
+        }
+        
         this.updateBetButton(false); // Не в раунде
         this.stopSmoothTimer();
         if (this.elements.timerWrap) {
