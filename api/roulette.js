@@ -524,9 +524,9 @@ async function handleGetActiveRound(body) {
   });
   
   // ГЕНЕРИРУЕМ КАРТОЧКИ НА СЕРВЕРЕ
-  // seed для колеса: пока раунд не завершён — только round.id.
-  // после завершения — round.id + spin_seed (чтобы можно было восстановить тот же порядок).
-  const wheelSeed = round.spin_seed != null ? `${round.id}:${round.spin_seed}` : `${round.id}`;
+  // КРИТИЧЕСКИ ВАЖНО: порядок карточек должен быть ОДИН на весь раунд,
+  // иначе winner_card_index может указывать на другую карточку на фронте.
+  const wheelSeed = `${round.id}`;
   const wheelCards = betsLight.length > 0 
     ? generateWheelCards(betsLight, wheelSeed) 
     : [];
@@ -628,7 +628,8 @@ async function handleSpinRoulette(body, tgUserId) {
   // 2) выбираем случайный индекс карты (crypto)
   // 3) победитель = колесо[index]
   const spinSeed = crypto.randomBytes(4).readUInt32BE(0);
-  const wheelSeed = `${round.id}:${spinSeed}`;
+  // Порядок колеса НЕ меняем в момент спина: он фиксирован round.id
+  const wheelSeed = `${round.id}`;
   const wheelCards = generateWheelCards(bets, wheelSeed);
   if (!wheelCards.length) {
     // Откатываем статус обратно
