@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: ROUNDROBIN20260508 - ROUND-ROBIN DISTRIBUTION, NO SHUFFLE
+ * VERSION: PRELOAD20260508 - PRELOAD CARDS, NEVER CLEAR DURING SPIN
  */
 
 class RouletteUI {
@@ -169,13 +169,10 @@ class RouletteUI {
           console.log('[DEBUG TMA] Players:', debugInfo);
         }
         
-        // ВАЖНО: Не обновляем игроков если идет спин - сохраняем текущих для анимации
-        if (data.round.status !== 'spinning' || !this.state.isSpinning) {
-          console.log('[Roulette] Updating players, count:', players.length);
-          this.updatePlayers(players);
-        } else {
-          console.log('[Roulette] Skipping player update - spinning in progress');
-        }
+        // ВАЖНО: ВСЕГДА обновляем игроков (даже при spinning)
+        // updatePlayers сам решит нужно ли перерисовывать колесо
+        console.log('[Roulette] Updating players, count:', players.length, 'status:', data.round.status);
+        this.updatePlayers(players);
         
         // Check if I'm in this round - ВАЖНО: сравниваем как строки!
         const myUserIdStr = String(this.state.myUserId);
@@ -479,25 +476,29 @@ class RouletteUI {
 
   // ==================== PLAYERS ====================
   updatePlayers(players) {
-    // ВАЖНО: Не обновляем если идет спин - сохраняем текущих игроков
-    if (this.state.isSpinning) {
-      console.log('[Roulette] Skipping updatePlayers - spinning in progress');
-      return;
-    }
-    
     console.log('[Roulette] updatePlayers called with', players.length, 'players');
     players.forEach((p, i) => {
       console.log(`  - Player ${i}: ${p.name}, chance=${p.chance}, id=${p.id}`);
     });
     
+    // ВАЖНО: Всегда обновляем state.players (даже если идет спин)
+    // Это нужно для корректного отображения списка игроков
     this.state.players = players;
     
     if (this.elements.playerCount) {
       this.elements.playerCount.textContent = players.length;
     }
 
+    // Всегда обновляем список игроков
     this.renderPlayersList();
-    this.renderWheel();
+    
+    // ВАЖНО: Рендерим колесо ТОЛЬКО если НЕ идет спин
+    // Если спин идет - карточки уже отрисованы и не должны меняться
+    if (!this.state.isSpinning) {
+      this.renderWheel();
+    } else {
+      console.log('[Roulette] Skipping wheel render - spinning in progress, cards already rendered');
+    }
   }
 
   renderPlayersList() {
