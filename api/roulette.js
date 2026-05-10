@@ -265,14 +265,14 @@ const avatarCache = new Map(); // userId -> { url: string|null, ts: number }
 
 function cacheGet(userId) {
   const k = String(userId || "").trim();
-  if (!k) return null;
+  if (!k) return undefined;
   const v = avatarCache.get(k);
-  if (!v) return null;
+  if (!v) return undefined;
   const age = Date.now() - Number(v.ts || 0);
   const ttl = v.url ? AVATAR_TTL_OK_MS : AVATAR_TTL_NULL_MS;
   if (age > ttl) {
     avatarCache.delete(k);
-    return null;
+    return undefined;
   }
   return v.url || null;
 }
@@ -290,8 +290,8 @@ function cacheSet(userId, url) {
 
 async function getTelegramPhotoUrlCached(userId, timeoutMs) {
   const cached = cacheGet(userId);
-  if (cached !== null) return cached; // может быть строкой
-  // cached == null означает "нет в кэше или истёк" — попробуем получить
+  if (cached !== undefined) return cached; // может быть строкой или null
+  // cached === undefined означает "нет в кэше или истёк" — попробуем получить
   let url = null;
   try {
     url = await withTimeout(getTelegramPhotoUrl(userId), timeoutMs);
@@ -462,7 +462,7 @@ async function handleGetActiveRound(body) {
   );
 
   const betsLight = (betsWithPhotos || []).map((bet) => {
-    const displayName = bet.users?.username || bet.users?.first_name || "Player";
+    const displayName = bet.display_name || "Player";
     return {
       id: bet.id,
       user_id: bet.user_id,
