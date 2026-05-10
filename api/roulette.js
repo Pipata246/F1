@@ -312,37 +312,44 @@ async function handleGetActiveRound(body) {
   
   const bets = await getRoundBets(round.id);
   
-  // ВАЖНО: НЕ ждем загрузку аватарок! Отправляем ответ БЕЗ них
-  // Аватарки загружаются в фоне и кешируются
-  const betsWithPhotos = bets.map(bet => {
-    const displayName = bet.users?.username 
-      || bet.users?.first_name 
-      || "Player";
-    
-    return {
-      id: bet.id,
-      user_id: bet.user_id,
-      bet_amount: bet.bet_amount,
-      chance_percent: bet.chance_percent,
-      display_name: displayName,
-      created_at: bet.created_at,
-      photo_url: null // ПОКА null - загружаем в фоне
-    };
-  });
+  // Получаем фото профилей для всех игроков ПАРАЛЛЕЛЬНО с timeout
+  const betsWithPhotos = await Promise.all(
+    bets.map(async (bet) => {
+      const displayName = bet.users?.username 
+        || bet.users?.first_name 
+        || "Player";
+      
+      // Получаем URL фото профиля с timeout (макс 2 секунды)
+      let photoUrl = null;
+      try {
+        photoUrl = await Promise.race([
+          getTelegramPhotoUrl(bet.user_id),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+        ]);
+      } catch (err) {
+        // Timeout или ошибка - используем null (инициалы)
+        console.log(`Avatar timeout for ${bet.user_id}, using initials`);
+      }
+      
+      return {
+        id: bet.id,
+        user_id: bet.user_id,
+        bet_amount: bet.bet_amount,
+        chance_percent: bet.chance_percent,
+        display_name: displayName,
+        created_at: bet.created_at,
+        photo_url: photoUrl
+      };
+    })
+  );
   
-  // ВАЖНО: Генерируем порядок карточек на СЕРВЕРЕ
-  // Все клиенты получат ОДИНАКОВЫЙ порядок!
-  const wheelCards = betsWithPhotos.length > 0 
-    ? generateWheelCards(betsWithPhotos, round.id) 
-    : [];
-  
-  // ФОНОВАЯ загрузка аватарок (НЕ блокирует ответ)
-  // Загружаем параллельно и кешируем
-  if (betsWithPhotos.length > 0) {
-    // Запускаем загрузку в фоне БЕЗ await
-    loadAvatarsInBackground(betsWithPhotos).catch(err => {
-      console.error('Background avatar loading error:', err);
-    });
+  // КРИТИЧЕСКИ ВАЖНО: Получаем карточки из БД (не генерируем!)
+  let wheelCards = [];
+  if (round.wheel_cards && Array.isArray(round.wheel_cards)) {
+    wheelCards = round.wheel_cards;
+    console.log('[Roulette] ✅ Retrieved', wheelCards.length, 'cards from DB for round', round.id);
+  } else {
+    console.log('[Roulette] ⚠️ No cards in DB for round', round.id, '- will be generated on 2nd player join');
   }
   
   return {
@@ -352,36 +359,6 @@ async function handleGetActiveRound(body) {
     wheelCards,
     serverTime: new Date().toISOString()
   };
-}
-
-// Кеш для аватарок (чтобы не загружать дважды)
-const avatarCache = new Map();
-
-// Загрузка аватарок в фоне (НЕ блокирует основной ответ)
-async function loadAvatarsInBackground(bets) {
-  // Загружаем параллельно, но не ждем
-  const promises = bets.map(async (bet) => {
-    const cacheKey = `avatar_${bet.user_id}`;
-    
-    // Если уже в кеше - пропускаем
-    if (avatarCache.has(cacheKey)) {
-      bet.photo_url = avatarCache.get(cacheKey);
-      return;
-    }
-    
-    try {
-      const photoUrl = await getTelegramPhotoUrl(bet.user_id);
-      if (photoUrl) {
-        avatarCache.set(cacheKey, photoUrl);
-        bet.photo_url = photoUrl;
-      }
-    } catch (err) {
-      console.error(`Failed to load avatar for ${bet.user_id}:`, err);
-    }
-  });
-  
-  // Ждем все параллельно (но это не блокирует основной ответ)
-  await Promise.all(promises);
 }
 
 async function handleSpinRoulette(body, tgUserId) {
@@ -632,11 +609,58 @@ async function handleJoinRound(body, tgUserId) {
     total_bets_count: (allBets || []).length
   };
   
-  // Если это второй игрок - запустить таймер
+  // Если это второй игрок - запустить таймер И СГЕНЕРИРОВАТЬ КАРТОЧКИ
   if (isSecondPlayer) {
     updateData.status = "active";
     updateData.started_at = new Date().toISOString();
     updateData.timer_ends_at = new Date(Date.now() + TIMER_DURATION * 1000).toISOString();
+    
+    // КРИТИЧЕСКИ ВАЖНО: Генерируем карточки ОДИН РАЗ и сохраняем в БД
+    // Получаем ставки с информацией о пользователях
+    const { data: betsWithUsers } = await supabase
+      .from("roulette_bets")
+      .select("*, users!inner(first_name, last_name, username)")
+      .eq("round_id", round.id)
+      .order("created_at", { ascending: true });
+    
+    // Получаем фото профилей для всех игроков ПАРАЛЛЕЛЬНО с timeout
+    const betsWithPhotos = await Promise.all(
+      (betsWithUsers || []).map(async (bet) => {
+        const displayName = bet.users?.username 
+          || bet.users?.first_name 
+          || "Player";
+        
+        // Получаем URL фото профиля с timeout (макс 2 секунды)
+        let photoUrl = null;
+        try {
+          photoUrl = await Promise.race([
+            getTelegramPhotoUrl(bet.user_id),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+          ]);
+        } catch (err) {
+          // Timeout или ошибка - используем null (инициалы)
+          console.log(`Avatar timeout for ${bet.user_id}, using initials`);
+        }
+        
+        return {
+          id: bet.id,
+          user_id: bet.user_id,
+          bet_amount: bet.bet_amount,
+          chance_percent: bet.chance_percent,
+          display_name: displayName,
+          created_at: bet.created_at,
+          photo_url: photoUrl
+        };
+      })
+    );
+    
+    // Генерируем карточки на основе ставок
+    const wheelCards = generateWheelCards(betsWithPhotos, round.id);
+    
+    // Сохраняем карточки в БД
+    updateData.wheel_cards = wheelCards;
+    
+    console.log('[Roulette] Generated and stored', wheelCards.length, 'cards in DB for round', round.id);
   }
   
   await supabaseUpdate("roulette_rounds", round.id, updateData);

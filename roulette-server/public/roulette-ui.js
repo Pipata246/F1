@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: NOCARDDROP20260508 - CARDS NEVER DISAPPEAR DURING SPIN
+ * VERSION: AVATARS20260508 - AVATARS WITH 2 SECOND TIMEOUT
  */
 
 class RouletteUI {
@@ -1205,7 +1205,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-NOCARDDROP - CARDS NEVER DISAPPEAR');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-AVATARS - AVATARS WITH TIMEOUT');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
