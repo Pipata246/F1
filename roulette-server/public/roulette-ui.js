@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: SYNC20260508 - SYNCHRONIZED ANIMATION FOR ALL USERS
+ * VERSION: SYNCFIX20260508 - SYNC WITH BETTER ERROR HANDLING
  */
 
 class RouletteUI {
@@ -727,6 +727,12 @@ class RouletteUI {
   
   // Детерминированная "случайная" функция на основе seed
   seededRandom(seed) {
+    // Защита от некорректных значений
+    if (!seed || typeof seed !== 'number') {
+      console.warn('[Roulette] Invalid seed:', seed, 'using fallback');
+      seed = 12345;
+    }
+    
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
   }
@@ -831,9 +837,12 @@ class RouletteUI {
       }
       
       // СИНХРОНИЗАЦИЯ: Используем roundId как seed для детерминированного выбора
-      const seed1 = roundId || 1;
+      // Если roundId нет - используем winnerId как fallback
+      const seed1 = roundId || winnerUserId || Date.now();
       const seed2 = seed1 + 1;
       const seed3 = seed1 + 2;
+      
+      console.log('[Roulette] Using seed:', seed1, 'from roundId:', roundId);
       
       // Выбираем карточку победителя детерминированно (все видят одинаковую)
       const randomFactor = this.seededRandom(seed1); // 0..1
@@ -976,6 +985,8 @@ class RouletteUI {
       const data = await this.callAPI('spinRoulette');
       
       console.log('[Roulette] Winner from API:', data.winner);
+      console.log('[Roulette] Round ID from API:', data.round_id);
+      console.log('[Roulette] Full API response:', data);
       
       // ВАЖНО: Сначала запускаем анимацию вращения с победителем из API
       console.log('[Roulette] Starting animation...');
@@ -1007,6 +1018,12 @@ class RouletteUI {
       
     } catch (error) {
       console.error('[Roulette] Spin error:', error);
+      console.error('[Roulette] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
       this.state.isSpinning = false;
       
       // Если розыгрыш уже идет - НЕ показываем ошибку, просто ждем через polling
@@ -1170,7 +1187,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - VERSION: 20260508-SYNC - SYNCHRONIZED ANIMATION FOR ALL');
+  console.log('[Roulette] Script loaded - VERSION: 20260508-SYNCFIX - BETTER ERROR HANDLING + SEED FALLBACK');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
