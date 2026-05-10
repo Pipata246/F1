@@ -62,6 +62,7 @@ class RouletteUI {
       shownWinnerRoundId: null, // ID раунда, для которого уже показали модалку победителя
       lastPlayersKey: null, // Ключ для проверки изменения состава игроков
       wheelCardsHTML: '', // Готовый HTML карточек от сервера
+      lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
     };
 
     this.pollInterval = null;
@@ -150,23 +151,40 @@ class RouletteUI {
         const previousRoundId = this.state.currentRound?.id;
         
         this.state.currentRound = data.round;
-        
-        // ВАЖНО: Устанавливаем флаг спина СРАЗУ если статус spinning
-        // Это должно быть ДО обработки игроков!
+ 
+        // ВАЖНО: `isSpinning` должен означать "идёт анимация/колесо залочено",
+        // а НЕ "надо остановить polling навсегда". Polling должен продолжаться,
+        // чтобы увидеть `finished` и показать всем результат.
         if (data.round.status === 'spinning' && !this.state.isSpinning) {
-          console.log('[Roulette] Setting isSpinning = true BEFORE processing players');
+          console.log('[Roulette] Round is spinning - locking wheel (but keep polling)');
           this.state.isSpinning = true;
         }
         
         // Update UI
         this.updateStatus(data.round.status);
         this.updatePot(parseFloat(data.round.pot_amount));
+
+        // Всегда сохраняем HTML карточек, даже если идет спин.
+        if (data.wheelCardsHTML && data.wheelCardsHTML.length > 0) {
+          this.state.wheelCardsHTML = data.wheelCardsHTML;
+          // Если DOM пустой (например пользователь зашёл во время спина) — восстановим карточки.
+          if (this.elements.strip && this.elements.strip.querySelectorAll('.roulette-card').length === 0) {
+            console.log('[Roulette] Restoring wheel HTML during spin/page-enter');
+            this.elements.strip.innerHTML = this.state.wheelCardsHTML;
+          }
+        }
+        
+        // Если сервер отдал фото победителя (для finished) — запомним для модалки.
+        if (data.winner && data.winner.photo_url) {
+          this.state.lastWinnerPhotoUrl = data.winner.photo_url;
+        } else {
+          this.state.lastWinnerPhotoUrl = null;
+        }
         
         // КРИТИЧЕСКИ ВАЖНО: Если идет спин - НЕ обрабатываем игроков вообще!
-        if (this.state.isSpinning) {
-          console.log('[Roulette] 🔒 Spin in progress - SKIPPING player processing completely');
-          // Не трогаем ничего - карточки уже отрисованы и заблокированы
-        } else {
+        // Во время спина НЕ трогаем DOM (players list / wheel), но state.players
+        // нам всё равно полезен (например для имени/аватара победителя).
+        if (!this.state.isSpinning) {
           // Process players - ВАЖНО: проверяем что data.bets существует
           console.log('[Roulette] Processing bets:', data.bets);
           
@@ -195,17 +213,20 @@ class RouletteUI {
             console.log('[DEBUG TMA] Players:', debugInfo);
           }
           
-          // ВАЖНО: Сохраняем готовый HTML от сервера
-          if (data.wheelCardsHTML && data.wheelCardsHTML.length > 0) {
-            console.log('[Roulette] ✅ Received HTML from SERVER');
-            this.state.wheelCardsHTML = data.wheelCardsHTML;
-          } else {
-            console.log('[Roulette] ⚠️ No wheelCardsHTML from server!', { htmlLength: data.wheelCardsHTML?.length, betsCount: data.bets?.length });
-          }
-          
           // Обновляем игроков (только если НЕ идет спин)
           console.log('[Roulette] Updating players, count:', players.length, 'status:', data.round.status);
           this.updatePlayers(players);
+        } else {
+          // Во время спина не обновляем DOM, но обновим state.players (без рендера),
+          // чтобы showWinner смог найти имя/аватар.
+          const players = (data.bets || []).map(bet => ({
+            id: bet.user_id,
+            name: bet.display_name || 'Player',
+            bet: parseFloat(bet.bet_amount) || 0,
+            chance: parseFloat(bet.chance_percent) || 0,
+            photoUrl: bet.photo_url || null
+          })).filter(p => p.id && p.name);
+          this.state.players = players;
         }
         
         // Check if I'm in this round - ВАЖНО: сравниваем как строки!
@@ -262,9 +283,9 @@ class RouletteUI {
           
           console.log('[Roulette] Round finished via polling, showing animation');
           
-          // Найти имя победителя из ставок
-          const winnerBet = data.bets.find(b => String(b.user_id) === String(data.round.winner_user_id));
-          const winnerName = winnerBet ? winnerBet.display_name : 'Игрок';
+          // Найти имя победителя из ставок (или из data.winner, если сервер прислал)
+          const winnerBet = (data.bets || []).find(b => String(b.user_id) === String(data.round.winner_user_id));
+          const winnerName = data.winner?.display_name || (winnerBet ? winnerBet.display_name : 'Игрок');
           
           // Блокируем UI
           this.disableBetButton();
@@ -276,7 +297,12 @@ class RouletteUI {
           console.log('[Roulette] Animation completed via polling');
           
           // ТОЛЬКО ПОСЛЕ анимации показываем победителя
-          this.showWinner(winnerName, parseFloat(data.round.winner_amount), data.round.winner_user_id);
+          this.showWinner(
+            winnerName,
+            parseFloat(data.round.winner_amount),
+            data.round.winner_user_id,
+            data.winner?.photo_url || this.state.lastWinnerPhotoUrl
+          );
           
           // Обновить баланс ТОЛЬКО если я победил (тихо, без toast)
           if (String(data.round.winner_user_id) === myUserIdStr) {
@@ -332,12 +358,9 @@ class RouletteUI {
     }
     
     this.pollInterval = setInterval(() => {
-      // КРИТИЧЕСКИ ВАЖНО: НЕ загружаем если идет спин!
-      if (!this.state.isSpinning) {
-        this.loadActiveRound();
-      } else {
-        console.log('[Roulette] 🔒 Polling blocked - spin in progress');
-      }
+      // Во время спина polling ДОЛЖЕН продолжаться, чтобы увидеть `finished`.
+      // UI-рендер колеса уже защищён через isSpinning (renderWheel/updatePlayers).
+      this.loadActiveRound();
     }, 1000);
   }
 
@@ -892,7 +915,12 @@ class RouletteUI {
       console.log('[Roulette] Animation completed');
       
       // ТОЛЬКО ПОСЛЕ анимации показываем победителя
-      this.showWinner(data.winner.display_name, data.winner.amount, data.winner.user_id);
+      this.showWinner(
+        data.winner.display_name,
+        data.winner.amount,
+        data.winner.user_id,
+        data.winner.photo_url
+      );
       
       // Обновляем баланс если я победил (тихо, без toast)
       const myUserIdStr = String(this.state.myUserId);
@@ -947,7 +975,7 @@ class RouletteUI {
     }
   }
 
-  showWinner(winnerName, amount, winnerUserId) {
+  showWinner(winnerName, amount, winnerUserId, winnerPhotoUrl = null) {
     if (this.elements.winnerName) {
       this.elements.winnerName.textContent = winnerName;
     }
@@ -960,7 +988,7 @@ class RouletteUI {
     if (winnerAvatar && winnerUserId) {
       // Ищем фото победителя в текущих игроках
       const winnerPlayer = this.state.players.find(p => String(p.id) === String(winnerUserId));
-      const photoUrl = winnerPlayer?.photoUrl;
+      const photoUrl = winnerPhotoUrl || winnerPlayer?.photoUrl;
       const initial = winnerName.charAt(0).toUpperCase();
       
       // Аватар: фото или инициал

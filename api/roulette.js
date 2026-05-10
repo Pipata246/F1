@@ -247,6 +247,13 @@ async function getTelegramPhotoUrl(userId) {
   }
 }
 
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+}
+
 // Детерминированная "случайная" функция на основе seed
 function seededRandom(seed) {
   const x = Math.sin(seed) * 10000;
@@ -387,41 +394,25 @@ async function handleGetActiveRound(body) {
   }
   
   const bets = await getRoundBets(round.id);
-  
-  // Получаем фото профилей для всех игроков ПАРАЛЛЕЛЬНО с timeout
-  const betsWithPhotos = await Promise.all(
-    bets.map(async (bet) => {
-      const displayName = bet.users?.username 
-        || bet.users?.first_name 
-        || "Player";
-      
-      // Получаем URL фото профиля с timeout (макс 2 секунды)
-      let photoUrl = null;
-      try {
-        photoUrl = await Promise.race([
-          getTelegramPhotoUrl(bet.user_id),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
-        ]);
-      } catch (err) {
-        // Timeout или ошибка - используем null (инициалы)
-        console.log(`Avatar timeout for ${bet.user_id}, using initials`);
-      }
-      
-      return {
-        id: bet.id,
-        user_id: bet.user_id,
-        bet_amount: bet.bet_amount,
-        chance_percent: bet.chance_percent,
-        display_name: displayName,
-        created_at: bet.created_at,
-        photo_url: photoUrl
-      };
-    })
-  );
+
+  // ВАЖНО: НЕ тянем аватарки каждого игрока на каждом poll — это тормозит ответ всем клиентам.
+  // Для UI достаточно инициалов, а фото победителя отдадим отдельно при finished/spin.
+  const betsLight = (bets || []).map((bet) => {
+    const displayName = bet.users?.username || bet.users?.first_name || "Player";
+    return {
+      id: bet.id,
+      user_id: bet.user_id,
+      bet_amount: bet.bet_amount,
+      chance_percent: bet.chance_percent,
+      display_name: displayName,
+      created_at: bet.created_at,
+      photo_url: null,
+    };
+  });
   
   // ГЕНЕРИРУЕМ КАРТОЧКИ НА СЕРВЕРЕ
-  const wheelCards = betsWithPhotos.length > 0 
-    ? generateWheelCards(betsWithPhotos, round.id) 
+  const wheelCards = betsLight.length > 0 
+    ? generateWheelCards(betsLight, round.id) 
     : [];
   
   // ГЕНЕРИРУЕМ HTML НА СЕРВЕРЕ
@@ -429,14 +420,29 @@ async function handleGetActiveRound(body) {
     ? generateWheelCardsHTML(wheelCards)
     : '';
   
-  console.log('[Roulette API] Generated', wheelCards.length, 'cards and HTML for round', round.id, 'with', betsWithPhotos.length, 'players');
+  console.log('[Roulette API] Generated', wheelCards.length, 'cards and HTML for round', round.id, 'with', betsLight.length, 'players');
+
+  // Если раунд завершён — вернём winner объект (включая photo_url), чтобы всем клиентам было что показать.
+  let winner = null;
+  if (round.status === 'finished' && round.winner_user_id) {
+    const winnerBet = (betsLight || []).find((b) => String(b.user_id) === String(round.winner_user_id));
+    const displayName = winnerBet?.display_name || "Player";
+    let photoUrl = null;
+    try {
+      photoUrl = await withTimeout(getTelegramPhotoUrl(round.winner_user_id), 1200);
+    } catch {
+      photoUrl = null;
+    }
+    winner = { user_id: String(round.winner_user_id), display_name: displayName, photo_url: photoUrl };
+  }
   
   return {
     ok: true,
     round,
-    bets: betsWithPhotos,
+    bets: betsLight,
     wheelCardsHTML,
-    serverTime: new Date().toISOString()
+    serverTime: new Date().toISOString(),
+    winner,
   };
 }
 
@@ -540,6 +546,14 @@ async function handleSpinRoulette(body, tgUserId) {
   const winnerDisplayName = winnerBet.users?.username 
     || winnerBet.users?.first_name 
     || "Player";
+
+  // Фото победителя (быстро, с таймаутом) — нужно для модалки у всех.
+  let winnerPhotoUrl = null;
+  try {
+    winnerPhotoUrl = await withTimeout(getTelegramPhotoUrl(winnerId), 1500);
+  } catch {
+    winnerPhotoUrl = null;
+  }
   
   await supabaseInsert("roulette_results", {
     round_id: round.id,
@@ -592,7 +606,8 @@ async function handleSpinRoulette(body, tgUserId) {
       display_name: winnerDisplayName,
       amount: winnerAmount,
       chance: parseFloat(winnerBet.chance_percent),
-      bet: parseFloat(winnerBet.bet_amount)
+      bet: parseFloat(winnerBet.bet_amount),
+      photo_url: winnerPhotoUrl
     },
     round_id: round.id, // ВАЖНО: для синхронизации анимации
     round: {
