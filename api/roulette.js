@@ -776,10 +776,14 @@ async function handleJoinRound(body, tgUserId) {
     throw new Error("Недостаточно средств");
   }
   
-  // Получить или создать активный раунд С БЛОКИРОВКОЙ
+  // Получить или создать раунд.
+  // ВАЖНО: getActiveRound может вернуть недавно finished (для показа модалки),
+  // но в finished/spinning ставки принимать нельзя.
   let round = await getActiveRound();
-  if (!round) {
+  if (!round || round.status === 'finished') {
     round = await createNewRound();
+  } else if (round.status === 'spinning') {
+    throw new Error("Розыгрыш уже идет, дождитесь следующего раунда");
   }
   
   // Получить раунд с блокировкой FOR UPDATE
@@ -890,6 +894,12 @@ async function handleRaiseBet(body, tgUserId) {
   if (!round) {
     throw new Error("Нет активного раунда");
   }
+  if (round.status !== 'active') {
+    if (round.status === 'spinning') {
+      throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
+    }
+    throw new Error("Раунд не активен для повышения ставки");
+  }
   
   // Получить ставку пользователя
   const { data: bet } = await supabase
@@ -936,7 +946,23 @@ async function handleRaiseBet(body, tgUserId) {
     .update({ balance: user.balance - raiseAmount })
     .eq("tg_user_id", tgUserId);
   
-  return { ok: true, message: "Ставка повышена" };
+  // Возвращаем актуальные данные после пересчёта, чтобы клиент сразу видел
+  // новые шансы/ставку без промежуточной устаревшей фазы.
+  const { data: refreshedBet } = await supabase
+    .from("roulette_bets")
+    .select("bet_amount, chance_percent")
+    .eq("round_id", round.id)
+    .eq("user_id", tgUserId)
+    .single();
+  
+  return {
+    ok: true,
+    message: "Ставка повышена",
+    my_bet: refreshedBet ? {
+      bet_amount: parseFloat(refreshedBet.bet_amount || 0),
+      chance_percent: parseFloat(refreshedBet.chance_percent || 0),
+    } : null,
+  };
 }
 
 async function handleGetRecentWinners(body) {
