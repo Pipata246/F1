@@ -853,11 +853,14 @@ class RouletteUI {
       // Финальная позиция
       const finalPosition = -(targetCardIndex * cardWidth) + centerOffset + randomOffset;
       
-      // Детерминированное количество оборотов (все видят одинаковое)
-      const extraSpins = (3 + this.seededRandom(seed3) * 1) * allCards.length * cardWidth;
+      // Адаптивное количество "долёта" до цели:
+      // не привязываем линейно к allCards.length, иначе при большом колесе старт слишком быстрый.
+      const extraCardsTravel = Math.round(
+        120 + this.seededRandom(seed3) * 80 // 120..200 карточек доп. прокрутки
+      );
+      const extraSpins = extraCardsTravel * cardWidth;
       
-      // КРИТИЧЕСКИ ВАЖНО: НЕ ДВИГАЕМ КАРТОЧКИ! Они должны остаться на месте!
-      // Финальная позиция учитывает дополнительные обороты
+      // Финальная позиция с учетом дополнительного прокрута
       const totalDistance = extraSpins + (targetCardIndex * cardWidth) - centerOffset - randomOffset;
       
       console.log('[Roulette] SYNC Animation:', {
@@ -878,15 +881,22 @@ class RouletteUI {
       // Даем браузеру время применить (хотя ничего не меняется)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // ИНТРИГА: Длинная анимация с медленным финалом
-          const duration = 10000; // 10 секунд для интриги!
+          // Подбираем длительность по целевой средней скорости,
+          // чтобы анимация была плавной и не "рваной" на длинных лентах.
+          const targetSpeedPxPerSec = 3200;
+          const dynamicDuration = Math.round((Math.abs(totalDistance) / targetSpeedPxPerSec) * 1000);
+          const duration = Math.max(6500, Math.min(10500, dynamicDuration));
           
           // Easing: быстрый старт → медленный финал (максимальная интрига!)
           // cubic-bezier(0.33, 1, 0.68, 1) - очень медленный финал
           this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.33, 1, 0.68, 1)`;
           this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
           
-          console.log('[Roulette] ✅ Animation started - SUSPENSE MODE (10s)!');
+          console.log('[Roulette] ✅ Animation started', {
+            duration,
+            totalDistance,
+            cards: allCards.length
+          });
           
           // Ждем окончания анимации + дополнительная задержка
           setTimeout(() => {

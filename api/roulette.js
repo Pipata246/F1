@@ -334,10 +334,18 @@ function shuffleInPlace(arr, rand) {
   return arr;
 }
 
+function getAdaptiveWheelCardCount(playerCount) {
+  const n = Math.max(1, Number(playerCount) || 1);
+  // Фиксированная квота на игрока + разумные границы.
+  // Даёт предсказуемую плотность колеса без чрезмерной длины.
+  const cards = n * 24;
+  return Math.max(240, Math.min(720, cards));
+}
+
 // Генерация массива карточек для рулетки:
 // - кол-во карточек строго пропорционально bet_amount (шансам)
 // - порядок случайный, но детерминированный по seed (чтобы все клиенты видели одинаково)
-function generateWheelCards(bets, seedInput, totalCards = 1200) {
+function generateWheelCards(bets, seedInput, totalCards = 360) {
   const sorted = [...(bets || [])].sort((a, b) => String(a.user_id).localeCompare(String(b.user_id)));
   const totalBet = sorted.reduce((sum, bet) => sum + parseFloat(bet.bet_amount || 0), 0);
   if (!(totalBet > 0) || sorted.length === 0) return [];
@@ -527,8 +535,9 @@ async function handleGetActiveRound(body) {
   // КРИТИЧЕСКИ ВАЖНО: порядок карточек должен быть ОДИН на весь раунд,
   // иначе winner_card_index может указывать на другую карточку на фронте.
   const wheelSeed = `${round.id}`;
+  const wheelCardsCount = getAdaptiveWheelCardCount(betsLight.length);
   const wheelCards = betsLight.length > 0 
-    ? generateWheelCards(betsLight, wheelSeed) 
+    ? generateWheelCards(betsLight, wheelSeed, wheelCardsCount) 
     : [];
   
   // ГЕНЕРИРУЕМ HTML НА СЕРВЕРЕ
