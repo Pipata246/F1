@@ -303,7 +303,7 @@ class RouletteUI {
         }
         
         // Handle timer - используем СЕРВЕРНОЕ время из API с локальной интерполяцией
-        if (data.round.status === 'active' && data.round.timer_ends_at) {
+        if (effectiveStatus === 'active' && data.round.timer_ends_at) {
           const endsAt = new Date(data.round.timer_ends_at);
           const serverNow = new Date(data.serverTime);
           
@@ -318,14 +318,14 @@ class RouletteUI {
           // чтобы старт был визуально одинаковым у всех.
           const initialRemaining = Math.max(0, Math.min(
             20,
-            Math.ceil((this.state.timerEndTime - this.state.lastServerTime) / 1000)
+            Math.ceil((this.state.timerEndTime - this.state.lastServerTime + 999) / 1000)
           ));
           this.updateTimerDisplay(initialRemaining);
           
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.remove('hidden');
           }
-        } else if (data.round.status === 'spinning') {
+        } else if (effectiveStatus === 'spinning') {
           // Раунд крутится - скрываем таймер и блокируем кнопку
           this.stopSmoothTimer();
           if (this.elements.timerWrap) {
@@ -440,7 +440,7 @@ class RouletteUI {
   }
 
   startPolling() {
-    // Poll every 1 second for smooth timer updates
+    // Более частый polling убирает ~1s задержку старта у non-initiator.
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
     }
@@ -451,7 +451,7 @@ class RouletteUI {
       if (!this.state.isAnimating) {
         this.loadActiveRound();
       }
-    }, 1000);
+    }, 300);
   }
 
   stopPolling() {
@@ -588,10 +588,10 @@ class RouletteUI {
       const estimatedServerTime = this.state.lastServerTime + localElapsed;
       
       // Вычисляем оставшееся время
-      // ceil + clamp до 20: визуально стартует с 20 и идет синхронно до 0.
+      // +999ms дает стабильный визуальный старт с 20 на большинстве устройств.
       const remaining = Math.max(
         0,
-        Math.min(20, Math.ceil((this.state.timerEndTime - estimatedServerTime) / 1000))
+        Math.min(20, Math.ceil((this.state.timerEndTime - estimatedServerTime + 999) / 1000))
       );
       
       this.updateTimerDisplay(remaining);
