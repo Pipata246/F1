@@ -1244,18 +1244,36 @@ class RouletteUI {
       // Даем браузеру время применить (хотя ничего не меняется)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Быстрый старт + длинный медленный "хвост" до финиша для интриги.
-          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.12, 0.88, 0.22, 1)`;
-          this.elements.strip.style.transform = `translateX(${spinTargetPosition}px)`;
-          
-          console.log('[Roulette] ✅ Animation started', {
-            duration,
-            totalDistance,
-            cards: allCards.length
-          });
-          
-          // Ждем окончания анимации + дополнительная задержка
-          setTimeout(() => {
+          // Ручной профиль скорости:
+          // - мягкий старт (без резкого рывка),
+          // - основной ход,
+          // - последние ~1.5с очень медленный докат до стопа.
+          const totalMs = 7000;
+          const startPhaseMs = 1500;
+          const tailPhaseMs = 1500;
+          const middlePhaseMs = totalMs - startPhaseMs - tailPhaseMs;
+          const startTs = performance.now();
+          const tick = (now) => {
+            const elapsed = Math.max(0, now - startTs);
+            let progress = 0;
+            if (elapsed < startPhaseMs) {
+              const p = elapsed / startPhaseMs;
+              progress = 0.45 * (p * p); // плавный разгон
+            } else if (elapsed < startPhaseMs + middlePhaseMs) {
+              const p = (elapsed - startPhaseMs) / middlePhaseMs;
+              progress = 0.45 + (0.45 * (1 - Math.pow(1 - p, 1.4)));
+            } else {
+              const p = Math.min(1, (elapsed - startPhaseMs - middlePhaseMs) / tailPhaseMs);
+              progress = 0.9 + (0.1 * (1 - Math.pow(1 - p, 3))); // очень плавный хвост
+            }
+            const x = spinTargetPosition * Math.min(1, progress);
+            this.elements.strip.style.transform = `translateX(${x}px)`;
+            if (elapsed < totalMs) {
+              requestAnimationFrame(tick);
+              return;
+            }
+            this.elements.strip.style.transform = `translateX(${spinTargetPosition}px)`;
+
             // Подсвечиваем именно ту карточку, которая реально оказалась под указателем.
             const pointerCenterX = this.elements.wheelContainer.getBoundingClientRect().left + (containerWidth / 2);
             let winnerCardEl = null;
@@ -1272,13 +1290,21 @@ class RouletteUI {
             if (winnerCardEl) winnerCardEl.classList.add('roulette-card--winner');
             this.hapticImpact('medium');
             this.stopSpinSound();
-            // Даем пользователю явно увидеть подсветку ДО модалки.
+
+            // Даем пользователю увидеть подсветку до модалки.
             setTimeout(() => {
               if (winnerCardEl) winnerCardEl.classList.remove('roulette-card--winner');
               console.log('[Roulette] Animation COMPLETED - resolving promise');
               resolve();
             }, 700);
-          }, duration + 1000); // +1 секунда для паузы после остановки
+          };
+          requestAnimationFrame(tick);
+          
+          console.log('[Roulette] ✅ Animation started', {
+            duration: totalMs,
+            totalDistance,
+            cards: allCards.length
+          });
         });
       });
     });
