@@ -86,6 +86,7 @@ class RouletteUI {
       lastTimerSecond: null,
       audioEnabled: false,
       spinSoundActive: false,
+      spinTickTimer: null,
     };
 
     this.pollInterval = null;
@@ -247,44 +248,23 @@ class RouletteUI {
 
   startSpinSound() {
     if (this.state.spinSoundActive) return;
-    const ctx = this.ensureAudioContext();
-    if (!ctx || !this.state.audioEnabled) return;
+    if (!this.ensureAudioContext() || !this.state.audioEnabled) return;
     this.state.spinSoundActive = true;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const lfo = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
-    const gain = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(190, now);
-    lfo.type = 'sine';
-    lfo.frequency.setValueAtTime(4.2, now);
-    lfoGain.gain.setValueAtTime(22, now);
-    lfo.connect(lfoGain).connect(osc.frequency);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.018, now + 0.08);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(now);
-    lfo.start(now);
-    this.spinSoundNodes = { osc, lfo, gain };
+    // CSGO-case style: частые мягкие "щелчки" вместо непрерывного гула.
+    this.playTone({ freq: 780, durationMs: 34, gain: 0.02, type: 'square' });
+    this.state.spinTickTimer = setInterval(() => {
+      if (!this.state.spinSoundActive) return;
+      this.playTone({ freq: 760, durationMs: 28, gain: 0.016, type: 'square' });
+    }, 90);
   }
 
   stopSpinSound() {
     if (!this.state.spinSoundActive) return;
     this.state.spinSoundActive = false;
-    const ctx = this.audioCtx;
-    const n = this.spinSoundNodes;
-    this.spinSoundNodes = null;
-    if (!ctx || !n) return;
-    try {
-      const now = ctx.currentTime;
-      n.gain.gain.cancelScheduledValues(now);
-      n.gain.gain.setValueAtTime(Math.max(0.0001, n.gain.gain.value), now);
-      n.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-      n.osc.stop(now + 0.14);
-      n.lfo.stop(now + 0.14);
-    } catch {}
+    if (this.state.spinTickTimer) {
+      clearInterval(this.state.spinTickTimer);
+      this.state.spinTickTimer = null;
+    }
   }
 
   // ==================== DATA SYNC MODE ====================
@@ -1275,11 +1255,12 @@ class RouletteUI {
             }
             this.hapticImpact('medium');
             this.stopSpinSound();
+            // Даем пользователю явно увидеть подсветку ДО модалки.
             setTimeout(() => {
               if (targetCardEl) targetCardEl.classList.remove('roulette-card--winner');
-            }, 420);
-            console.log('[Roulette] Animation COMPLETED - resolving promise');
-            resolve();
+              console.log('[Roulette] Animation COMPLETED - resolving promise');
+              resolve();
+            }, 700);
           }, duration + 1000); // +1 секунда для паузы после остановки
         });
       });
