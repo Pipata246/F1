@@ -583,7 +583,7 @@ class RouletteUI {
       if (!this.state.isAnimating) {
         this.loadActiveRound();
       }
-    }, this.realtimeMode ? 1500 : 700);
+    }, 350);
   }
 
   stopPolling() {
@@ -1025,6 +1025,18 @@ class RouletteUI {
         const targetCard = winnerCards[targetIndex];
         targetCardIndex = allCards.indexOf(targetCard);
       }
+
+      // Железная страховка от рассинхрона:
+      // если индекс не указывает на server winner, принудительно берем карту winnerUserId.
+      const indexedWinnerId = String(allCards[targetCardIndex]?.getAttribute('data-user-id') || '');
+      if (indexedWinnerId !== String(winnerUserId)) {
+        const forcedIndex = allCards.findIndex(
+          (card) => String(card.getAttribute('data-user-id')) === String(winnerUserId)
+        );
+        if (forcedIndex >= 0) {
+          targetCardIndex = forcedIndex;
+        }
+      }
       
       console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
       
@@ -1039,8 +1051,9 @@ class RouletteUI {
       // Финальная позиция
       const finalPosition = -(targetCardIndex * cardWidth) + centerOffset + randomOffset;
       
-      // Простой обычный спин: фиксированный "долёт" (без динамики/рывков).
-      const extraCardsTravel = 140;
+      // Стабильный "обычный" спин:
+      // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
+      const extraCardsTravel = (allCards.length * 6) + 120;
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
