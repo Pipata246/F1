@@ -547,10 +547,9 @@ class RouletteUI {
             this.elements.timerWrap.classList.add('hidden');
           }
           this.disableBetButton();
+          // Важно: не запускаем pre-spin, иначе визуально получается "двойной спин".
+          this.stopPreSpinAnimation();
           this.startSpinSound();
-          if (!this.state.isAnimating) {
-            this.startPreSpinAnimation(data.round.timer_ends_at, data.serverTime);
-          }
         } else {
           this.stopPreSpinAnimation();
           this.stopSpinSound();
@@ -1162,16 +1161,19 @@ class RouletteUI {
       
       console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
       
-      // Рассчитываем позицию для остановки (карточка должна быть в центре)
+      // Рассчитываем позицию по реальной геометрии DOM,
+      // чтобы центрировалась именно нужная карточка (без смещения на 1 влево).
       const containerWidth = this.elements.wheelContainer.offsetWidth;
-      const cardWidth = 102; // 100px + 2px border
-      const centerOffset = containerWidth / 2 - cardWidth / 2;
-      
-      // Детерминированное смещение (все видят одинаковое)
-      const randomOffset = (this.seededRandom(seed2) - 0.5) * 40;
-      
-      // Финальная позиция
-      const finalPosition = -(targetCardIndex * cardWidth) + centerOffset + randomOffset;
+      const targetCardEl = allCards[targetCardIndex];
+      if (!targetCardEl) {
+        console.error('[Roulette] Target card element not found for index:', targetCardIndex);
+        resolve();
+        return;
+      }
+      const targetCenterPx = targetCardEl.offsetLeft + (targetCardEl.offsetWidth / 2);
+      const containerCenterPx = containerWidth / 2;
+      const finalPosition = containerCenterPx - targetCenterPx;
+      const cardWidth = Math.max(1, targetCardEl.offsetWidth);
       
       // Стабильный "обычный" спин:
       // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
@@ -1179,7 +1181,7 @@ class RouletteUI {
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
-      const totalDistance = extraSpins + (targetCardIndex * cardWidth) - centerOffset - randomOffset;
+      const totalDistance = extraSpins + Math.abs(finalPosition);
       
       const pxPerSec = 850; // ограничиваем стартовую скорость
       const duration = Math.max(7600, Math.min(11000, Math.round((Math.abs(totalDistance) / pxPerSec) * 1000)));
@@ -1213,15 +1215,15 @@ class RouletteUI {
           
           // Ждем окончания анимации + дополнительная задержка
           setTimeout(() => {
-            const targetCardEl = allCards[targetCardIndex];
-            if (targetCardEl) {
-              targetCardEl.classList.add('roulette-card--winner');
+            const winnerCardEl = allCards[targetCardIndex];
+            if (winnerCardEl) {
+              winnerCardEl.classList.add('roulette-card--winner');
             }
             this.hapticImpact('medium');
             this.stopSpinSound();
             // Даем пользователю явно увидеть подсветку ДО модалки.
             setTimeout(() => {
-              if (targetCardEl) targetCardEl.classList.remove('roulette-card--winner');
+              if (winnerCardEl) winnerCardEl.classList.remove('roulette-card--winner');
               console.log('[Roulette] Animation COMPLETED - resolving promise');
               resolve();
             }, 700);
