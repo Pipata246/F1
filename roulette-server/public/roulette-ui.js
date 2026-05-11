@@ -427,14 +427,9 @@ class RouletteUI {
         // ВАЖНО: `isSpinning` должен означать "идёт анимация/колесо залочено",
         // а НЕ "надо остановить polling навсегда". Polling должен продолжаться,
         // чтобы увидеть `finished` и показать всем результат.
-        if (data.round.status === 'spinning' && !this.state.isSpinning) {
-          console.log('[Roulette] Round is spinning - locking wheel (but keep polling)');
-          this.state.isSpinning = true;
-        }
-        
         // Update UI
         // Пока локально идет спин/анимация - держим статус "Розыгрыш..."
-        const effectiveStatus = (this.state.isSpinning || this.state.isAnimating)
+        const effectiveStatus = (data.round.status === 'spinning' || this.state.isSpinning || this.state.isAnimating)
           ? 'spinning'
           : data.round.status;
         this.updateStatus(effectiveStatus);
@@ -460,7 +455,7 @@ class RouletteUI {
         // КРИТИЧЕСКИ ВАЖНО: Если идет спин - НЕ обрабатываем игроков вообще!
         // Во время спина НЕ трогаем DOM (players list / wheel), но state.players
         // нам всё равно полезен (например для имени/аватара победителя).
-        if (!this.state.isSpinning) {
+        if (data.round.status !== 'spinning' && !this.state.isAnimating && !this.state.isSpinning) {
           // Process players - ВАЖНО: проверяем что data.bets существует
           console.log('[Roulette] Processing bets:', data.bets);
           
@@ -1026,8 +1021,8 @@ class RouletteUI {
   renderWheel() {
     if (!this.elements.strip) return;
 
-    // ВАЖНО: НИКОГДА не перерисовываем если идет спин!
-    if (this.state.isSpinning) {
+    // ВАЖНО: НИКОГДА не перерисовываем если идет локальная анимация/спин!
+    if (this.state.isSpinning || this.state.isAnimating || this.state.isPreSpinning) {
       console.log('[Roulette] BLOCKED: Cannot render wheel during spin!');
       return;
     }
@@ -1057,12 +1052,13 @@ class RouletteUI {
       console.log('[Roulette] ✅ Using HTML from SERVER');
       this.elements.strip.innerHTML = this.state.wheelCardsHTML;
     } else {
+      // Не затираем текущие карточки лоадером, чтобы не было "резкого пропадания" полосы.
+      if (this.elements.strip.querySelectorAll('.roulette-card').length > 0) {
+        console.log('[Roulette] Keeping existing wheel cards until fresh HTML arrives');
+        return;
+      }
       console.log('[Roulette] ⚠️ No HTML from server yet - waiting');
-      this.elements.strip.innerHTML = `
-        <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
-          Загрузка карточек...
-        </div>
-      `;
+      this.elements.strip.innerHTML = `<div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">Загрузка карточек...</div>`;
       return;
     }
     
