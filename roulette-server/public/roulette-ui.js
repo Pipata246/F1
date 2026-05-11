@@ -517,11 +517,11 @@ class RouletteUI {
             }
           }
           
-          // Сбросить флаги и вернуть polling
+          // Сбросить флаги и вернуть основной режим синхронизации (realtime+fallback)
           this.state.isAnimating = false;
           this.state.isSpinning = false;
           this.enableBetButton();
-          this.startPolling();
+          this.startDataSync();
         }
         
       } else {
@@ -764,7 +764,7 @@ class RouletteUI {
     
     // Не запускаем spin с клиента.
     // Сервер сам автозапустит spin при истечении timer_ends_at.
-    this.startPolling();
+    this.startDataSync();
   }
 
   disableBetButton() {
@@ -1212,7 +1212,7 @@ class RouletteUI {
         this.enableBetButton();
         this.loadActiveRound();
         // ВАЖНО: Запускаем polling снова
-        this.startPolling();
+        this.startDataSync();
       }, 5500);
       
     } catch (error) {
@@ -1232,7 +1232,7 @@ class RouletteUI {
         console.log('[Roulette] Spin already in progress or finished, waiting via polling...');
         this.disableBetButton();
         // ВАЖНО: Запускаем polling снова
-        this.startPolling();
+        this.startDataSync();
         // Polling автоматически обнаружит завершение раунда и покажет анимацию
       } else {
         // Другая ошибка - НЕ показываем toast, только логируем
@@ -1242,7 +1242,7 @@ class RouletteUI {
           this.enableBetButton();
           this.loadActiveRound();
           // ВАЖНО: Запускаем polling снова
-          this.startPolling();
+          this.startDataSync();
         }, 2000);
       }
     }
