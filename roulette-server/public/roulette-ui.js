@@ -83,6 +83,9 @@ class RouletteUI {
       preSpinLocalAnchorMs: 0,
       preSpinStartMs: 0,
       isLoadingRound: false,
+      lastTimerSecond: null,
+      audioEnabled: false,
+      spinSoundActive: false,
     };
 
     this.pollInterval = null;
@@ -92,6 +95,8 @@ class RouletteUI {
     this.realtimeReloadTimer = null;
     this.realtimeMode = false; // true => realtime основной, polling fallback
     this.timerInterval = null; // Интервал для плавного обновления таймера
+    this.audioCtx = null;
+    this.spinSoundNodes = null;
     this.init();
   }
 
@@ -138,6 +143,8 @@ class RouletteUI {
     this.state.currentRound = null;
     this.state.players = [];
     this.state.myBet = null;
+    this.state.lastTimerSecond = null;
+    this.stopSpinSound();
     this.updateBetButton(false);
   }
 
@@ -156,6 +163,17 @@ class RouletteUI {
         this.elements.historyModal.classList.remove('show');
       }
     });
+
+    const unlockAudio = () => {
+      this.ensureAudioContext();
+      this.state.audioEnabled = true;
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
     
     // Initialize with empty state
     this.updateStatus('waiting');
@@ -170,6 +188,103 @@ class RouletteUI {
         this.state.myUserId = user.id;
       }
     }
+  }
+
+  // ==================== HAPTIC ====================
+  hapticImpact(style = 'light') {
+    try { window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(style); } catch {}
+  }
+
+  hapticNotify(type = 'success') {
+    try { window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred?.(type); } catch {}
+  }
+
+  // ==================== AUDIO ====================
+  ensureAudioContext() {
+    if (this.audioCtx) return this.audioCtx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    try {
+      this.audioCtx = new Ctx();
+      return this.audioCtx;
+    } catch {
+      return null;
+    }
+  }
+
+  playTone({ freq = 440, durationMs = 90, gain = 0.035, type = 'sine' } = {}) {
+    const ctx = this.ensureAudioContext();
+    if (!ctx || !this.state.audioEnabled) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(gain, now + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + durationMs / 1000 + 0.02);
+  }
+
+  playClickSound() {
+    this.playTone({ freq: 680, durationMs: 70, gain: 0.03, type: 'triangle' });
+  }
+
+  playTickSound() {
+    this.playTone({ freq: 980, durationMs: 55, gain: 0.02, type: 'square' });
+  }
+
+  playResultSound(isWin) {
+    if (isWin) {
+      this.playTone({ freq: 740, durationMs: 120, gain: 0.04, type: 'triangle' });
+      setTimeout(() => this.playTone({ freq: 988, durationMs: 140, gain: 0.04, type: 'triangle' }), 110);
+    } else {
+      this.playTone({ freq: 260, durationMs: 140, gain: 0.03, type: 'sawtooth' });
+    }
+  }
+
+  startSpinSound() {
+    if (this.state.spinSoundActive) return;
+    const ctx = this.ensureAudioContext();
+    if (!ctx || !this.state.audioEnabled) return;
+    this.state.spinSoundActive = true;
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(190, now);
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(4.2, now);
+    lfoGain.gain.setValueAtTime(22, now);
+    lfo.connect(lfoGain).connect(osc.frequency);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.018, now + 0.08);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    lfo.start(now);
+    this.spinSoundNodes = { osc, lfo, gain };
+  }
+
+  stopSpinSound() {
+    if (!this.state.spinSoundActive) return;
+    this.state.spinSoundActive = false;
+    const ctx = this.audioCtx;
+    const n = this.spinSoundNodes;
+    this.spinSoundNodes = null;
+    if (!ctx || !n) return;
+    try {
+      const now = ctx.currentTime;
+      n.gain.gain.cancelScheduledValues(now);
+      n.gain.gain.setValueAtTime(Math.max(0.0001, n.gain.gain.value), now);
+      n.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+      n.osc.stop(now + 0.14);
+      n.lfo.stop(now + 0.14);
+    } catch {}
   }
 
   // ==================== DATA SYNC MODE ====================
@@ -274,6 +389,7 @@ class RouletteUI {
     this.stopRealtime();
     this.stopPreSpinAnimation();
     this.stopSmoothTimer();
+    this.stopSpinSound();
     this.realtimeMode = false;
   }
 
@@ -485,11 +601,13 @@ class RouletteUI {
             this.elements.timerWrap.classList.add('hidden');
           }
           this.disableBetButton();
+          this.startSpinSound();
           if (!this.state.isAnimating) {
             this.startPreSpinAnimation(data.round.timer_ends_at, data.serverTime);
           }
         } else {
           this.stopPreSpinAnimation();
+          this.stopSpinSound();
           this.stopSmoothTimer();
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.add('hidden');
@@ -512,6 +630,7 @@ class RouletteUI {
           this.state.isAnimating = true;
           this.stopPolling();
           this.stopPreSpinAnimation();
+          this.stopSpinSound();
           
           // Найти имя победителя из ставок (или из data.winner, если сервер прислал)
           const winnerBet = (data.bets || []).find(b => String(b.user_id) === String(data.round.winner_user_id));
@@ -803,6 +922,14 @@ class RouletteUI {
       } else {
         this.elements.timer.style.color = '#ff5c5c';
       }
+
+      if (seconds !== this.state.lastTimerSecond) {
+        if (seconds > 0 && seconds <= 5) {
+          this.playTickSound();
+          this.hapticImpact('light');
+        }
+        this.state.lastTimerSecond = seconds;
+      }
     }
   }
 
@@ -820,6 +947,8 @@ class RouletteUI {
     console.log('[Roulette] Current players:', this.state.players.length);
     
     this.updateStatus('spinning');
+    this.startSpinSound();
+    this.hapticImpact('medium');
     // Инициатор спина сам останавливает polling, поэтому таймер нужно скрыть прямо тут
     this.stopSmoothTimer();
     if (this.elements.timerWrap) {
@@ -1140,6 +1269,15 @@ class RouletteUI {
           
           // Ждем окончания анимации + дополнительная задержка
           setTimeout(() => {
+            const targetCardEl = allCards[targetCardIndex];
+            if (targetCardEl) {
+              targetCardEl.classList.add('roulette-card--winner');
+            }
+            this.hapticImpact('medium');
+            this.stopSpinSound();
+            setTimeout(() => {
+              if (targetCardEl) targetCardEl.classList.remove('roulette-card--winner');
+            }, 420);
             console.log('[Roulette] Animation COMPLETED - resolving promise');
             resolve();
           }, duration + 1000); // +1 секунда для паузы после остановки
@@ -1184,6 +1322,8 @@ class RouletteUI {
         [paramName]: amount,
         request_id: this.generateRequestId(action),
       });
+      this.playClickSound();
+      this.hapticImpact('light');
       
       // Показываем правильное уведомление на основе ПРЕДЫДУЩЕГО состояния
       this.showToast(wasInRound ? 'Ставка повышена!' : 'Ставка принята!');
@@ -1226,6 +1366,8 @@ class RouletteUI {
     try {
       console.log('[Roulette] Spinning...');
       this.stopPreSpinAnimation();
+      this.startSpinSound();
+      this.hapticImpact('medium');
 
       // Инициатор: гарантированно скрываем таймер (polling уже остановлен)
       this.stopSmoothTimer();
@@ -1301,6 +1443,7 @@ class RouletteUI {
       this.state.isSpinning = false;
       this.state.isAnimating = false;
       this.stopPreSpinAnimation();
+      this.stopSpinSound();
       
       // Если розыгрыш уже идет - НЕ показываем ошибку, просто ждем через polling
       if (error.message && (error.message.includes('уже идет') || error.message.includes('уже запущен') || error.message.includes('уже завершен'))) {
@@ -1358,6 +1501,9 @@ class RouletteUI {
     
     if (this.elements.winnerModal) {
       this.elements.winnerModal.classList.add('show');
+      const isWin = String(winnerUserId) === String(this.state.myUserId);
+      this.playResultSound(isWin);
+      this.hapticNotify(isWin ? 'success' : 'warning');
       
       // Автоматически закрываем через 5 секунд
       setTimeout(() => {
@@ -1380,6 +1526,13 @@ class RouletteUI {
   // ==================== RECENT WINNERS ====================
   async loadRecentWinners() {
     try {
+      if (this.elements.recentWinners) {
+        this.elements.recentWinners.innerHTML = `
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        `;
+      }
       const data = await this.callAPI('getRecentWinners', { limit: 5 });
       
       if (data.winners && data.winners.length > 0) {
@@ -1435,6 +1588,13 @@ class RouletteUI {
 
   async loadMyHistory() {
     try {
+      if (this.elements.myHistory) {
+        this.elements.myHistory.innerHTML = `
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        `;
+      }
       const data = await this.callAPI('getMyHistory', { limit: 8 });
       this.renderMyHistory(data.history || []);
     } catch (error) {
