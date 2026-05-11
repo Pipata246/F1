@@ -541,26 +541,9 @@ class RouletteUI {
 
   // ==================== PRE-SPIN (for non-initiator) ====================
   startPreSpinAnimation() {
-    if (!this.elements.strip || this.state.isPreSpinning || this.state.isAnimating) return;
-    const cards = this.elements.strip.querySelectorAll('.roulette-card');
-    if (!cards.length) return;
-
-    this.state.isPreSpinning = true;
-    this.state.preSpinLastTs = 0;
-    this.state.preSpinOffsetPx = 0;
-    this.elements.strip.style.transition = 'none';
-
-    const speedPxPerSec = 360; // мягкий стабильный проскролл до финального спина
-    const tick = (ts) => {
-      if (!this.state.isPreSpinning || !this.elements.strip) return;
-      if (!this.state.preSpinLastTs) this.state.preSpinLastTs = ts;
-      const dt = Math.min(40, ts - this.state.preSpinLastTs); // защита от больших скачков
-      this.state.preSpinLastTs = ts;
-      this.state.preSpinOffsetPx += (speedPxPerSec * dt) / 1000;
-      this.elements.strip.style.transform = `translateX(${-this.state.preSpinOffsetPx}px)`;
-      this.state.preSpinRafId = requestAnimationFrame(tick);
-    };
-    this.state.preSpinRafId = requestAnimationFrame(tick);
+    // Отключено: предспин давал визуальные зависания/рывки на разных устройствах.
+    // Используем только обычную финальную анимацию после получения winner.
+    return;
   }
 
   stopPreSpinAnimation() {
@@ -925,11 +908,8 @@ class RouletteUI {
       // Финальная позиция
       const finalPosition = -(targetCardIndex * cardWidth) + centerOffset + randomOffset;
       
-      // Адаптивное количество "долёта" до цели:
-      // не привязываем линейно к allCards.length, иначе при большом колесе старт слишком быстрый.
-      const extraCardsTravel = Math.round(
-        120 + this.seededRandom(seed3) * 80 // 120..200 карточек доп. прокрутки
-      );
+      // Простой обычный спин: фиксированный "долёт" (без динамики/рывков).
+      const extraCardsTravel = 140;
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
@@ -953,15 +933,12 @@ class RouletteUI {
       // Даем браузеру время применить (хотя ничего не меняется)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Подбираем длительность по целевой средней скорости,
-          // чтобы анимация была плавной и не "рваной" на длинных лентах.
-          const targetSpeedPxPerSec = 3200;
-          const dynamicDuration = Math.round((Math.abs(totalDistance) / targetSpeedPxPerSec) * 1000);
-          const duration = Math.max(6500, Math.min(10500, dynamicDuration));
+          // Стабильная фиксированная длительность "обычного" спина.
+          const duration = 7000;
           
           // Easing: быстрый старт → медленный финал (максимальная интрига!)
           // cubic-bezier(0.33, 1, 0.68, 1) - очень медленный финал
-          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.33, 1, 0.68, 1)`;
+          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`;
           this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
           
           console.log('[Roulette] ✅ Animation started', {
