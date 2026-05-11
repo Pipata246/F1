@@ -359,7 +359,8 @@ class RouletteUI {
             winnerName,
             parseFloat(data.round.winner_amount),
             data.round.winner_user_id,
-            data.winner?.photo_url || this.state.lastWinnerPhotoUrl
+            data.winner?.photo_url || this.state.lastWinnerPhotoUrl,
+            winnerBet ? parseFloat(winnerBet.chance_percent || 0) : null
           );
 
           // Сразу очищаем UI старого раунда (чтобы он не висел под модалкой)
@@ -1015,7 +1016,8 @@ class RouletteUI {
         data.winner.display_name,
         data.winner.amount,
         data.winner.user_id,
-        data.winner.photo_url
+        data.winner.photo_url,
+        Number.isFinite(Number(data.winner.chance)) ? Number(data.winner.chance) : null
       );
 
       // Сразу убираем UI старого раунда при появлении модалки
@@ -1075,12 +1077,17 @@ class RouletteUI {
     }
   }
 
-  showWinner(winnerName, amount, winnerUserId, winnerPhotoUrl = null) {
+  showWinner(winnerName, amount, winnerUserId, winnerPhotoUrl = null, chancePercent = null) {
     if (this.elements.winnerName) {
       this.elements.winnerName.textContent = winnerName;
     }
     if (this.elements.winnerAmount) {
       this.elements.winnerAmount.textContent = amount.toFixed(2);
+    }
+    const winnerChance = document.getElementById('rouletteWinnerChance');
+    if (winnerChance) {
+      const c = Number.isFinite(Number(chancePercent)) ? Number(chancePercent) : 0;
+      winnerChance.textContent = c.toFixed(1);
     }
     
     // Добавляем аватарку победителя
@@ -1111,7 +1118,7 @@ class RouletteUI {
         if (this.elements.winnerModal) {
           this.elements.winnerModal.classList.remove('show');
         }
-      }, 5000);
+      }, 3200);
     }
 
     // Confetti effect (if available)
