@@ -767,8 +767,19 @@ class RouletteUI {
       return;
     }
     this.stopPreSpinAnimation();
-    const cards = this.elements.strip.querySelectorAll('.roulette-card');
+    let cards = this.elements.strip.querySelectorAll('.roulette-card');
     if (!cards.length) return;
+
+    // Увеличиваем визуальную ленту для pre-spin, чтобы никогда не уйти в "пустоту".
+    // На математику шансов не влияет: это только клиентский рендер.
+    if (cards.length < 280) {
+      const baseWheelHtml = this.state.wheelCardsHTML || this.elements.strip.innerHTML || '';
+      if (baseWheelHtml) {
+        const repeatCount = Math.max(4, Math.min(10, Math.ceil(320 / Math.max(1, cards.length))));
+        this.elements.strip.innerHTML = new Array(repeatCount).fill(baseWheelHtml).join('');
+        cards = this.elements.strip.querySelectorAll('.roulette-card');
+      }
+    }
 
     const spinStartMs = new Date(timerEndsAtIso || 0).getTime();
     const serverNowMs = new Date(serverTimeIso || Date.now()).getTime();
@@ -1139,6 +1150,7 @@ class RouletteUI {
       }
       
       console.log('[Roulette] ✅ Cards verified, total:', allCards.length);
+      const baseCardsCount = allCards.length;
       
       // Сервер теперь может отдавать точный winner_card_index (индекс в общем массиве карточек).
       // Это гарантирует совпадение результата на сервере и визуального выпадения.
@@ -1175,6 +1187,15 @@ class RouletteUI {
       }
 
       // Истина = winner_card_index с сервера. Принудительно НЕ переопределяем индекс.
+      // Для длинного спина расширяем DOM-полосу карточек и переносим target в центральный сегмент.
+      const baseWheelHtml = this.state.wheelCardsHTML || this.elements.strip.innerHTML || '';
+      if (baseWheelHtml && baseCardsCount > 0 && baseCardsCount < 420) {
+        const repeatCount = Math.max(5, Math.min(12, Math.ceil(600 / baseCardsCount)));
+        const middleSegment = Math.floor(repeatCount / 2);
+        this.elements.strip.innerHTML = new Array(repeatCount).fill(baseWheelHtml).join('');
+        allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
+        targetCardIndex = targetCardIndex + (middleSegment * baseCardsCount);
+      }
       
       console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
       
