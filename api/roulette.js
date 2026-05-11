@@ -982,7 +982,7 @@ async function handleRaiseBet(body, tgUserId) {
   }
   
   // Получить активный раунд
-  const round = await getActiveRound();
+  let round = await getActiveRound();
   if (!round) {
     throw new Error("Нет активного раунда");
   }
@@ -991,6 +991,27 @@ async function handleRaiseBet(body, tgUserId) {
       throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
     }
     throw new Error("Раунд не активен для повышения ставки");
+  }
+
+  // КРИТИЧЕСКИ ВАЖНО: берём блокировку раунда перед изменением ставки,
+  // чтобы не было гонки с переводом active -> spinning и выбором победителя.
+  const { data: lockedRound, error: lockError } = await supabase
+    .rpc('get_and_lock_round', { round_id: round.id });
+  if (lockError) {
+    // Если RPC недоступна, делаем жёсткий re-check статуса прямо перед апдейтами.
+    const { data: freshRound, error: freshErr } = await supabase
+      .from("roulette_rounds")
+      .select("id,status")
+      .eq("id", round.id)
+      .single();
+    if (freshErr || !freshRound || freshRound.status !== 'active') {
+      throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
+    }
+  } else if (lockedRound && lockedRound.length > 0) {
+    round = lockedRound[0];
+    if (round.status !== 'active') {
+      throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
+    }
   }
   
   // Получить ставку пользователя
