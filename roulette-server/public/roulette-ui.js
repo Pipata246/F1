@@ -74,6 +74,9 @@ class RouletteUI {
       preSpinLastTs: 0,
       preSpinOffsetPx: 0,
       preSpinAnim: null,
+      preSpinServerAnchorMs: 0,
+      preSpinLocalAnchorMs: 0,
+      preSpinStartMs: 0,
       isLoadingRound: false,
     };
 
@@ -464,7 +467,7 @@ class RouletteUI {
           }
           this.disableBetButton();
           if (!this.state.isAnimating) {
-            this.startPreSpinAnimation();
+            this.startPreSpinAnimation(data.round.timer_ends_at, data.serverTime);
           }
         } else {
           this.stopPreSpinAnimation();
@@ -671,64 +674,48 @@ class RouletteUI {
   }
 
   // ==================== PRE-SPIN (for non-initiator) ====================
-  startPreSpinAnimation() {
+  startPreSpinAnimation(timerEndsAtIso, serverTimeIso) {
     if (!this.elements.strip || this.state.isAnimating || this.state.isPreSpinning) return;
     const cards = this.elements.strip.querySelectorAll('.roulette-card');
     if (!cards.length) return;
 
+    const spinStartMs = new Date(timerEndsAtIso || 0).getTime();
+    const serverNowMs = new Date(serverTimeIso || Date.now()).getTime();
+    if (!Number.isFinite(spinStartMs) || !Number.isFinite(serverNowMs)) return;
+
     this.state.isPreSpinning = true;
+    this.state.preSpinStartMs = spinStartMs;
+    this.state.preSpinServerAnchorMs = serverNowMs;
+    this.state.preSpinLocalAnchorMs = Date.now();
     this.elements.strip.style.transition = 'none';
     this.elements.strip.style.transform = 'translateX(0)';
 
-    // Стабильная бесконечная анимация через Web Animations API:
-    // при заходе в середине spin пользователь сразу видит "живой" барабан.
-    try {
-      if (this.state.preSpinAnim) {
-        this.state.preSpinAnim.cancel();
-        this.state.preSpinAnim = null;
-      }
-      this.state.preSpinAnim = this.elements.strip.animate(
-        [
-          { transform: 'translateX(0px)' },
-          { transform: 'translateX(-510px)' }
-        ],
-        {
-          duration: 950,
-          iterations: Infinity,
-          easing: 'linear'
-        }
-      );
-    } catch (e) {
-      // Fallback для сред без WAAPI
-      this.state.preSpinLastTs = 0;
-      this.state.preSpinOffsetPx = 0;
-      const speedPxPerSec = 540;
-      const tick = (ts) => {
-        if (!this.state.isPreSpinning || !this.elements.strip) return;
-        if (!this.state.preSpinLastTs) this.state.preSpinLastTs = ts;
-        const dt = Math.min(34, ts - this.state.preSpinLastTs);
-        this.state.preSpinLastTs = ts;
-        this.state.preSpinOffsetPx += (speedPxPerSec * dt) / 1000;
-        if (this.state.preSpinOffsetPx > 510) this.state.preSpinOffsetPx -= 510;
-        this.elements.strip.style.transform = `translateX(${-this.state.preSpinOffsetPx}px)`;
-        this.state.preSpinRafId = requestAnimationFrame(tick);
-      };
+    const cardWidth = 102;
+    const cyclePx = Math.max(cardWidth, cards.length * cardWidth);
+    const speedPxPerSec = 540;
+    const tick = () => {
+      if (!this.state.isPreSpinning || !this.elements.strip) return;
+      const estServerNow = this.state.preSpinServerAnchorMs + (Date.now() - this.state.preSpinLocalAnchorMs);
+      const elapsedMs = Math.max(0, estServerNow - this.state.preSpinStartMs);
+      const traveled = (elapsedMs / 1000) * speedPxPerSec;
+      const offset = traveled % cyclePx;
+      this.elements.strip.style.transform = `translateX(${-offset}px)`;
       this.state.preSpinRafId = requestAnimationFrame(tick);
-    }
+    };
+    this.state.preSpinRafId = requestAnimationFrame(tick);
   }
 
   stopPreSpinAnimation() {
     this.state.isPreSpinning = false;
-    if (this.state.preSpinAnim) {
-      try { this.state.preSpinAnim.cancel(); } catch {}
-      this.state.preSpinAnim = null;
-    }
     if (this.state.preSpinRafId) {
       cancelAnimationFrame(this.state.preSpinRafId);
       this.state.preSpinRafId = null;
     }
     this.state.preSpinLastTs = 0;
     this.state.preSpinOffsetPx = 0;
+    this.state.preSpinServerAnchorMs = 0;
+    this.state.preSpinLocalAnchorMs = 0;
+    this.state.preSpinStartMs = 0;
     if (this.elements.strip) {
       this.elements.strip.style.transition = 'none';
       this.elements.strip.style.transform = 'translateX(0)';
