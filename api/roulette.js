@@ -578,6 +578,38 @@ async function handleGetActiveRound(body) {
   const wheelCards = betsLight.length > 0 
     ? generateWheelCards(betsLight, wheelSeed, wheelCardsCount) 
     : [];
+
+  // Жесткая защита от рассинхрона: winner_card_index должен указывать
+  // на карточку winner_user_id в этом же колесе.
+  let resolvedWinnerCardIndex = round.winner_card_index ?? null;
+  if (round.status === 'finished' && round.winner_user_id && wheelCards.length > 0) {
+    const idxNum = Number.isInteger(resolvedWinnerCardIndex) ? resolvedWinnerCardIndex : -1;
+    const idxMatches =
+      idxNum >= 0 &&
+      idxNum < wheelCards.length &&
+      String(wheelCards[idxNum]?.user_id) === String(round.winner_user_id);
+
+    if (!idxMatches) {
+      const fallbackIndex = wheelCards.findIndex(
+        (c) => String(c.user_id) === String(round.winner_user_id)
+      );
+      if (fallbackIndex >= 0) {
+        resolvedWinnerCardIndex = fallbackIndex;
+        // Self-heal: исправим индекс в БД, чтобы все последующие клиенты
+        // получали уже валидную ссылку на победную карточку.
+        try {
+          await supabase
+            .from("roulette_rounds")
+            .update({ winner_card_index: fallbackIndex })
+            .eq("id", round.id)
+            .eq("status", "finished");
+          round = { ...round, winner_card_index: fallbackIndex };
+        } catch (e) {
+          console.warn("[Roulette API] failed to self-heal winner_card_index:", e?.message || e);
+        }
+      }
+    }
+  }
   
   // ГЕНЕРИРУЕМ HTML НА СЕРВЕРЕ
   const wheelCardsHTML = wheelCards.length > 0 
@@ -617,7 +649,7 @@ async function handleGetActiveRound(body) {
     wheelCardsHTML,
     serverTime: new Date().toISOString(),
     winner,
-    winner_card_index: round.winner_card_index ?? null,
+    winner_card_index: resolvedWinnerCardIndex,
     spin_seed: round.spin_seed ?? null,
   };
 }
@@ -649,7 +681,8 @@ async function finalizeRoundSpin(supabase, round) {
   // Синхронизация "серверный победитель == выпавшая карточка"
   const spinSeed = crypto.randomBytes(4).readUInt32BE(0);
   const wheelSeed = `${round.id}`;
-  const wheelCards = generateWheelCards(bets, wheelSeed);
+  const wheelCardsCount = getAdaptiveWheelCardCount(bets.length);
+  const wheelCards = generateWheelCards(bets, wheelSeed, wheelCardsCount);
   if (!wheelCards.length) {
     await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
     throw new Error("Ошибка генерации колеса");
