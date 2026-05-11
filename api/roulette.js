@@ -1225,6 +1225,63 @@ async function handleGetRecentWinners(body) {
   };
 }
 
+async function handleGetMyHistory(body, tgUserId) {
+  const { limit = 10 } = body;
+  const safeLimit = Math.max(1, Math.min(30, Number(limit) || 10));
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  const { data, error } = await supabase
+    .from("roulette_bets")
+    .select(`
+      id,
+      user_id,
+      bet_amount,
+      chance_percent,
+      created_at,
+      round:roulette_rounds!inner(
+        id,
+        status,
+        winner_user_id,
+        winner_amount,
+        pot_amount,
+        platform_fee_amount,
+        finished_at,
+        created_at
+      )
+    `)
+    .eq("user_id", String(tgUserId))
+    .order("created_at", { ascending: false })
+    .limit(safeLimit);
+
+  if (error) throw new Error(error.message);
+
+  const history = (data || []).map((row) => {
+    const round = row.round || {};
+    const status = String(round.status || "waiting");
+    const betAmount = parseFloat(row.bet_amount || 0);
+    const myChance = parseFloat(row.chance_percent || 0);
+    const isFinished = status === "finished";
+    const isWinner = isFinished && String(round.winner_user_id || "") === String(tgUserId);
+    const result = !isFinished ? "pending" : (isWinner ? "win" : "loss");
+    const amountTon = !isFinished ? null : (isWinner ? parseFloat(round.winner_amount || 0) : -betAmount);
+
+    return {
+      bet_id: row.id,
+      round_id: round.id || null,
+      round_status: status,
+      result,
+      bet_amount: betAmount,
+      chance_percent: myChance,
+      amount_ton: amountTon,
+      total_pot: parseFloat(round.pot_amount || 0),
+      finished_at: round.finished_at || null,
+      created_at: row.created_at,
+    };
+  });
+
+  return { ok: true, history };
+}
+
 // ============================================
 // MAIN HANDLER
 // ============================================
@@ -1244,6 +1301,7 @@ module.exports = async (req, res) => {
 
     const allowedActions = new Set([
       "getRecentWinners",
+      "getMyHistory",
       "getActiveRound",
       "joinRound",
       "raiseBet",
@@ -1281,6 +1339,8 @@ module.exports = async (req, res) => {
           return await handleRaiseBet(body, tgUserId);
         case "spinRoulette":
           return await handleSpinRoulette(body, tgUserId);
+        case "getMyHistory":
+          return await handleGetMyHistory(body, tgUserId);
         default:
           throw new Error("Unknown action");
       }

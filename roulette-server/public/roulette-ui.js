@@ -38,6 +38,7 @@ class RouletteUI {
       
       // Winners
       recentWinners: document.getElementById('rouletteRecentWinners'),
+      myHistory: document.getElementById('rouletteMyHistory'),
       winnerModal: document.getElementById('rouletteWinnerModal'),
       winnerName: document.getElementById('rouletteWinnerName'),
       winnerAmount: document.getElementById('rouletteWinnerAmount'),
@@ -69,6 +70,7 @@ class RouletteUI {
       wheelCardsHTML: '', // Готовый HTML карточек от сервера
       lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
       lastWinnersLoadAt: 0, // throttling для истории победителей
+      lastMyHistoryLoadAt: 0,
       isPreSpinning: false, // ранняя анимация для non-initiator при status=spinning
       preSpinRafId: null,
       preSpinLastTs: 0,
@@ -568,6 +570,10 @@ class RouletteUI {
       if (!this.state.lastWinnersLoadAt || now - this.state.lastWinnersLoadAt > 10000) {
         this.state.lastWinnersLoadAt = now;
         this.loadRecentWinners().catch(() => {});
+      }
+      if (!this.state.lastMyHistoryLoadAt || now - this.state.lastMyHistoryLoadAt > 10000) {
+        this.state.lastMyHistoryLoadAt = now;
+        this.loadMyHistory().catch(() => {});
       }
     } catch (error) {
       console.error('[Roulette] Failed to load active round:', error);
@@ -1406,6 +1412,58 @@ class RouletteUI {
           <div style="text-align:right;">
             <div style="font-size:16px; font-weight:900; color:var(--accent);">${parseFloat(winner.winner_amount).toFixed(2)}</div>
             <div style="font-size:10px; color:var(--muted);">TON</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async loadMyHistory() {
+    try {
+      const data = await this.callAPI('getMyHistory', { limit: 8 });
+      this.renderMyHistory(data.history || []);
+    } catch (error) {
+      console.error('Failed to load my roulette history:', error);
+    }
+  }
+
+  renderMyHistory(history) {
+    if (!this.elements.myHistory) return;
+
+    if (!history || history.length === 0) {
+      this.elements.myHistory.innerHTML = `
+        <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">
+          Пока нет раундов
+        </div>
+      `;
+      return;
+    }
+
+    this.elements.myHistory.innerHTML = history.map((h) => {
+      const created = new Date(h.created_at || Date.now());
+      const timeStr = created.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+      const result = String(h.result || 'pending');
+      const resultText = result === 'win' ? 'Победа' : result === 'loss' ? 'Поражение' : 'В процессе';
+      const resultColor = result === 'win' ? 'var(--accent)' : result === 'loss' ? '#ff7a7a' : 'var(--text2)';
+
+      const amountNum = Number(h.amount_ton || 0);
+      const amountText = result === 'pending'
+        ? '—'
+        : `${amountNum > 0 ? '+' : ''}${amountNum.toFixed(2)} TON`;
+
+      return `
+        <div class="pill" style="padding:10px 12px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%;">
+            <div style="min-width:0;">
+              <div style="font-weight:800; font-size:13px; color:${resultColor};">${resultText}</div>
+              <div style="font-size:11px; color:var(--muted);">
+                Ставка ${Number(h.bet_amount || 0).toFixed(2)} TON • Шанс ${Number(h.chance_percent || 0).toFixed(1)}% • ${timeStr}
+              </div>
+            </div>
+            <div style="text-align:right; font-size:13px; font-weight:900; color:${resultColor}; white-space:nowrap;">
+              ${amountText}
+            </div>
           </div>
         </div>
       `;
