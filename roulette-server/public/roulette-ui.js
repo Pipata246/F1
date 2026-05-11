@@ -73,6 +73,7 @@ class RouletteUI {
       preSpinRafId: null,
       preSpinLastTs: 0,
       preSpinOffsetPx: 0,
+      preSpinAnim: null,
       isLoadingRound: false,
     };
 
@@ -671,13 +672,57 @@ class RouletteUI {
 
   // ==================== PRE-SPIN (for non-initiator) ====================
   startPreSpinAnimation() {
-    // Отключено: предспин давал визуальные зависания/рывки на разных устройствах.
-    // Используем только обычную финальную анимацию после получения winner.
-    return;
+    if (!this.elements.strip || this.state.isAnimating || this.state.isPreSpinning) return;
+    const cards = this.elements.strip.querySelectorAll('.roulette-card');
+    if (!cards.length) return;
+
+    this.state.isPreSpinning = true;
+    this.elements.strip.style.transition = 'none';
+    this.elements.strip.style.transform = 'translateX(0)';
+
+    // Стабильная бесконечная анимация через Web Animations API:
+    // при заходе в середине spin пользователь сразу видит "живой" барабан.
+    try {
+      if (this.state.preSpinAnim) {
+        this.state.preSpinAnim.cancel();
+        this.state.preSpinAnim = null;
+      }
+      this.state.preSpinAnim = this.elements.strip.animate(
+        [
+          { transform: 'translateX(0px)' },
+          { transform: 'translateX(-510px)' }
+        ],
+        {
+          duration: 950,
+          iterations: Infinity,
+          easing: 'linear'
+        }
+      );
+    } catch (e) {
+      // Fallback для сред без WAAPI
+      this.state.preSpinLastTs = 0;
+      this.state.preSpinOffsetPx = 0;
+      const speedPxPerSec = 540;
+      const tick = (ts) => {
+        if (!this.state.isPreSpinning || !this.elements.strip) return;
+        if (!this.state.preSpinLastTs) this.state.preSpinLastTs = ts;
+        const dt = Math.min(34, ts - this.state.preSpinLastTs);
+        this.state.preSpinLastTs = ts;
+        this.state.preSpinOffsetPx += (speedPxPerSec * dt) / 1000;
+        if (this.state.preSpinOffsetPx > 510) this.state.preSpinOffsetPx -= 510;
+        this.elements.strip.style.transform = `translateX(${-this.state.preSpinOffsetPx}px)`;
+        this.state.preSpinRafId = requestAnimationFrame(tick);
+      };
+      this.state.preSpinRafId = requestAnimationFrame(tick);
+    }
   }
 
   stopPreSpinAnimation() {
     this.state.isPreSpinning = false;
+    if (this.state.preSpinAnim) {
+      try { this.state.preSpinAnim.cancel(); } catch {}
+      this.state.preSpinAnim = null;
+    }
     if (this.state.preSpinRafId) {
       cancelAnimationFrame(this.state.preSpinRafId);
       this.state.preSpinRafId = null;
