@@ -642,8 +642,9 @@ class RouletteUI {
     // Блокируем кнопку ставки
     this.disableBetButton();
     
-    // Вызываем спин рулетки
-    this.spinRoulette();
+    // Не запускаем spin с клиента.
+    // Сервер сам автозапустит spin при истечении timer_ends_at.
+    this.startPolling();
   }
 
   disableBetButton() {

@@ -504,10 +504,33 @@ function hashCode(str) {
 async function handleGetActiveRound(body) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
-  const round = await getActiveRound();
+  let round = await getActiveRound();
   
   if (!round) {
     return { ok: true, round: null, bets: [], wheelCardsHTML: '', serverTime: new Date().toISOString() };
+  }
+
+  // SERVER-DRIVEN SPIN:
+  // Если таймер истек, сервер сам (однократно) переводит active -> spinning -> finished.
+  if (round.status === 'active' && round.timer_ends_at) {
+    const nowMs = Date.now();
+    const endMs = new Date(round.timer_ends_at).getTime();
+    if (Number.isFinite(endMs) && nowMs >= endMs) {
+      try {
+        const locked = await tryLockRoundForSpin(supabase, round.id, true);
+        if (locked) {
+          await finalizeRoundSpin(supabase, locked);
+          const { data: refreshed } = await supabase
+            .from("roulette_rounds")
+            .select("*")
+            .eq("id", round.id)
+            .single();
+          if (refreshed) round = refreshed;
+        }
+      } catch (e) {
+        console.error("[Roulette API] auto-spin failed:", e?.message || e);
+      }
+    }
   }
   
   const bets = await getRoundBets(round.id);
@@ -599,6 +622,151 @@ async function handleGetActiveRound(body) {
   };
 }
 
+async function tryLockRoundForSpin(supabase, roundId, requireTimerExpired = false) {
+  let q = supabase
+    .from("roulette_rounds")
+    .update({ status: "spinning" })
+    .eq("id", roundId)
+    .eq("status", "active");
+
+  if (requireTimerExpired) {
+    q = q.lte("timer_ends_at", new Date().toISOString());
+  }
+
+  const { data, error } = await q.select().single();
+  if (error || !data) return null;
+  return data;
+}
+
+async function finalizeRoundSpin(supabase, round) {
+  // Получить все ставки
+  const bets = await getRoundBets(round.id);
+  if (bets.length < 2) {
+    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
+    throw new Error("Недостаточно игроков для розыгрыша");
+  }
+
+  // Синхронизация "серверный победитель == выпавшая карточка"
+  const spinSeed = crypto.randomBytes(4).readUInt32BE(0);
+  const wheelSeed = `${round.id}`;
+  const wheelCards = generateWheelCards(bets, wheelSeed);
+  if (!wheelCards.length) {
+    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
+    throw new Error("Ошибка генерации колеса");
+  }
+
+  const winnerCardIndex = crypto.randomBytes(4).readUInt32BE(0) % wheelCards.length;
+  const winnerId = wheelCards[winnerCardIndex]?.user_id;
+  const winnerBet = bets.find((b) => String(b.user_id) === String(winnerId));
+
+  if (!winnerBet) {
+    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
+    throw new Error("Ошибка выбора победителя");
+  }
+
+  const totalPot = parseFloat(round.pot_amount);
+  const platformFee = totalPot * (PLATFORM_FEE_PERCENT / 100);
+  const winnerAmount = totalPot - platformFee;
+
+  const { data: winner } = await supabase
+    .from("users")
+    .select("balance")
+    .eq("tg_user_id", winnerId)
+    .single();
+
+  if (winner) {
+    await supabase
+      .from("users")
+      .update({ balance: parseFloat(winner.balance) + winnerAmount })
+      .eq("tg_user_id", winnerId);
+  }
+
+  await supabaseUpdate("roulette_rounds", round.id, {
+    status: "finished",
+    winner_user_id: winnerId,
+    winner_amount: winnerAmount,
+    platform_fee_amount: platformFee,
+    finished_at: new Date().toISOString(),
+    spin_seed: spinSeed,
+    winner_card_index: winnerCardIndex
+  });
+
+  const winnerDisplayName = displayNameFromProfile(
+    winnerBet.users?.first_name,
+    winnerBet.users?.last_name,
+    winnerBet.users?.username
+  );
+
+  let winnerPhotoUrl = null;
+  try {
+    winnerPhotoUrl = await withTimeout(getTelegramPhotoUrl(winnerId), 1500);
+  } catch {
+    winnerPhotoUrl = null;
+  }
+
+  await supabaseInsert("roulette_results", {
+    round_id: round.id,
+    winner_user_id: winnerId,
+    winner_amount: winnerAmount,
+    total_pot: totalPot,
+    platform_fee: platformFee,
+    players_count: round.players_count,
+    winner_chance_percent: parseFloat(winnerBet.chance_percent),
+    winner_display_name: winnerDisplayName,
+    winner_bet_amount: parseFloat(winnerBet.bet_amount)
+  });
+
+  for (const bet of bets) {
+    const isWinner = bet.user_id === winnerId;
+    const eventType = isWinner ? "win" : "loss";
+    const amount = isWinner ? winnerAmount : -parseFloat(bet.bet_amount);
+    const text = isWinner
+      ? `Победа в рулетке +${winnerAmount.toFixed(2)} TON`
+      : `Проигрыш в рулетке -${parseFloat(bet.bet_amount).toFixed(2)} TON`;
+
+    await supabaseInsert("pvp_balance_events", {
+      tg_user_id: bet.user_id,
+      room_id: null,
+      game_key: "roulette",
+      event_type: eventType,
+      amount: amount,
+      stake_ton: parseFloat(bet.bet_amount),
+      meta: {
+        reason: "roulette_finished",
+        text: text,
+        round_id: round.id,
+        players_count: round.players_count,
+        total_pot: totalPot,
+        winner_user_id: winnerId,
+        winner_display_name: winnerDisplayName,
+        winner_amount: winnerAmount,
+        my_chance: parseFloat(bet.chance_percent),
+        my_bet: parseFloat(bet.bet_amount)
+      }
+    });
+  }
+
+  return {
+    winner: {
+      user_id: winnerId,
+      display_name: winnerDisplayName,
+      amount: winnerAmount,
+      chance: parseFloat(winnerBet.chance_percent),
+      bet: parseFloat(winnerBet.bet_amount),
+      photo_url: winnerPhotoUrl
+    },
+    round_id: round.id,
+    winner_card_index: winnerCardIndex,
+    spin_seed: spinSeed,
+    round: {
+      id: round.id,
+      total_pot: totalPot,
+      platform_fee: platformFee,
+      players_count: round.players_count
+    }
+  };
+}
+
 async function handleSpinRoulette(body, tgUserId) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   
@@ -637,164 +805,14 @@ async function handleSpinRoulette(body, tgUserId) {
   }
   
   // АТОМАРНО меняем статус на spinning (защита от двойного спина)
-  const { data: updated, error: updateError } = await supabase
-    .from("roulette_rounds")
-    .update({ status: "spinning" })
-    .eq("id", round.id)
-    .eq("status", "active") // Обновится только если статус все еще active
-    .select()
-    .single();
-  
-  if (updateError || !updated) {
+  const lockedRound = await tryLockRoundForSpin(supabase, round.id, false);
+  if (!lockedRound) {
     // Кто-то другой уже начал спин
     throw new Error("Розыгрыш уже запущен другим игроком");
   }
-  
-  // Получить все ставки
-  const bets = await getRoundBets(round.id);
-  if (bets.length < 2) {
-    // Откатываем статус обратно
-    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
-    throw new Error("Недостаточно игроков для розыгрыша");
-  }
-  
-  // Синхронизация "серверный победитель == выпавшая карточка":
-  // 1) строим колесо из 200 карточек строго по шансам
-  // 2) выбираем случайный индекс карты (crypto)
-  // 3) победитель = колесо[index]
-  const spinSeed = crypto.randomBytes(4).readUInt32BE(0);
-  // Порядок колеса НЕ меняем в момент спина: он фиксирован round.id
-  const wheelSeed = `${round.id}`;
-  const wheelCards = generateWheelCards(bets, wheelSeed);
-  if (!wheelCards.length) {
-    // Откатываем статус обратно
-    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
-    throw new Error("Ошибка генерации колеса");
-  }
 
-  const winnerCardIndex = crypto.randomBytes(4).readUInt32BE(0) % wheelCards.length;
-  const winnerId = wheelCards[winnerCardIndex]?.user_id;
-  const winnerBet = bets.find(b => String(b.user_id) === String(winnerId));
-  
-  if (!winnerBet) {
-    // Откатываем статус обратно
-    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
-    throw new Error("Ошибка выбора победителя");
-  }
-  
-  // Рассчитать выигрыш
-  const totalPot = parseFloat(round.pot_amount);
-  const platformFee = totalPot * (PLATFORM_FEE_PERCENT / 100);
-  const winnerAmount = totalPot - platformFee;
-  
-  // Начислить выигрыш победителю
-  const { data: winner } = await supabase
-    .from("users")
-    .select("balance")
-    .eq("tg_user_id", winnerId)
-    .single();
-  
-  if (winner) {
-    await supabase
-      .from("users")
-      .update({ balance: parseFloat(winner.balance) + winnerAmount })
-      .eq("tg_user_id", winnerId);
-  }
-  
-  // Обновить раунд на finished
-  await supabaseUpdate("roulette_rounds", round.id, {
-    status: "finished",
-    winner_user_id: winnerId,
-    winner_amount: winnerAmount,
-    platform_fee_amount: platformFee,
-    finished_at: new Date().toISOString(),
-    spin_seed: spinSeed,
-    winner_card_index: winnerCardIndex
-  });
-  
-  // Сохранить результат в историю
-  const winnerDisplayName = displayNameFromProfile(
-    winnerBet.users?.first_name,
-    winnerBet.users?.last_name,
-    winnerBet.users?.username
-  );
-
-  // Фото победителя (быстро, с таймаутом) — нужно для модалки у всех.
-  let winnerPhotoUrl = null;
-  try {
-    winnerPhotoUrl = await withTimeout(getTelegramPhotoUrl(winnerId), 1500);
-  } catch {
-    winnerPhotoUrl = null;
-  }
-  
-  await supabaseInsert("roulette_results", {
-    round_id: round.id,
-    winner_user_id: winnerId,
-    winner_amount: winnerAmount,
-    total_pot: totalPot,
-    platform_fee: platformFee,
-    players_count: round.players_count,
-    winner_chance_percent: parseFloat(winnerBet.chance_percent),
-    winner_display_name: winnerDisplayName,
-    winner_bet_amount: parseFloat(winnerBet.bet_amount)
-  });
-  
-  // Добавить записи в pvp_balance_events для истории баланса
-  for (const bet of bets) {
-    const isWinner = bet.user_id === winnerId;
-    const eventType = isWinner ? 'win' : 'loss';
-    const amount = isWinner ? winnerAmount : -parseFloat(bet.bet_amount);
-    const displayName = displayNameFromProfile(
-      bet.users?.first_name,
-      bet.users?.last_name,
-      bet.users?.username
-    );
-    const text = isWinner 
-      ? `Победа в рулетке +${winnerAmount.toFixed(2)} TON`
-      : `Проигрыш в рулетке -${parseFloat(bet.bet_amount).toFixed(2)} TON`;
-    
-    await supabaseInsert("pvp_balance_events", {
-      tg_user_id: bet.user_id,
-      room_id: null,
-      game_key: 'roulette',
-      event_type: eventType,
-      amount: amount,
-      stake_ton: parseFloat(bet.bet_amount),
-      meta: {
-        reason: 'roulette_finished',
-        text: text,
-        round_id: round.id,
-        players_count: round.players_count,
-        total_pot: totalPot,
-        winner_user_id: winnerId,
-        winner_display_name: winnerDisplayName,
-        winner_amount: winnerAmount,
-        my_chance: parseFloat(bet.chance_percent),
-        my_bet: parseFloat(bet.bet_amount)
-      }
-    });
-  }
-  
-  return {
-    ok: true,
-    winner: {
-      user_id: winnerId,
-      display_name: winnerDisplayName,
-      amount: winnerAmount,
-      chance: parseFloat(winnerBet.chance_percent),
-      bet: parseFloat(winnerBet.bet_amount),
-      photo_url: winnerPhotoUrl
-    },
-    round_id: round.id, // ВАЖНО: для синхронизации анимации
-    winner_card_index: winnerCardIndex,
-    spin_seed: spinSeed,
-    round: {
-      id: round.id,
-      total_pot: totalPot,
-      platform_fee: platformFee,
-      players_count: round.players_count
-    }
-  };
+  const result = await finalizeRoundSpin(supabase, lockedRound);
+  return { ok: true, ...result };
 }
 
 async function handleJoinRound(body, tgUserId) {
