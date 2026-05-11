@@ -1214,21 +1214,13 @@
         <div class="winners-section">
           <div class="section-header">
             <h3>Последние победители</h3>
+            <button id="rouletteOpenHistoryBtn" class="btn ghost" style="padding:8px 12px; border-radius:12px; font-size:12px;">
+              Статистика
+            </button>
           </div>
           <div id="rouletteRecentWinners" class="winners-list">
             <div style="text-align:center; padding:24px; color:rgba(255,255,255,0.46); font-size:13px;">
               Пока нет победителей
-            </div>
-          </div>
-        </div>
-
-        <div class="winners-section">
-          <div class="section-header">
-            <h3>Мои последние раунды</h3>
-          </div>
-          <div id="rouletteMyHistory" class="winners-list">
-            <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">
-              Загрузка...
             </div>
           </div>
         </div>
@@ -1321,6 +1313,25 @@
         </div>
         <div class="rouletteWinnerChance">
           Шанс: <span id="rouletteWinnerChance">0.0</span>%
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="rouletteHistoryModal" class="modalWrap">
+    <div class="modal modal-card--rules" style="max-width:520px;">
+      <div class="modal-header">
+        <h3>Мои последние раунды</h3>
+        <button class="modal-close" id="rouletteHistoryCloseBtn" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div id="rouletteMyHistory" class="winners-list" style="margin-bottom:8px;">
+        <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">
+          Загрузка...
         </div>
       </div>
     </div>
@@ -3299,7 +3310,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROULETTE_FIX_20260511_23"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROULETTE_FIX_20260511_24"></script>
 
 </body>
 </html>

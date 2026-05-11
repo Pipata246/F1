@@ -39,6 +39,9 @@ class RouletteUI {
       // Winners
       recentWinners: document.getElementById('rouletteRecentWinners'),
       myHistory: document.getElementById('rouletteMyHistory'),
+      openHistoryBtn: document.getElementById('rouletteOpenHistoryBtn'),
+      historyModal: document.getElementById('rouletteHistoryModal'),
+      historyCloseBtn: document.getElementById('rouletteHistoryCloseBtn'),
       winnerModal: document.getElementById('rouletteWinnerModal'),
       winnerName: document.getElementById('rouletteWinnerName'),
       winnerAmount: document.getElementById('rouletteWinnerAmount'),
@@ -141,6 +144,18 @@ class RouletteUI {
   init() {
     // Setup event listeners
     this.elements.betBtn?.addEventListener('click', () => this.handleBet());
+    this.elements.openHistoryBtn?.addEventListener('click', () => {
+      this.elements.historyModal?.classList.add('show');
+      this.loadMyHistory().catch(() => {});
+    });
+    this.elements.historyCloseBtn?.addEventListener('click', () => {
+      this.elements.historyModal?.classList.remove('show');
+    });
+    this.elements.historyModal?.addEventListener('click', (e) => {
+      if (e.target === this.elements.historyModal) {
+        this.elements.historyModal.classList.remove('show');
+      }
+    });
     
     // Initialize with empty state
     this.updateStatus('waiting');
