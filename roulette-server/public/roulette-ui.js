@@ -1026,17 +1026,7 @@ class RouletteUI {
         targetCardIndex = allCards.indexOf(targetCard);
       }
 
-      // Железная страховка от рассинхрона:
-      // если индекс не указывает на server winner, принудительно берем карту winnerUserId.
-      const indexedWinnerId = String(allCards[targetCardIndex]?.getAttribute('data-user-id') || '');
-      if (indexedWinnerId !== String(winnerUserId)) {
-        const forcedIndex = allCards.findIndex(
-          (card) => String(card.getAttribute('data-user-id')) === String(winnerUserId)
-        );
-        if (forcedIndex >= 0) {
-          targetCardIndex = forcedIndex;
-        }
-      }
+      // Истина = winner_card_index с сервера. Принудительно НЕ переопределяем индекс.
       
       console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
       

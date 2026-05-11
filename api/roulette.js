@@ -693,33 +693,25 @@ async function handleGetActiveRound(body) {
     ? generateWheelCards(betsLight, wheelSeed, wheelCardsCount) 
     : [];
 
-  // Жесткая защита от рассинхрона: winner_card_index должен указывать
-  // на карточку winner_user_id в этом же колесе.
+  // Жесткая защита от рассинхрона:
+  // Истина = winner_card_index (то, что выпало на барабане).
+  // Если есть расхождение, исправляем winner_user_id под индекс барабана.
   let resolvedWinnerCardIndex = round.winner_card_index ?? null;
   if (round.status === 'finished' && round.winner_user_id && wheelCards.length > 0) {
     const idxNum = Number.isInteger(resolvedWinnerCardIndex) ? resolvedWinnerCardIndex : -1;
-    const idxMatches =
-      idxNum >= 0 &&
-      idxNum < wheelCards.length &&
-      String(wheelCards[idxNum]?.user_id) === String(round.winner_user_id);
-
-    if (!idxMatches) {
-      const fallbackIndex = wheelCards.findIndex(
-        (c) => String(c.user_id) === String(round.winner_user_id)
-      );
-      if (fallbackIndex >= 0) {
-        resolvedWinnerCardIndex = fallbackIndex;
-        // Self-heal: исправим индекс в БД, чтобы все последующие клиенты
-        // получали уже валидную ссылку на победную карточку.
+    const indexIsValid = idxNum >= 0 && idxNum < wheelCards.length;
+    if (indexIsValid) {
+      const wheelWinnerUserId = String(wheelCards[idxNum]?.user_id || "");
+      if (wheelWinnerUserId && wheelWinnerUserId !== String(round.winner_user_id)) {
         try {
           await supabase
             .from("roulette_rounds")
-            .update({ winner_card_index: fallbackIndex })
+            .update({ winner_user_id: wheelWinnerUserId })
             .eq("id", round.id)
             .eq("status", "finished");
-          round = { ...round, winner_card_index: fallbackIndex };
+          round = { ...round, winner_user_id: wheelWinnerUserId };
         } catch (e) {
-          console.warn("[Roulette API] failed to self-heal winner_card_index:", e?.message || e);
+          console.warn("[Roulette API] failed to self-heal winner_user_id:", e?.message || e);
         }
       }
     }
