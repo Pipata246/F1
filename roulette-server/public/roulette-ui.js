@@ -314,6 +314,13 @@ class RouletteUI {
           
           // Запускаем локальный таймер для плавного отображения
           this.startSmoothTimer();
+          // Показать значение сразу (без ожидания первого тика interval),
+          // чтобы старт был визуально одинаковым у всех.
+          const initialRemaining = Math.max(0, Math.min(
+            20,
+            Math.ceil((this.state.timerEndTime - this.state.lastServerTime) / 1000)
+          ));
+          this.updateTimerDisplay(initialRemaining);
           
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.remove('hidden');
@@ -581,12 +588,19 @@ class RouletteUI {
       const estimatedServerTime = this.state.lastServerTime + localElapsed;
       
       // Вычисляем оставшееся время
-      const remaining = Math.max(0, Math.floor((this.state.timerEndTime - estimatedServerTime) / 1000));
+      // ceil + clamp до 20: визуально стартует с 20 и идет синхронно до 0.
+      const remaining = Math.max(
+        0,
+        Math.min(20, Math.ceil((this.state.timerEndTime - estimatedServerTime) / 1000))
+      );
       
       this.updateTimerDisplay(remaining);
       
       // Если время истекло - запускаем спин
       if (remaining <= 0 && !this.state.isSpinning) {
+        if (this.elements.timerWrap) {
+          this.elements.timerWrap.classList.add('hidden');
+        }
         this.stopSmoothTimer();
         this.onTimerEnd();
       }

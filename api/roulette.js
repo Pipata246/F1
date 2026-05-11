@@ -622,14 +622,15 @@ async function handleSpinRoulette(body, tgUserId) {
     throw new Error("Раунд не активен");
   }
   
-  // Проверить что таймер истек (с запасом 5 секунд для сетевой задержки)
+  // Проверить что таймер истек.
+  // ВАЖНО: без раннего старта, иначе у инициатора спин начинается раньше остальных.
   if (round.timer_ends_at) {
     const endsAt = new Date(round.timer_ends_at);
     const now = new Date();
     const diff = now - endsAt;
     
-    // Разрешаем спин если прошло хотя бы -5 секунды (5 секунд до истечения)
-    if (diff < -5000) {
+    // Разрешаем старт только когда таймер реально истек (с минимальным допуском на лаг).
+    if (diff < -150) {
       const remaining = Math.ceil(-diff / 1000);
       throw new Error(`Таймер еще не истек. Осталось ${remaining} сек`);
     }
