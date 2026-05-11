@@ -5,6 +5,10 @@
  * VERSION: AVATARS20260508 - AVATARS WITH 2 SECOND TIMEOUT
  */
 
+const ROULETTE_SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
+const ROULETTE_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
+
 class RouletteUI {
   constructor() {
     this.elements = {
@@ -72,6 +76,11 @@ class RouletteUI {
     };
 
     this.pollInterval = null;
+    this.realtimeClient = null;
+    this.realtimeChannel = null;
+    this.realtimeReconnectTimer = null;
+    this.realtimeReloadTimer = null;
+    this.realtimeMode = false; // true => realtime основной, polling fallback
     this.timerInterval = null; // Интервал для плавного обновления таймера
     this.init();
   }
@@ -139,6 +148,107 @@ class RouletteUI {
         this.state.myUserId = user.id;
       }
     }
+  }
+
+  // ==================== DATA SYNC MODE ====================
+  initRealtimeClient() {
+    if (this.realtimeClient) return true;
+    if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+      console.warn('[Roulette] Supabase client is unavailable in window');
+      return false;
+    }
+    try {
+      this.realtimeClient = window.supabase.createClient(
+        ROULETTE_SUPABASE_URL,
+        ROULETTE_SUPABASE_ANON_KEY
+      );
+      return true;
+    } catch (e) {
+      console.warn('[Roulette] Failed to create Supabase realtime client:', e?.message || e);
+      return false;
+    }
+  }
+
+  scheduleRealtimeReload() {
+    if (this.realtimeReloadTimer) return;
+    this.realtimeReloadTimer = setTimeout(() => {
+      this.realtimeReloadTimer = null;
+      this.loadActiveRound().catch(() => {});
+    }, 120);
+  }
+
+  startRealtime() {
+    if (!this.initRealtimeClient()) return false;
+    if (!this.realtimeClient || this.realtimeChannel) return true;
+
+    const channelName = `roulette-live-${Math.random().toString(36).slice(2, 10)}`;
+    this.realtimeChannel = this.realtimeClient
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'roulette_rounds' },
+        () => this.scheduleRealtimeReload()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'roulette_bets' },
+        () => this.scheduleRealtimeReload()
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          this.realtimeMode = true;
+          this.stopPolling();
+          this.loadActiveRound().catch(() => {});
+          return;
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          this.realtimeMode = false;
+          this.startPolling(); // fallback
+          this.stopRealtime();
+          if (!this.realtimeReconnectTimer) {
+            this.realtimeReconnectTimer = setTimeout(() => {
+              this.realtimeReconnectTimer = null;
+              this.startRealtime();
+            }, 2500);
+          }
+        }
+      });
+
+    return true;
+  }
+
+  stopRealtime() {
+    if (this.realtimeReconnectTimer) {
+      clearTimeout(this.realtimeReconnectTimer);
+      this.realtimeReconnectTimer = null;
+    }
+    if (this.realtimeReloadTimer) {
+      clearTimeout(this.realtimeReloadTimer);
+      this.realtimeReloadTimer = null;
+    }
+    if (this.realtimeClient && this.realtimeChannel) {
+      try {
+        this.realtimeClient.removeChannel(this.realtimeChannel);
+      } catch {}
+    }
+    this.realtimeChannel = null;
+  }
+
+  startDataSync() {
+    // Realtime как основной режим, polling как fallback.
+    const realtimeStarted = this.startRealtime();
+    if (!realtimeStarted) {
+      this.startPolling();
+    } else {
+      // Пока не получили SUBSCRIBED, держим polling как временный fallback.
+      this.startPolling();
+    }
+  }
+
+  stopDataSync() {
+    this.stopPolling();
+    this.stopRealtime();
+    this.realtimeMode = false;
   }
 
   // ==================== API CALLS ====================
@@ -1265,13 +1375,13 @@ function initRouletteUI() {
   }
   // Load initial data and start polling
   rouletteUI.loadActiveRound();
-  rouletteUI.startPolling();
+  rouletteUI.startDataSync();
 }
 
 // Stop polling when leaving roulette tab
 function stopRouletteUI() {
   if (rouletteUI) {
-    rouletteUI.stopPolling();
+    rouletteUI.stopDataSync();
   }
 }
 
@@ -1306,7 +1416,7 @@ if (typeof window !== 'undefined') {
       const hash = window.location.hash.slice(1);
       if (hash === 'roulette' && rouletteUI) {
         rouletteUI.loadActiveRound();
-        rouletteUI.startPolling();
+        rouletteUI.startDataSync();
       }
     }
   });
