@@ -255,6 +255,8 @@ class RouletteUI {
   stopDataSync() {
     this.stopPolling();
     this.stopRealtime();
+    this.stopPreSpinAnimation();
+    this.stopSmoothTimer();
     this.realtimeMode = false;
   }
 
@@ -675,7 +677,9 @@ class RouletteUI {
 
   // ==================== PRE-SPIN (for non-initiator) ====================
   startPreSpinAnimation(timerEndsAtIso, serverTimeIso) {
-    if (!this.elements.strip || this.state.isAnimating || this.state.isPreSpinning) return;
+    if (!this.elements.strip || this.state.isAnimating) return;
+    // Всегда перезапускаем pre-spin на свежем серверном якоре времени.
+    this.stopPreSpinAnimation();
     const cards = this.elements.strip.querySelectorAll('.roulette-card');
     if (!cards.length) return;
 
