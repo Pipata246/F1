@@ -189,28 +189,18 @@ class RouletteUI {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'roulette_rounds' },
-        (payload) => {
-          const rowId = String(payload?.new?.id || payload?.old?.id || '');
-          const currentId = String(this.state.currentRound?.id || '');
-          // Реакция только на текущий раунд (или если currentRound ещё не известен).
-          if (currentId && rowId && rowId !== currentId) return;
-          this.scheduleRealtimeReload();
-        }
+        () => this.scheduleRealtimeReload()
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'roulette_bets' },
-        (payload) => {
-          const roundId = String(payload?.new?.round_id || payload?.old?.round_id || '');
-          const currentId = String(this.state.currentRound?.id || '');
-          if (currentId && roundId && roundId !== currentId) return;
-          this.scheduleRealtimeReload();
-        }
+        () => this.scheduleRealtimeReload()
       )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           this.realtimeMode = true;
-          this.stopPolling();
+          // Polling НЕ выключаем: это страховка, если realtime-событие потерялось.
+          this.startPolling();
           this.loadActiveRound().catch(() => {});
           return;
         }
@@ -572,7 +562,7 @@ class RouletteUI {
   }
 
   startPolling() {
-    // Более частый polling убирает ~1s задержку старта у non-initiator.
+    // Страховочный polling для гарантии авто-обновления даже при проблемах realtime.
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
     }
@@ -583,7 +573,7 @@ class RouletteUI {
       if (!this.state.isAnimating) {
         this.loadActiveRound();
       }
-    }, 300);
+    }, this.realtimeMode ? 1500 : 700);
   }
 
   stopPolling() {
