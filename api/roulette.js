@@ -14,6 +14,16 @@ const PLATFORM_FEE_PERCENT = 5.0;
 // Длительность таймера (секунды)
 const TIMER_DURATION = 20;
 
+function displayNameFromProfile(first_name, last_name, username) {
+  const fn = String(first_name || "").trim();
+  const ln = String(last_name || "").trim();
+  const un = String(username || "").trim();
+  const full = [fn, ln].filter(Boolean).join(" ").trim();
+  if (full) return full.slice(0, 64);
+  if (un) return `@${un}`.slice(0, 64);
+  return "Player";
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -360,7 +370,9 @@ function generateWheelCards(bets, seedInput, totalCards = 360) {
     const share = amt / totalBet;
     return {
       user_id: bet.user_id,
-      display_name: bet.display_name || bet.users?.username || bet.users?.first_name || "Player",
+      display_name:
+        bet.display_name ||
+        displayNameFromProfile(bet.users?.first_name, bet.users?.last_name, bet.users?.username),
       photo_url: bet.photo_url || null,
       colorIndex: Math.abs(hashCode(String(bet.user_id))) % 5,
       share,
@@ -504,7 +516,11 @@ async function handleGetActiveRound(body) {
   // Поэтому тянем через кэш и с коротким таймаутом (best-effort).
   const betsWithPhotos = await Promise.all(
     (bets || []).map(async (bet) => {
-      const displayName = bet.users?.username || bet.users?.first_name || "Player";
+      const displayName = displayNameFromProfile(
+        bet.users?.first_name,
+        bet.users?.last_name,
+        bet.users?.username
+      );
       const photoUrl = await getTelegramPhotoUrlCached(bet.user_id, 650);
       return {
         id: bet.id,
@@ -687,9 +703,11 @@ async function handleSpinRoulette(body, tgUserId) {
   });
   
   // Сохранить результат в историю
-  const winnerDisplayName = winnerBet.users?.username 
-    || winnerBet.users?.first_name 
-    || "Player";
+  const winnerDisplayName = displayNameFromProfile(
+    winnerBet.users?.first_name,
+    winnerBet.users?.last_name,
+    winnerBet.users?.username
+  );
 
   // Фото победителя (быстро, с таймаутом) — нужно для модалки у всех.
   let winnerPhotoUrl = null;
@@ -716,7 +734,11 @@ async function handleSpinRoulette(body, tgUserId) {
     const isWinner = bet.user_id === winnerId;
     const eventType = isWinner ? 'win' : 'loss';
     const amount = isWinner ? winnerAmount : -parseFloat(bet.bet_amount);
-    const displayName = bet.users?.username || bet.users?.first_name || "Player";
+    const displayName = displayNameFromProfile(
+      bet.users?.first_name,
+      bet.users?.last_name,
+      bet.users?.username
+    );
     const text = isWinner 
       ? `Победа в рулетке +${winnerAmount.toFixed(2)} TON`
       : `Проигрыш в рулетке -${parseFloat(bet.bet_amount).toFixed(2)} TON`;
