@@ -1181,13 +1181,15 @@ class RouletteUI {
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
-      const totalDistance = extraSpins + Math.abs(finalPosition);
+      const spinTargetPosition = finalPosition - extraSpins;
+      const totalDistance = Math.abs(spinTargetPosition);
       
       const pxPerSec = 850; // ограничиваем стартовую скорость
       const duration = Math.max(7600, Math.min(11000, Math.round((Math.abs(totalDistance) / pxPerSec) * 1000)));
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
+        spinTargetPosition,
         totalDistance,
         extraSpins,
         duration,
@@ -1205,7 +1207,7 @@ class RouletteUI {
         requestAnimationFrame(() => {
           // Мягкий старт без резкого ускорения в начале.
           this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.12, 0, 0.20, 1)`;
-          this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
+          this.elements.strip.style.transform = `translateX(${spinTargetPosition}px)`;
           
           console.log('[Roulette] ✅ Animation started', {
             duration,
