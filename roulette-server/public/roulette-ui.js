@@ -307,6 +307,16 @@ class RouletteUI {
     }
   }
 
+  generateRequestId(prefix) {
+    const p = String(prefix || "rq");
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `${p}_${crypto.randomUUID()}`;
+      }
+    } catch {}
+    return `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
   async loadActiveRound() {
     try {
       // Защита от гонок (polling + realtime одновременно).
@@ -1110,7 +1120,10 @@ class RouletteUI {
       const action = wasInRound ? 'raiseBet' : 'joinRound';
       const paramName = wasInRound ? 'raiseAmount' : 'betAmount';
       
-      await this.callAPI(action, { [paramName]: amount });
+      await this.callAPI(action, {
+        [paramName]: amount,
+        request_id: this.generateRequestId(action),
+      });
       
       // Показываем правильное уведомление на основе ПРЕДЫДУЩЕГО состояния
       this.showToast(wasInRound ? 'Ставка повышена!' : 'Ставка принята!');
@@ -1168,7 +1181,9 @@ class RouletteUI {
       this.updateStatus('spinning');
       
       // Вызываем API для получения победителя
-      const data = await this.callAPI('spinRoulette');
+      const data = await this.callAPI('spinRoulette', {
+        request_id: this.generateRequestId('spinRoulette'),
+      });
       
       console.log('[Roulette] Winner from API:', data.winner);
       console.log('[Roulette] Round ID from API:', data.round_id);

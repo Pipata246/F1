@@ -13,6 +13,10 @@ const PLATFORM_FEE_PERCENT = 5.0;
 
 // Длительность таймера (секунды)
 const TIMER_DURATION = 20;
+const ACTION_RATE_LIMIT_PER_MIN = 10;
+const ACTION_MIN_INTERVAL_MS = 400;
+const MUTATING_ACTIONS = new Set(["joinRound", "raiseBet", "spinRoulette"]);
+const localActionRate = new Map();
 
 function displayNameFromProfile(first_name, last_name, username) {
   const fn = String(first_name || "").trim();
@@ -105,6 +109,116 @@ async function supabaseUpdate(table, id, data) {
   const { data: result, error } = await supabase.from(table).update(data).eq("id", id).select().single();
   if (error) throw new Error(error.message);
   return result;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function normalizeRequestId(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  return v.slice(0, 128);
+}
+
+function enforceLocalRateLimits(tgUserId) {
+  const key = String(tgUserId);
+  const now = Date.now();
+  const prev = localActionRate.get(key) || { windowStart: now, count: 0, lastAt: 0 };
+
+  if (now - prev.windowStart >= 60_000) {
+    prev.windowStart = now;
+    prev.count = 0;
+  }
+  if (prev.count >= ACTION_RATE_LIMIT_PER_MIN) {
+    throw new Error("Слишком много запросов. Попробуйте через минуту.");
+  }
+  if (prev.lastAt && now - prev.lastAt < ACTION_MIN_INTERVAL_MS) {
+    throw new Error("Слишком частые действия. Подождите немного.");
+  }
+  prev.count += 1;
+  prev.lastAt = now;
+  localActionRate.set(key, prev);
+}
+
+async function enforceDbRateLimit(supabase, tgUserId) {
+  const since = new Date(Date.now() - 60_000).toISOString();
+  const { count, error } = await supabase
+    .from("roulette_action_logs")
+    .select("id", { count: "exact", head: true })
+    .eq("tg_user_id", String(tgUserId))
+    .gte("created_at", since);
+  if (error) {
+    console.warn("[Roulette API] rate-limit db check failed:", error.message);
+    return;
+  }
+  if ((count || 0) >= ACTION_RATE_LIMIT_PER_MIN) {
+    throw new Error("Слишком много запросов. Попробуйте через минуту.");
+  }
+}
+
+async function enforceDbMinInterval(supabase, tgUserId) {
+  const { data, error } = await supabase
+    .from("roulette_action_logs")
+    .select("created_at")
+    .eq("tg_user_id", String(tgUserId))
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error || !data?.[0]?.created_at) return;
+  const lastMs = new Date(data[0].created_at).getTime();
+  if (Number.isFinite(lastMs) && Date.now() - lastMs < ACTION_MIN_INTERVAL_MS) {
+    throw new Error("Слишком частые действия. Подождите немного.");
+  }
+}
+
+async function createActionLogProcessing(supabase, { tgUserId, action, requestId, meta }) {
+  const payload = {
+    tg_user_id: String(tgUserId),
+    action: String(action),
+    request_id: requestId || null,
+    status: "processing",
+    meta: meta || {},
+    updated_at: nowIso(),
+  };
+  const { data, error } = await supabase.from("roulette_action_logs").insert(payload).select().single();
+  if (!error && data) return { mode: "new", row: data };
+
+  const errMsg = String(error?.message || "");
+  if (/roulette_action_logs|does not exist|schema cache/i.test(errMsg)) {
+    // Миграция ещё не применена — продолжаем без DB-idempotency, чтобы не падать в проде.
+    return { mode: "new", row: null };
+  }
+
+  // duplicate idempotency key
+  if (requestId && String(error?.code || "") === "23505") {
+    const { data: existing } = await supabase
+      .from("roulette_action_logs")
+      .select("id,status,result_json,created_at")
+      .eq("tg_user_id", String(tgUserId))
+      .eq("action", String(action))
+      .eq("request_id", requestId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const row = existing?.[0];
+    if (row?.status === "success" && row?.result_json) {
+      return { mode: "replay", row };
+    }
+    throw new Error("Повторный запрос уже обрабатывается");
+  }
+
+  throw new Error(error?.message || "Не удалось создать action log");
+}
+
+async function finalizeActionLog(supabase, id, status, result, reason, suspicious = false) {
+  if (!id) return;
+  const patch = {
+    status,
+    updated_at: nowIso(),
+    ...(reason ? { reason: String(reason).slice(0, 400) } : {}),
+    ...(typeof suspicious === "boolean" ? { suspicious } : {}),
+  };
+  if (result !== undefined) patch.result_json = result;
+  await supabase.from("roulette_action_logs").update(patch).eq("id", id);
 }
 
 // ============================================
@@ -877,6 +991,12 @@ async function handleJoinRound(body, tgUserId) {
   } else if (round.status === 'spinning') {
     throw new Error("Розыгрыш уже идет, дождитесь следующего раунда");
   }
+  if (round.status === 'active' && round.timer_ends_at) {
+    const msLeft = new Date(round.timer_ends_at).getTime() - Date.now();
+    if (Number.isFinite(msLeft) && msLeft <= 0) {
+      throw new Error("Таймер истек, дождитесь следующего раунда");
+    }
+  }
   
   // Получить раунд с блокировкой FOR UPDATE
   const { data: lockedRound, error: lockError } = await supabase
@@ -991,6 +1111,12 @@ async function handleRaiseBet(body, tgUserId) {
       throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
     }
     throw new Error("Раунд не активен для повышения ставки");
+  }
+  if (round.timer_ends_at) {
+    const msLeft = new Date(round.timer_ends_at).getTime() - Date.now();
+    if (Number.isFinite(msLeft) && msLeft <= 0) {
+      throw new Error("Таймер истек, ставку повышать нельзя");
+    }
   }
 
   // КРИТИЧЕСКИ ВАЖНО: берём блокировку раунда перед изменением ставки,
@@ -1124,6 +1250,17 @@ module.exports = async (req, res) => {
       return res.status(400).json({ ok: false, error: "Missing action" });
     }
 
+    const allowedActions = new Set([
+      "getRecentWinners",
+      "getActiveRound",
+      "joinRound",
+      "raiseBet",
+      "spinRoulette",
+    ]);
+    if (!allowedActions.has(action)) {
+      return res.status(400).json({ ok: false, error: "Unknown action" });
+    }
+
     // Actions that don't require auth
     if (action === "getRecentWinners") {
       const result = await handleGetRecentWinners(body);
@@ -1137,28 +1274,63 @@ module.exports = async (req, res) => {
     }
 
     const tgUserId = verification.user.id;
+    const requestId = normalizeRequestId(body.request_id || body.idempotency_key || body.idempotencyKey);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Route actions
     let result;
-    switch (action) {
-      case "getActiveRound":
-        result = await handleGetActiveRound(body);
-        break;
-      
-      case "joinRound":
-        result = await handleJoinRound(body, tgUserId);
-        break;
-      
-      case "raiseBet":
-        result = await handleRaiseBet(body, tgUserId);
-        break;
-      
-      case "spinRoulette":
-        result = await handleSpinRoulette(body, tgUserId);
-        break;
-      
-      default:
-        return res.status(400).json({ ok: false, error: "Unknown action" });
+    const executeAction = async () => {
+      switch (action) {
+        case "getActiveRound":
+          return await handleGetActiveRound(body);
+        case "joinRound":
+          return await handleJoinRound(body, tgUserId);
+        case "raiseBet":
+          return await handleRaiseBet(body, tgUserId);
+        case "spinRoulette":
+          return await handleSpinRoulette(body, tgUserId);
+        default:
+          throw new Error("Unknown action");
+      }
+    };
+
+    if (!MUTATING_ACTIONS.has(action)) {
+      result = await executeAction();
+    } else {
+      enforceLocalRateLimits(tgUserId);
+      await enforceDbRateLimit(supabase, tgUserId);
+      await enforceDbMinInterval(supabase, tgUserId);
+
+      const logStart = await createActionLogProcessing(supabase, {
+        tgUserId,
+        action,
+        requestId,
+        meta: {
+          ip: req.headers["x-forwarded-for"] || req.socket?.remoteAddress || null,
+          user_agent: req.headers["user-agent"] || null,
+        },
+      });
+
+      if (logStart.mode === "replay") {
+        return res.status(200).json(logStart.row.result_json);
+      }
+
+      try {
+        result = await executeAction();
+        await finalizeActionLog(supabase, logStart.row?.id, "success", result, null, false);
+      } catch (e) {
+        const msg = String(e?.message || e);
+        const suspicious = /duplicate|already|гонк|част|rate|таймер истек/i.test(msg);
+        await finalizeActionLog(
+          supabase,
+          logStart.row?.id,
+          "rejected",
+          { ok: false, error: msg },
+          msg,
+          suspicious
+        );
+        throw e;
+      }
     }
 
     return res.status(200).json(result);
