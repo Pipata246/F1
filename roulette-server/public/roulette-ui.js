@@ -73,6 +73,7 @@ class RouletteUI {
       preSpinRafId: null,
       preSpinLastTs: 0,
       preSpinOffsetPx: 0,
+      isLoadingRound: false,
     };
 
     this.pollInterval = null;
@@ -173,6 +174,7 @@ class RouletteUI {
     if (this.realtimeReloadTimer) return;
     this.realtimeReloadTimer = setTimeout(() => {
       this.realtimeReloadTimer = null;
+      if (this.state.isAnimating) return; // не вмешиваемся в финальную анимацию
       this.loadActiveRound().catch(() => {});
     }, 120);
   }
@@ -187,12 +189,23 @@ class RouletteUI {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'roulette_rounds' },
-        () => this.scheduleRealtimeReload()
+        (payload) => {
+          const rowId = String(payload?.new?.id || payload?.old?.id || '');
+          const currentId = String(this.state.currentRound?.id || '');
+          // Реакция только на текущий раунд (или если currentRound ещё не известен).
+          if (currentId && rowId && rowId !== currentId) return;
+          this.scheduleRealtimeReload();
+        }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'roulette_bets' },
-        () => this.scheduleRealtimeReload()
+        (payload) => {
+          const roundId = String(payload?.new?.round_id || payload?.old?.round_id || '');
+          const currentId = String(this.state.currentRound?.id || '');
+          if (currentId && roundId && roundId !== currentId) return;
+          this.scheduleRealtimeReload();
+        }
       )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
@@ -306,9 +319,14 @@ class RouletteUI {
 
   async loadActiveRound() {
     try {
+      // Защита от гонок (polling + realtime одновременно).
+      if (this.state.isLoadingRound) return;
+      this.state.isLoadingRound = true;
+
       // Во время локальной анимации не трогаем UI из polling,
       // иначе можно сбросить DOM колеса и получить "пропали карточки".
       if (this.state.isAnimating) {
+        this.state.isLoadingRound = false;
         return;
       }
 
@@ -548,6 +566,8 @@ class RouletteUI {
     } catch (error) {
       console.error('[Roulette] Failed to load active round:', error);
       // НЕ показываем toast - тихо логируем ошибку
+    } finally {
+      this.state.isLoadingRound = false;
     }
   }
 
