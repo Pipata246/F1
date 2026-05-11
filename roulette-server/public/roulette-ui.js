@@ -66,7 +66,9 @@ class RouletteUI {
       lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
       lastWinnersLoadAt: 0, // throttling для истории победителей
       isPreSpinning: false, // ранняя анимация для non-initiator при status=spinning
-      preSpinTimer: null,
+      preSpinRafId: null,
+      preSpinLastTs: 0,
+      preSpinOffsetPx: 0,
     };
 
     this.pollInterval = null;
@@ -544,26 +546,31 @@ class RouletteUI {
     if (!cards.length) return;
 
     this.state.isPreSpinning = true;
-    const loop = () => {
+    this.state.preSpinLastTs = 0;
+    this.state.preSpinOffsetPx = 0;
+    this.elements.strip.style.transition = 'none';
+
+    const speedPxPerSec = 360; // мягкий стабильный проскролл до финального спина
+    const tick = (ts) => {
       if (!this.state.isPreSpinning || !this.elements.strip) return;
-      this.elements.strip.style.transition = 'transform 900ms linear';
-      this.elements.strip.style.transform = 'translateX(-510px)';
-      this.state.preSpinTimer = setTimeout(() => {
-        if (!this.elements.strip || !this.state.isPreSpinning) return;
-        this.elements.strip.style.transition = 'none';
-        this.elements.strip.style.transform = 'translateX(0)';
-        this.state.preSpinTimer = setTimeout(loop, 0);
-      }, 920);
+      if (!this.state.preSpinLastTs) this.state.preSpinLastTs = ts;
+      const dt = Math.min(40, ts - this.state.preSpinLastTs); // защита от больших скачков
+      this.state.preSpinLastTs = ts;
+      this.state.preSpinOffsetPx += (speedPxPerSec * dt) / 1000;
+      this.elements.strip.style.transform = `translateX(${-this.state.preSpinOffsetPx}px)`;
+      this.state.preSpinRafId = requestAnimationFrame(tick);
     };
-    loop();
+    this.state.preSpinRafId = requestAnimationFrame(tick);
   }
 
   stopPreSpinAnimation() {
     this.state.isPreSpinning = false;
-    if (this.state.preSpinTimer) {
-      clearTimeout(this.state.preSpinTimer);
-      this.state.preSpinTimer = null;
+    if (this.state.preSpinRafId) {
+      cancelAnimationFrame(this.state.preSpinRafId);
+      this.state.preSpinRafId = null;
     }
+    this.state.preSpinLastTs = 0;
+    this.state.preSpinOffsetPx = 0;
     if (this.elements.strip) {
       this.elements.strip.style.transition = 'none';
       this.elements.strip.style.transform = 'translateX(0)';
