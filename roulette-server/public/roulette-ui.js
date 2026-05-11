@@ -1217,14 +1217,14 @@ class RouletteUI {
       
       // Стабильный "обычный" спин:
       // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
-      const extraCardsTravel = Math.max(120, Math.min(240, Math.round(baseCardsCount * 1.2)));
+      const extraCardsTravel = Math.max(110, Math.min(180, Math.round(baseCardsCount * 0.9)));
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
       const spinTargetPosition = finalPosition - extraSpins;
       const totalDistance = Math.abs(spinTargetPosition);
       
-      const duration = Math.max(8200, Math.min(12000, Math.round(8200 + (baseCardsCount * 2.2))));
+      const duration = 7000;
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
@@ -1244,8 +1244,8 @@ class RouletteUI {
       // Даем браузеру время применить (хотя ничего не меняется)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Мягкий старт без резкого ускорения в начале.
-          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.12, 0, 0.20, 1)`;
+          // Быстрый старт + длинный медленный "хвост" до финиша для интриги.
+          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.12, 0.88, 0.22, 1)`;
           this.elements.strip.style.transform = `translateX(${spinTargetPosition}px)`;
           
           console.log('[Roulette] ✅ Animation started', {
@@ -1256,10 +1256,20 @@ class RouletteUI {
           
           // Ждем окончания анимации + дополнительная задержка
           setTimeout(() => {
-            const winnerCardEl = allCards[targetCardIndex];
-            if (winnerCardEl) {
-              winnerCardEl.classList.add('roulette-card--winner');
+            // Подсвечиваем именно ту карточку, которая реально оказалась под указателем.
+            const pointerCenterX = this.elements.wheelContainer.getBoundingClientRect().left + (containerWidth / 2);
+            let winnerCardEl = null;
+            let minDist = Number.POSITIVE_INFINITY;
+            for (const card of allCards) {
+              const r = card.getBoundingClientRect();
+              const cardCenterX = r.left + (r.width / 2);
+              const d = Math.abs(cardCenterX - pointerCenterX);
+              if (d < minDist) {
+                minDist = d;
+                winnerCardEl = card;
+              }
             }
+            if (winnerCardEl) winnerCardEl.classList.add('roulette-card--winner');
             this.hapticImpact('medium');
             this.stopSpinSound();
             // Даем пользователю явно увидеть подсветку ДО модалки.
