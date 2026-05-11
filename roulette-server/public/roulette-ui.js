@@ -788,14 +788,19 @@ class RouletteUI {
     this.elements.strip.style.transform = 'translateX(0)';
 
     const cardWidth = 102;
-    const cyclePx = Math.max(cardWidth, cards.length * cardWidth);
+    // Крутим только в безопасном диапазоне реальной ширины полосы,
+    // чтобы не появлялась "пустота" справа при долгом spinning.
+    const maxOffsetPx = Math.max(
+      cardWidth,
+      (this.elements.strip.scrollWidth || cards.length * cardWidth) - (this.elements.wheelContainer?.offsetWidth || 0)
+    );
     const speedPxPerSec = 540;
     const tick = () => {
       if (!this.state.isPreSpinning || !this.elements.strip) return;
       const estServerNow = this.state.preSpinServerAnchorMs + (Date.now() - this.state.preSpinLocalAnchorMs);
       const elapsedMs = Math.max(0, estServerNow - this.state.preSpinStartMs);
       const traveled = (elapsedMs / 1000) * speedPxPerSec;
-      const offset = traveled % cyclePx;
+      const offset = traveled % maxOffsetPx;
       this.elements.strip.style.transform = `translateX(${-offset}px)`;
       this.state.preSpinRafId = requestAnimationFrame(tick);
     };
