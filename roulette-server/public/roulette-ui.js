@@ -165,17 +165,6 @@ class RouletteUI {
       }
     });
 
-    const unlockAudio = () => {
-      this.ensureAudioContext();
-      this.state.audioEnabled = true;
-      window.removeEventListener('pointerdown', unlockAudio);
-      window.removeEventListener('touchstart', unlockAudio);
-      window.removeEventListener('keydown', unlockAudio);
-    };
-    window.addEventListener('pointerdown', unlockAudio, { passive: true });
-    window.addEventListener('touchstart', unlockAudio, { passive: true });
-    window.addEventListener('keydown', unlockAudio, { passive: true });
-    
     // Initialize with empty state
     this.updateStatus('waiting');
     this.updatePot(0);
@@ -193,11 +182,11 @@ class RouletteUI {
 
   // ==================== HAPTIC ====================
   hapticImpact(style = 'light') {
-    try { window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(style); } catch {}
+    return;
   }
 
   hapticNotify(type = 'success') {
-    try { window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred?.(type); } catch {}
+    return;
   }
 
   // ==================== AUDIO ====================
@@ -214,19 +203,7 @@ class RouletteUI {
   }
 
   playTone({ freq = 440, durationMs = 90, gain = 0.035, type = 'sine' } = {}) {
-    const ctx = this.ensureAudioContext();
-    if (!ctx || !this.state.audioEnabled) return;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, now);
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(gain, now + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
-    osc.connect(g).connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + durationMs / 1000 + 0.02);
+    return;
   }
 
   playClickSound() {
@@ -247,24 +224,13 @@ class RouletteUI {
   }
 
   startSpinSound() {
-    if (this.state.spinSoundActive) return;
-    if (!this.ensureAudioContext() || !this.state.audioEnabled) return;
-    this.state.spinSoundActive = true;
-    // CSGO-case style: частые мягкие "щелчки" вместо непрерывного гула.
-    this.playTone({ freq: 780, durationMs: 34, gain: 0.02, type: 'square' });
-    this.state.spinTickTimer = setInterval(() => {
-      if (!this.state.spinSoundActive) return;
-      this.playTone({ freq: 760, durationMs: 28, gain: 0.016, type: 'square' });
-    }, 90);
+    return;
   }
 
   stopSpinSound() {
-    if (!this.state.spinSoundActive) return;
     this.state.spinSoundActive = false;
-    if (this.state.spinTickTimer) {
-      clearInterval(this.state.spinTickTimer);
-      this.state.spinTickTimer = null;
-    }
+    if (this.state.spinTickTimer) clearInterval(this.state.spinTickTimer);
+    this.state.spinTickTimer = null;
   }
 
   // ==================== DATA SYNC MODE ====================
@@ -1209,18 +1175,20 @@ class RouletteUI {
       
       // Стабильный "обычный" спин:
       // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
-      const extraCardsTravel = (allCards.length * 6) + 120;
+      const extraCardsTravel = (allCards.length * 4) + 90;
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
       const totalDistance = extraSpins + (targetCardIndex * cardWidth) - centerOffset - randomOffset;
       
+      const pxPerSec = 850; // ограничиваем стартовую скорость
+      const duration = Math.max(7600, Math.min(11000, Math.round((Math.abs(totalDistance) / pxPerSec) * 1000)));
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
         totalDistance,
         extraSpins,
-        duration: 7000,
+        duration,
         roundId: seed1
       });
       
@@ -1233,12 +1201,8 @@ class RouletteUI {
       // Даем браузеру время применить (хотя ничего не меняется)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Стабильная фиксированная длительность "обычного" спина.
-          const duration = 7000;
-          
-          // Easing: быстрый старт → медленный финал (максимальная интрига!)
-          // cubic-bezier(0.33, 1, 0.68, 1) - очень медленный финал
-          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+          // Мягкий старт без резкого ускорения в начале.
+          this.elements.strip.style.transition = `transform ${duration}ms cubic-bezier(0.12, 0, 0.20, 1)`;
           this.elements.strip.style.transform = `translateX(${finalPosition}px)`;
           
           console.log('[Roulette] ✅ Animation started', {
