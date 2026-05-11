@@ -788,19 +788,26 @@ class RouletteUI {
     this.elements.strip.style.transform = 'translateX(0)';
 
     const cardWidth = 102;
-    // Крутим только в безопасном диапазоне реальной ширины полосы,
-    // чтобы не появлялась "пустота" справа при долгом spinning.
-    const maxOffsetPx = Math.max(
-      cardWidth,
-      (this.elements.strip.scrollWidth || cards.length * cardWidth) - (this.elements.wheelContainer?.offsetWidth || 0)
-    );
+    const getMaxSafeOffset = () => {
+      const stripWidth = this.elements.strip?.scrollWidth || (cards.length * cardWidth);
+      const containerWidth = this.elements.wheelContainer?.offsetWidth || 0;
+      // Безопасный диапазон сдвига: [0 .. stripWidth - containerWidth].
+      // Если <= 0, двигать нельзя (иначе мгновенно увидим "пустоту").
+      return Math.max(0, stripWidth - containerWidth);
+    };
     const speedPxPerSec = 540;
     const tick = () => {
       if (!this.state.isPreSpinning || !this.elements.strip) return;
       const estServerNow = this.state.preSpinServerAnchorMs + (Date.now() - this.state.preSpinLocalAnchorMs);
       const elapsedMs = Math.max(0, estServerNow - this.state.preSpinStartMs);
       const traveled = (elapsedMs / 1000) * speedPxPerSec;
-      const offset = traveled % maxOffsetPx;
+      const maxSafeOffset = getMaxSafeOffset();
+      if (maxSafeOffset <= 0) {
+        this.elements.strip.style.transform = 'translateX(0)';
+        this.state.preSpinRafId = requestAnimationFrame(tick);
+        return;
+      }
+      const offset = traveled % maxSafeOffset;
       this.elements.strip.style.transform = `translateX(${-offset}px)`;
       this.state.preSpinRafId = requestAnimationFrame(tick);
     };
