@@ -570,8 +570,17 @@ async function handleGetActiveRound(body) {
     const displayName = winnerBet?.display_name || "Player";
     let photoUrl = null;
     try {
-      // если уже есть в кэше — отлично, иначе попробуем быстро дотянуть
-      photoUrl = winnerBet?.photo_url || (await getTelegramPhotoUrlCached(round.winner_user_id, 900));
+      // Для победителя важнее точность, чем микролатентность:
+      // если в bets нет фото, принудительно пробуем прямой запрос (без null-кэша).
+      photoUrl = winnerBet?.photo_url;
+      if (!photoUrl) {
+        try {
+          photoUrl = await withTimeout(getTelegramPhotoUrl(round.winner_user_id), 1500);
+          if (photoUrl) cacheSet(round.winner_user_id, photoUrl);
+        } catch {
+          photoUrl = await getTelegramPhotoUrlCached(round.winner_user_id, 900);
+        }
+      }
     } catch {
       photoUrl = null;
     }

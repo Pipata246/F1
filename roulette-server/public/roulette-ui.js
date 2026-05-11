@@ -64,6 +64,7 @@ class RouletteUI {
       lastPlayersKey: null, // Ключ для проверки изменения состава игроков
       wheelCardsHTML: '', // Готовый HTML карточек от сервера
       lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
+      lastWinnersLoadAt: 0, // throttling для истории победителей
     };
 
     this.pollInterval = null;
@@ -214,7 +215,11 @@ class RouletteUI {
         }
         
         // Update UI
-        this.updateStatus(data.round.status);
+        // Пока локально идет спин/анимация - держим статус "Розыгрыш..."
+        const effectiveStatus = (this.state.isSpinning || this.state.isAnimating)
+          ? 'spinning'
+          : data.round.status;
+        this.updateStatus(effectiveStatus);
         this.updatePot(parseFloat(data.round.pot_amount));
 
         // Всегда сохраняем HTML карточек, даже если идет спин.
@@ -407,8 +412,12 @@ class RouletteUI {
         }
       }
       
-      // Загружаем историю победителей
-      await this.loadRecentWinners();
+      // Историю победителей грузим неблокирующе и не на каждом poll.
+      const now = Date.now();
+      if (!this.state.lastWinnersLoadAt || now - this.state.lastWinnersLoadAt > 10000) {
+        this.state.lastWinnersLoadAt = now;
+        this.loadRecentWinners().catch(() => {});
+      }
     } catch (error) {
       console.error('[Roulette] Failed to load active round:', error);
       // НЕ показываем toast - тихо логируем ошибку
