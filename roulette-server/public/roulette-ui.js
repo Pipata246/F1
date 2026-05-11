@@ -65,6 +65,8 @@ class RouletteUI {
       wheelCardsHTML: '', // Готовый HTML карточек от сервера
       lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
       lastWinnersLoadAt: 0, // throttling для истории победителей
+      isPreSpinning: false, // ранняя анимация для non-initiator при status=spinning
+      preSpinTimer: null,
     };
 
     this.pollInterval = null;
@@ -323,7 +325,11 @@ class RouletteUI {
             this.elements.timerWrap.classList.add('hidden');
           }
           this.disableBetButton();
+          if (!this.state.isAnimating) {
+            this.startPreSpinAnimation();
+          }
         } else {
+          this.stopPreSpinAnimation();
           this.stopSmoothTimer();
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.add('hidden');
@@ -345,6 +351,7 @@ class RouletteUI {
           this.state.isSpinning = true;
           this.state.isAnimating = true;
           this.stopPolling();
+          this.stopPreSpinAnimation();
           
           // Найти имя победителя из ставок (или из data.winner, если сервер прислал)
           const winnerBet = (data.bets || []).find(b => String(b.user_id) === String(data.round.winner_user_id));
@@ -402,6 +409,7 @@ class RouletteUI {
         
         this.state.currentRound = null;
         this.state.myBet = null;
+        this.stopPreSpinAnimation();
         this.updateStatus('waiting');
         this.updatePot(0);
         this.updatePlayers([]);
@@ -519,6 +527,39 @@ class RouletteUI {
   updatePot(amount) {
     if (this.elements.potAmount) {
       this.elements.potAmount.textContent = amount.toFixed(2);
+    }
+  }
+
+  // ==================== PRE-SPIN (for non-initiator) ====================
+  startPreSpinAnimation() {
+    if (!this.elements.strip || this.state.isPreSpinning || this.state.isAnimating) return;
+    const cards = this.elements.strip.querySelectorAll('.roulette-card');
+    if (!cards.length) return;
+
+    this.state.isPreSpinning = true;
+    const loop = () => {
+      if (!this.state.isPreSpinning || !this.elements.strip) return;
+      this.elements.strip.style.transition = 'transform 900ms linear';
+      this.elements.strip.style.transform = 'translateX(-510px)';
+      this.state.preSpinTimer = setTimeout(() => {
+        if (!this.elements.strip || !this.state.isPreSpinning) return;
+        this.elements.strip.style.transition = 'none';
+        this.elements.strip.style.transform = 'translateX(0)';
+        this.state.preSpinTimer = setTimeout(loop, 0);
+      }, 920);
+    };
+    loop();
+  }
+
+  stopPreSpinAnimation() {
+    this.state.isPreSpinning = false;
+    if (this.state.preSpinTimer) {
+      clearTimeout(this.state.preSpinTimer);
+      this.state.preSpinTimer = null;
+    }
+    if (this.elements.strip) {
+      this.elements.strip.style.transition = 'none';
+      this.elements.strip.style.transform = 'translateX(0)';
     }
   }
 
@@ -992,6 +1033,7 @@ class RouletteUI {
   async spinRoulette() {
     try {
       console.log('[Roulette] Spinning...');
+      this.stopPreSpinAnimation();
 
       // Инициатор: гарантированно скрываем таймер (polling уже остановлен)
       this.stopSmoothTimer();
@@ -1064,6 +1106,7 @@ class RouletteUI {
       
       this.state.isSpinning = false;
       this.state.isAnimating = false;
+      this.stopPreSpinAnimation();
       
       // Если розыгрыш уже идет - НЕ показываем ошибку, просто ждем через polling
       if (error.message && (error.message.includes('уже идет') || error.message.includes('уже запущен') || error.message.includes('уже завершен'))) {
