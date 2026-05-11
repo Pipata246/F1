@@ -82,6 +82,7 @@ class RouletteUI {
       preSpinServerAnchorMs: 0,
       preSpinLocalAnchorMs: 0,
       preSpinStartMs: 0,
+      preSpinRoundId: null,
       isLoadingRound: false,
       lastTimerSecond: null,
       audioEnabled: false,
@@ -547,8 +548,11 @@ class RouletteUI {
             this.elements.timerWrap.classList.add('hidden');
           }
           this.disableBetButton();
-          // Важно: не запускаем pre-spin, иначе визуально получается "двойной спин".
-          this.stopPreSpinAnimation();
+          // Для неинициатора нужен визуальный крутящийся барабан в spinning.
+          // Но не перезапускаем pre-spin на каждом poll/realtime, иначе "рывки".
+          if (!this.state.isSpinning && !this.state.isAnimating) {
+            this.startPreSpinAnimation(data.round.timer_ends_at, data.serverTime, data.round.id);
+          }
           this.startSpinSound();
         } else {
           this.stopPreSpinAnimation();
@@ -761,9 +765,12 @@ class RouletteUI {
   }
 
   // ==================== PRE-SPIN (for non-initiator) ====================
-  startPreSpinAnimation(timerEndsAtIso, serverTimeIso) {
+  startPreSpinAnimation(timerEndsAtIso, serverTimeIso, roundId = null) {
     if (!this.elements.strip || this.state.isAnimating) return;
-    // Всегда перезапускаем pre-spin на свежем серверном якоре времени.
+    // Если уже крутим этот же раунд - не трогаем.
+    if (this.state.isPreSpinning && this.state.preSpinRoundId === roundId) {
+      return;
+    }
     this.stopPreSpinAnimation();
     const cards = this.elements.strip.querySelectorAll('.roulette-card');
     if (!cards.length) return;
@@ -773,6 +780,7 @@ class RouletteUI {
     if (!Number.isFinite(spinStartMs) || !Number.isFinite(serverNowMs)) return;
 
     this.state.isPreSpinning = true;
+    this.state.preSpinRoundId = roundId;
     this.state.preSpinStartMs = spinStartMs;
     this.state.preSpinServerAnchorMs = serverNowMs;
     this.state.preSpinLocalAnchorMs = Date.now();
@@ -805,6 +813,7 @@ class RouletteUI {
     this.state.preSpinServerAnchorMs = 0;
     this.state.preSpinLocalAnchorMs = 0;
     this.state.preSpinStartMs = 0;
+    this.state.preSpinRoundId = null;
     if (this.elements.strip) {
       this.elements.strip.style.transition = 'none';
       this.elements.strip.style.transform = 'translateX(0)';
