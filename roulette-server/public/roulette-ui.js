@@ -773,7 +773,7 @@ class RouletteUI {
     // Увеличиваем визуальную ленту для pre-spin, чтобы никогда не уйти в "пустоту".
     // На математику шансов не влияет: это только клиентский рендер.
     if (cards.length < 280) {
-      const baseWheelHtml = this.state.wheelCardsHTML || this.elements.strip.innerHTML || '';
+      const baseWheelHtml = this.state.wheelCardsHTML || '';
       if (baseWheelHtml) {
         const repeatCount = Math.max(4, Math.min(10, Math.ceil(320 / Math.max(1, cards.length))));
         this.elements.strip.innerHTML = new Array(repeatCount).fill(baseWheelHtml).join('');
@@ -781,13 +781,12 @@ class RouletteUI {
       }
     }
 
-    const spinStartMs = new Date(timerEndsAtIso || 0).getTime();
     const serverNowMs = new Date(serverTimeIso || Date.now()).getTime();
-    if (!Number.isFinite(spinStartMs) || !Number.isFinite(serverNowMs)) return;
+    if (!Number.isFinite(serverNowMs)) return;
 
     this.state.isPreSpinning = true;
     this.state.preSpinRoundId = roundId;
-    this.state.preSpinStartMs = spinStartMs;
+    this.state.preSpinStartMs = serverNowMs;
     this.state.preSpinServerAnchorMs = serverNowMs;
     this.state.preSpinLocalAnchorMs = Date.now();
     this.elements.strip.style.transition = 'none';
@@ -801,7 +800,7 @@ class RouletteUI {
       // Если <= 0, двигать нельзя (иначе мгновенно увидим "пустоту").
       return Math.max(0, stripWidth - containerWidth);
     };
-    const speedPxPerSec = 540;
+    const speedPxPerSec = 240;
     const tick = () => {
       if (!this.state.isPreSpinning || !this.elements.strip) return;
       const estServerNow = this.state.preSpinServerAnchorMs + (Date.now() - this.state.preSpinLocalAnchorMs);
@@ -1150,25 +1149,28 @@ class RouletteUI {
       }
       
       console.log('[Roulette] ✅ Cards verified, total:', allCards.length);
-      const baseCardsCount = allCards.length;
+      const baseCardsCountFromHtml = ((this.state.wheelCardsHTML || '').match(/class="roulette-card"/g) || []).length;
+      const baseCardsCount = Math.max(1, baseCardsCountFromHtml || allCards.length);
       
       // Сервер теперь может отдавать точный winner_card_index (индекс в общем массиве карточек).
       // Это гарантирует совпадение результата на сервере и визуального выпадения.
       let targetCardIndex = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
       if (targetCardIndex != null) {
-        if (targetCardIndex < 0 || targetCardIndex >= allCards.length) {
+        if (targetCardIndex < 0 || targetCardIndex >= baseCardsCount) {
           console.warn('[Roulette] Invalid winnerCardIndex from server:', targetCardIndex);
           targetCardIndex = null;
+        } else {
+          targetCardIndex = ((targetCardIndex % baseCardsCount) + baseCardsCount) % baseCardsCount;
         }
       }
       
       // Fallback для старого бэка: выбрать одну из карточек победителя детерминированно
       const seed1 = roundId || winnerUserId || Date.now();
       const seed2 = seed1 + 1;
-      const seed3 = seed1 + 2;
       
       if (targetCardIndex == null) {
-        const winnerCards = allCards.filter(card => 
+        const baseSlice = allCards.slice(0, baseCardsCount);
+        const winnerCards = baseSlice.filter(card => 
           String(card.getAttribute('data-user-id')) === String(winnerUserId)
         );
         
@@ -1183,14 +1185,14 @@ class RouletteUI {
         const randomFactor = this.seededRandom(seed1); // 0..1
         const targetIndex = Math.floor(winnerCards.length * 0.6 + randomFactor * winnerCards.length * 0.3);
         const targetCard = winnerCards[targetIndex];
-        targetCardIndex = allCards.indexOf(targetCard);
+        targetCardIndex = baseSlice.indexOf(targetCard);
       }
 
       // Истина = winner_card_index с сервера. Принудительно НЕ переопределяем индекс.
       // Для длинного спина расширяем DOM-полосу карточек и переносим target в центральный сегмент.
-      const baseWheelHtml = this.state.wheelCardsHTML || this.elements.strip.innerHTML || '';
+      const baseWheelHtml = this.state.wheelCardsHTML || '';
       if (baseWheelHtml && baseCardsCount > 0 && baseCardsCount < 420) {
-        const repeatCount = Math.max(5, Math.min(12, Math.ceil(600 / baseCardsCount)));
+        const repeatCount = Math.max(5, Math.min(10, Math.ceil(520 / baseCardsCount)));
         const middleSegment = Math.floor(repeatCount / 2);
         this.elements.strip.innerHTML = new Array(repeatCount).fill(baseWheelHtml).join('');
         allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
@@ -1215,15 +1217,14 @@ class RouletteUI {
       
       // Стабильный "обычный" спин:
       // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
-      const extraCardsTravel = (allCards.length * 4) + 90;
+      const extraCardsTravel = Math.max(120, Math.min(240, Math.round(baseCardsCount * 1.2)));
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
       const spinTargetPosition = finalPosition - extraSpins;
       const totalDistance = Math.abs(spinTargetPosition);
       
-      const pxPerSec = 850; // ограничиваем стартовую скорость
-      const duration = Math.max(7600, Math.min(11000, Math.round((Math.abs(totalDistance) / pxPerSec) * 1000)));
+      const duration = Math.max(8200, Math.min(12000, Math.round(8200 + (baseCardsCount * 2.2))));
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
