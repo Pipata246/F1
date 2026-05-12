@@ -1119,12 +1119,15 @@ class RouletteUI {
       }
 
       // Для длинного спина расширяем DOM-полосу карточек и переносим target в центральный сегмент.
+      let repeatCountUsed = 1;
+      let middleSegmentUsed = 0;
       if (baseCardsCount > 0 && baseCardsCount < 420) {
         const repeatCount = Math.max(5, Math.min(10, Math.ceil(520 / baseCardsCount)));
-        const middleSegment = Math.floor(repeatCount / 2);
+        repeatCountUsed = repeatCount;
+        middleSegmentUsed = Math.floor(repeatCount / 2);
         this.elements.strip.innerHTML = new Array(repeatCount).fill(baseWheelHtml).join('');
         allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
-        targetCardIndex = targetCardIndex + (middleSegment * baseCardsCount);
+        targetCardIndex = targetCardIndex + (middleSegmentUsed * baseCardsCount);
       }
       
       console.log('[Roulette] Target card index:', targetCardIndex, 'of', allCards.length);
@@ -1153,7 +1156,7 @@ class RouletteUI {
       const spinTargetPosition = finalPosition - extraSpins;
       const totalDistance = Math.abs(spinTargetPosition);
       
-      const duration = 7500;
+      const duration = 7000;
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
@@ -1180,11 +1183,11 @@ class RouletteUI {
           const startTs = performance.now();
           const tick = (now) => {
             const elapsed = Math.max(0, now - startTs);
-            const uRaw = Math.min(1, elapsed / totalMs);
-            // Степень > 1: в начале почти не едет, основной путь и плавное торможение — ближе к концу.
-            const uEff = Math.pow(uRaw, 1.28);
-            const progress = 2 * uEff - uEff * uEff;
-            const x = spinTargetPosition * Math.min(1, progress);
+            const uLin = Math.min(1, elapsed / totalMs);
+            // Мягче старт (u^1.12), сильное замедление к концу — одна гладкая кривая без фазовых стыков.
+            const u = Math.pow(uLin, 1.12);
+            const progress = 1 - Math.pow(1 - u, 2.75);
+            const x = spinTargetPosition * progress;
             this.elements.strip.style.transform = `translateX(${x}px)`;
             if (elapsed < totalMs) {
               requestAnimationFrame(tick);
@@ -1192,24 +1195,39 @@ class RouletteUI {
             }
             this.elements.strip.style.transform = `translateX(${spinTargetPosition}px)`;
 
-            // Подсветка строго по индексу победной карточки (совпадает с winner_card_index сервера).
-            const winnerCardEl = allCards[targetCardIndex];
-            if (winnerCardEl) {
-              const uid = String(winnerCardEl.getAttribute('data-user-id') || '');
-              if (uid !== String(winnerUserId)) {
-                console.warn('[Roulette] Winner DOM card user mismatch', { uid, winnerUserId, targetCardIndex });
-              }
-              winnerCardEl.classList.add('roulette-card--winner');
-            }
             this.hapticImpact('medium');
             this.stopSpinSound();
 
-            // Даем пользователю увидеть подсветку до модалки.
-            setTimeout(() => {
-              if (winnerCardEl) winnerCardEl.classList.remove('roulette-card--winner');
-              console.log('[Roulette] Animation COMPLETED - resolving promise');
-              resolve();
-            }, 700);
+            // После финального translate ждём layout, затем подсветка по актуальному DOM (не устаревший массив).
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                const cardsLive = this.elements.strip.querySelectorAll('.roulette-card');
+                let highlightEl = cardsLive[targetCardIndex];
+                if (!highlightEl && cardsLive.length > 0) {
+                  const wci = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
+                  if (wci != null) {
+                    const idxB = ((wci % baseCardsCount) + baseCardsCount) % baseCardsCount;
+                    const alt = middleSegmentUsed * baseCardsCount + idxB;
+                    if (alt >= 0 && alt < cardsLive.length) highlightEl = cardsLive[alt];
+                  }
+                }
+                if (highlightEl) {
+                  const uid = String(highlightEl.getAttribute('data-user-id') || '');
+                  if (uid !== String(winnerUserId)) {
+                    console.warn('[Roulette] Winner DOM card user mismatch', { uid, winnerUserId, targetCardIndex });
+                  }
+                  highlightEl.classList.add('roulette-card--winner');
+                } else {
+                  console.warn('[Roulette] No element for winner highlight', { targetCardIndex, n: cardsLive.length });
+                }
+
+                setTimeout(() => {
+                  if (highlightEl) highlightEl.classList.remove('roulette-card--winner');
+                  console.log('[Roulette] Animation COMPLETED - resolving promise');
+                  resolve();
+                }, 950);
+              });
+            });
           };
           requestAnimationFrame(tick);
           
