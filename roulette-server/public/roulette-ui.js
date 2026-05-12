@@ -537,17 +537,17 @@ class RouletteUI {
             this.elements.timerWrap.classList.remove('hidden');
           }
         } else if (effectiveStatus === 'spinning') {
+          // Серверный spinning: один клиент уже мог выставить isSpinning в onTimerEnd — остальным тоже.
+          if (data.round.status === 'spinning') {
+            this.state.isSpinning = true;
+          }
           // Раунд крутится - скрываем таймер и блокируем кнопку
           this.stopSmoothTimer();
           if (this.elements.timerWrap) {
             this.elements.timerWrap.classList.add('hidden');
           }
           this.disableBetButton();
-          // Для неинициатора нужен визуальный крутящийся барабан в spinning.
-          // Но не перезапускаем pre-spin на каждом poll/realtime, иначе "рывки".
-          if (!this.state.isSpinning && !this.state.isAnimating) {
-            this.startPreSpinAnimation(data.round.timer_ends_at, data.serverTime, data.round.id);
-          }
+          // НЕ запускаем pre-spin: он давал второй «накладывающийся» прокрут и сброс translateX перед финалом.
           this.startSpinSound();
         } else {
           this.stopPreSpinAnimation();
@@ -760,63 +760,9 @@ class RouletteUI {
   }
 
   // ==================== PRE-SPIN (for non-initiator) ====================
-  startPreSpinAnimation(timerEndsAtIso, serverTimeIso, roundId = null) {
-    if (!this.elements.strip || this.state.isAnimating) return;
-    // Если уже крутим этот же раунд - не трогаем.
-    if (this.state.isPreSpinning && this.state.preSpinRoundId === roundId) {
-      return;
-    }
-    this.stopPreSpinAnimation();
-    let cards = this.elements.strip.querySelectorAll('.roulette-card');
-    if (!cards.length) return;
-
-    // Увеличиваем визуальную ленту для pre-spin, чтобы никогда не уйти в "пустоту".
-    // На математику шансов не влияет: это только клиентский рендер.
-    if (cards.length < 280) {
-      const baseWheelHtml = this.state.wheelCardsHTML || '';
-      if (baseWheelHtml) {
-        const repeatCount = Math.max(4, Math.min(10, Math.ceil(320 / Math.max(1, cards.length))));
-        this.elements.strip.innerHTML = new Array(repeatCount).fill(baseWheelHtml).join('');
-        cards = this.elements.strip.querySelectorAll('.roulette-card');
-      }
-    }
-
-    const serverNowMs = new Date(serverTimeIso || Date.now()).getTime();
-    if (!Number.isFinite(serverNowMs)) return;
-
-    this.state.isPreSpinning = true;
-    this.state.preSpinRoundId = roundId;
-    this.state.preSpinStartMs = serverNowMs;
-    this.state.preSpinServerAnchorMs = serverNowMs;
-    this.state.preSpinLocalAnchorMs = Date.now();
-    this.elements.strip.style.transition = 'none';
-    this.elements.strip.style.transform = 'translateX(0)';
-
-    const cardWidth = 102;
-    const getMaxSafeOffset = () => {
-      const stripWidth = this.elements.strip?.scrollWidth || (cards.length * cardWidth);
-      const containerWidth = this.elements.wheelContainer?.offsetWidth || 0;
-      // Безопасный диапазон сдвига: [0 .. stripWidth - containerWidth].
-      // Если <= 0, двигать нельзя (иначе мгновенно увидим "пустоту").
-      return Math.max(0, stripWidth - containerWidth);
-    };
-    const speedPxPerSec = 240;
-    const tick = () => {
-      if (!this.state.isPreSpinning || !this.elements.strip) return;
-      const estServerNow = this.state.preSpinServerAnchorMs + (Date.now() - this.state.preSpinLocalAnchorMs);
-      const elapsedMs = Math.max(0, estServerNow - this.state.preSpinStartMs);
-      const traveled = (elapsedMs / 1000) * speedPxPerSec;
-      const maxSafeOffset = getMaxSafeOffset();
-      if (maxSafeOffset <= 0) {
-        this.elements.strip.style.transform = 'translateX(0)';
-        this.state.preSpinRafId = requestAnimationFrame(tick);
-        return;
-      }
-      const offset = traveled % maxSafeOffset;
-      this.elements.strip.style.transform = `translateX(${-offset}px)`;
-      this.state.preSpinRafId = requestAnimationFrame(tick);
-    };
-    this.state.preSpinRafId = requestAnimationFrame(tick);
+  // Отключено: второй RAF-прокрут накладывался на финальную анимацию и ломал совпадение с победителем.
+  startPreSpinAnimation(_timerEndsAtIso, _serverTimeIso, _roundId = null) {
+    return;
   }
 
   stopPreSpinAnimation() {
@@ -1112,45 +1058,30 @@ class RouletteUI {
       }
       
       console.log('[Roulette] Starting SYNCHRONIZED animation for winner:', winnerUserId, 'round:', roundId);
-      
-      // КРИТИЧЕСКИ ВАЖНО: Проверяем что карточки существуют
-      const checkCards = () => {
-        const allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
-        console.log('[Roulette] Cards check - found:', allCards.length);
-        
-        if (allCards.length === 0) {
-          console.error('[Roulette] ⚠️ NO CARDS FOUND! Strip HTML length:', this.elements.strip.innerHTML.length);
-          console.error('[Roulette] Strip content preview:', this.elements.strip.innerHTML.substring(0, 200));
-          console.error('[Roulette] wheelCardsHTML in state:', this.state.wheelCardsHTML?.length);
-          
-          // ПОПЫТКА ВОССТАНОВЛЕНИЯ: Если HTML есть в state но не в DOM - вставляем его
-          if (this.state.wheelCardsHTML && this.state.wheelCardsHTML.length > 0) {
-            console.log('[Roulette] 🔧 Attempting to restore cards from HTML state...');
-            this.elements.strip.innerHTML = this.state.wheelCardsHTML;
-            console.log('[Roulette] ✅ Cards restored from HTML state');
-            
-            // Повторная проверка после восстановления
-            return Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
-          }
-          
-          return [];
-        }
-        
-        return allCards;
-      };
-      
-      // Проверяем карточки
-      let allCards = checkCards();
-      
-      if (allCards.length === 0) {
-        console.error('[Roulette] ❌ Cannot animate - no cards available even after restore attempt');
+
+      this.stopPreSpinAnimation();
+
+      const baseWheelHtml = this.state.wheelCardsHTML || '';
+      if (!baseWheelHtml) {
+        console.error('[Roulette] ❌ No wheelCardsHTML — cannot animate');
         resolve();
         return;
       }
-      
-      console.log('[Roulette] ✅ Cards verified, total:', allCards.length);
-      const baseCardsCountFromHtml = ((this.state.wheelCardsHTML || '').match(/class="roulette-card"/g) || []).length;
-      const baseCardsCount = Math.max(1, baseCardsCountFromHtml || allCards.length);
+
+      // Всегда начинаем с одной чистой копии ленты (без хвостов от старых дублей/pre-spin).
+      this.elements.strip.style.transition = 'none';
+      this.elements.strip.innerHTML = baseWheelHtml;
+      this.elements.strip.style.transform = 'translateX(0)';
+
+      let allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
+      if (allCards.length === 0) {
+        console.error('[Roulette] ❌ Cannot animate - wheel HTML has no cards');
+        resolve();
+        return;
+      }
+
+      const baseCardsCount = allCards.length;
+      console.log('[Roulette] ✅ Base strip cards:', baseCardsCount);
       
       // Сервер теперь может отдавать точный winner_card_index (индекс в общем массиве карточек).
       // Это гарантирует совпадение результата на сервере и визуального выпадения.
@@ -1166,7 +1097,6 @@ class RouletteUI {
       
       // Fallback для старого бэка: выбрать одну из карточек победителя детерминированно
       const seed1 = roundId || winnerUserId || Date.now();
-      const seed2 = seed1 + 1;
       
       if (targetCardIndex == null) {
         const baseSlice = allCards.slice(0, baseCardsCount);
@@ -1188,10 +1118,8 @@ class RouletteUI {
         targetCardIndex = baseSlice.indexOf(targetCard);
       }
 
-      // Истина = winner_card_index с сервера. Принудительно НЕ переопределяем индекс.
       // Для длинного спина расширяем DOM-полосу карточек и переносим target в центральный сегмент.
-      const baseWheelHtml = this.state.wheelCardsHTML || '';
-      if (baseWheelHtml && baseCardsCount > 0 && baseCardsCount < 420) {
+      if (baseCardsCount > 0 && baseCardsCount < 420) {
         const repeatCount = Math.max(5, Math.min(10, Math.ceil(520 / baseCardsCount)));
         const middleSegment = Math.floor(repeatCount / 2);
         this.elements.strip.innerHTML = new Array(repeatCount).fill(baseWheelHtml).join('');
@@ -1264,20 +1192,15 @@ class RouletteUI {
             }
             this.elements.strip.style.transform = `translateX(${spinTargetPosition}px)`;
 
-            // Подсвечиваем именно ту карточку, которая реально оказалась под указателем.
-            const pointerCenterX = this.elements.wheelContainer.getBoundingClientRect().left + (containerWidth / 2);
-            let winnerCardEl = null;
-            let minDist = Number.POSITIVE_INFINITY;
-            for (const card of allCards) {
-              const r = card.getBoundingClientRect();
-              const cardCenterX = r.left + (r.width / 2);
-              const d = Math.abs(cardCenterX - pointerCenterX);
-              if (d < minDist) {
-                minDist = d;
-                winnerCardEl = card;
+            // Подсветка строго по индексу победной карточки (совпадает с winner_card_index сервера).
+            const winnerCardEl = allCards[targetCardIndex];
+            if (winnerCardEl) {
+              const uid = String(winnerCardEl.getAttribute('data-user-id') || '');
+              if (uid !== String(winnerUserId)) {
+                console.warn('[Roulette] Winner DOM card user mismatch', { uid, winnerUserId, targetCardIndex });
               }
+              winnerCardEl.classList.add('roulette-card--winner');
             }
-            if (winnerCardEl) winnerCardEl.classList.add('roulette-card--winner');
             this.hapticImpact('medium');
             this.stopSpinSound();
 
