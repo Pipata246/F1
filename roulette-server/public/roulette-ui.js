@@ -1217,14 +1217,15 @@ class RouletteUI {
       
       // Стабильный "обычный" спин:
       // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
-      const extraCardsTravel = Math.max(110, Math.min(180, Math.round(baseCardsCount * 0.9)));
+      // Меньше «лишних» оборотов — ниже пиковая скорость, меньше ощущение «рваности».
+      const extraCardsTravel = Math.max(85, Math.min(140, Math.round(baseCardsCount * 0.62)));
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
       const spinTargetPosition = finalPosition - extraSpins;
       const totalDistance = Math.abs(spinTargetPosition);
       
-      const duration = 7000;
+      const duration = 7500;
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
@@ -1244,28 +1245,17 @@ class RouletteUI {
       // Даем браузеру время применить (хотя ничего не меняется)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Ручной профиль скорости:
-          // - мягкий старт (без резкого рывка),
-          // - основной ход,
-          // - последние ~1.5с очень медленный докат до стопа.
-          const totalMs = 7000;
-          const startPhaseMs = 1500;
-          const tailPhaseMs = 1500;
-          const middlePhaseMs = totalMs - startPhaseMs - tailPhaseMs;
+          // Одна гладкая кривая без стыков фаз (иначе рывки).
+          // Модель «равномерное торможение»: скорость монотонно падает, конец длинный и медленный.
+          // progress(u) = 2u - u², u ∈ [0,1]; мягче старт: сдвигаем время к середине через степень на u.
+          const totalMs = duration;
           const startTs = performance.now();
           const tick = (now) => {
             const elapsed = Math.max(0, now - startTs);
-            let progress = 0;
-            if (elapsed < startPhaseMs) {
-              const p = elapsed / startPhaseMs;
-              progress = 0.45 * (p * p); // плавный разгон
-            } else if (elapsed < startPhaseMs + middlePhaseMs) {
-              const p = (elapsed - startPhaseMs) / middlePhaseMs;
-              progress = 0.45 + (0.45 * (1 - Math.pow(1 - p, 1.4)));
-            } else {
-              const p = Math.min(1, (elapsed - startPhaseMs - middlePhaseMs) / tailPhaseMs);
-              progress = 0.9 + (0.1 * (1 - Math.pow(1 - p, 3))); // очень плавный хвост
-            }
+            const uRaw = Math.min(1, elapsed / totalMs);
+            // Степень > 1: в начале почти не едет, основной путь и плавное торможение — ближе к концу.
+            const uEff = Math.pow(uRaw, 1.28);
+            const progress = 2 * uEff - uEff * uEff;
             const x = spinTargetPosition * Math.min(1, progress);
             this.elements.strip.style.transform = `translateX(${x}px)`;
             if (elapsed < totalMs) {
