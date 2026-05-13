@@ -1079,19 +1079,18 @@ class RouletteUI {
       a += frac;
       const theta = (mid - 0.25) * 2 * Math.PI;
       const radAv = 36;
-      const radPct = 47;
       const leftAv = 50 + Math.sin(theta) * radAv;
       const topAv = 50 - Math.cos(theta) * radAv;
-      const leftPct = 50 + Math.sin(theta) * radPct;
-      const topPct = 50 - Math.cos(theta) * radPct;
       const pctLabel = `${Number(p.chance).toFixed(1)}%`;
       const initial = this.escapeHtml(String(p.name || 'P').charAt(0).toUpperCase());
       const avInner = p.photoUrl
         ? `<img src="${this.escapeHtml(p.photoUrl)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none';var n=this.nextElementSibling;if(n)n.style.display='flex';"/><span class="rolls-wheel-av__ph" style="display:none" aria-hidden="true">${initial}</span>`
         : `<span class="rolls-wheel-av__ph" aria-hidden="true">${initial}</span>`;
       html.push(
-        `<div class="rolls-wheel-pct" style="left:${leftPct}%;top:${topPct}%">${this.escapeHtml(pctLabel)}</div>` +
-          `<div class="rolls-wheel-av" data-user-id="${this.escapeHtml(String(p.id))}" style="left:${leftAv}%;top:${topAv}%">${avInner}</div>`
+        `<div class="rolls-wheel-slot" style="left:${leftAv}%;top:${topAv}%">` +
+          `<div class="rolls-wheel-av" data-user-id="${this.escapeHtml(String(p.id))}">${avInner}</div>` +
+          `<div class="rolls-wheel-pct">${this.escapeHtml(pctLabel)}</div>` +
+          `</div>`
       );
     });
     this.elements.wheelAvatars.innerHTML = html.join('');

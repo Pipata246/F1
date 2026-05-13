@@ -33,6 +33,8 @@
       margin:0;
       min-height:100%;
       background-color:var(--bg2);
+      overflow-x:hidden;
+      max-width:100%;
     }
     body{
       margin:0;
@@ -47,6 +49,8 @@
       -webkit-user-select:none; user-select:none;
       -webkit-touch-callout:none;
       overscroll-behavior:none;
+      overflow-x:hidden;
+      max-width:100%;
     }
     *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
     a{color:inherit}
@@ -71,6 +75,8 @@
       z-index:1;
       min-height:var(--app-vh);
       padding-bottom:calc(86px + var(--safe-bottom));
+      max-width:100%;
+      overflow-x:hidden;
     }
     /* Случайная игра — полноэкранная без nav/topbar */
     #page-random-game {
@@ -88,15 +94,10 @@
       background: rgba(10,12,18,.45);
       backdrop-filter: blur(18px);
       border-bottom:1px solid rgba(255,255,255,.07);
+      max-width:100%;
+      overflow-x:hidden;
     }
-    .topbarRight{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      flex-shrink:0;
-      max-width:min(58vw, 280px);
-    }
-    .brand{display:flex; align-items:center; gap:10px; font-weight:900; letter-spacing:.2px}
+    .brand{display:flex; align-items:center; gap:10px; font-weight:900; letter-spacing:.2px; min-width:0}
     .brandLogo{
       width:20px; height:20px; display:block; flex:0 0 auto;
       filter: drop-shadow(0 0 8px rgba(140,255,193,.35));
@@ -180,7 +181,7 @@
       color:var(--text2);
     }
 
-    .container{padding:16px}
+    .container{padding:16px;max-width:100%;overflow-x:hidden}
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .glass{
       background: var(--glass-bg);
@@ -222,22 +223,32 @@
 
     .nav{
       position:fixed; left:0; right:0; bottom:0; height:72px;
-      padding:10px 6px calc(14px + var(--safe-bottom));
-      display:flex; gap:6px;
+      padding:10px 4px calc(14px + var(--safe-bottom));
+      display:flex; gap:4px;
       background: rgba(10,12,18,.45);
       backdrop-filter: blur(18px);
       border-top:1px solid rgba(255,255,255,.07);
       z-index:25;
+      max-width:100%;
+      overflow-x:hidden;
+      box-sizing:border-box;
     }
     .nav button{
-      flex:1;
+      flex:1 1 0;
+      min-width:0;
       border:none; cursor:pointer;
       border-radius:16px;
       background: transparent;
       color: var(--muted);
-      padding:8px 4px;
+      padding:8px 2px;
       display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
-      font-size:11px;
+      font-size:10px;
+    }
+    .nav button > div:last-child{
+      max-width:100%;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
     }
     .nav button.active{
       background: rgba(140,255,193,.10);
@@ -660,8 +671,9 @@
     .rolls-wheel-spin{position:absolute;inset:8%;border-radius:50%;transform-origin:50% 50%;will-change:transform;box-shadow:0 0 0 3px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55)}
     .rolls-wheel-conic{position:absolute;inset:0;border-radius:50%}
     .rolls-wheel-avatars{position:absolute;inset:0;pointer-events:none}
-    .rolls-wheel-pct{position:absolute;z-index:3;transform:translate(-50%,-50%);font-size:11px;font-weight:950;font-variant-numeric:tabular-nums;color:#fff;line-height:1;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 10px rgba(0,0,0,.75)}
-    .rolls-wheel-av{position:absolute;z-index:2;width:15%;height:15%;min-width:36px;min-height:36px;border-radius:50%;border:3px solid rgba(0,0,0,.55);overflow:hidden;background:linear-gradient(135deg,#8CFFC1,#4DFF9A);transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.45)}
+    .rolls-wheel-slot{position:absolute;z-index:3;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none}
+    .rolls-wheel-slot .rolls-wheel-av{position:relative;left:auto;top:auto;transform:none;width:15%;height:15%;min-width:36px;min-height:36px;border-radius:50%;border:3px solid rgba(0,0,0,.55);overflow:hidden;background:linear-gradient(135deg,#8CFFC1,#4DFF9A);box-shadow:0 4px 12px rgba(0,0,0,.45);flex-shrink:0}
+    .rolls-wheel-slot .rolls-wheel-pct{position:relative;left:auto;top:auto;transform:none;font-size:10px;font-weight:950;font-variant-numeric:tabular-nums;color:#fff;line-height:1.1;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.8)}
     .rolls-wheel-av img{width:100%;height:100%;object-fit:cover;display:block;position:relative;z-index:1}
     .rolls-wheel-av__ph{display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#07110c;background:linear-gradient(135deg,#8CFFC1,#4DFF9A)}
     .rolls-wheel-av--win{box-shadow:0 0 0 3px #fff,0 0 28px rgba(105,240,174,.95)!important;z-index:4}
@@ -3369,7 +3381,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_NOFEE_T8_20260514"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_SLOT_OVERFLOW_20260514"></script>
 
 </body>
 </html>
