@@ -1151,19 +1151,19 @@ class RouletteUI {
       await this.reelEngine.run({
         strip,
         targetTranslateX: targetX,
-        omega: 1.52,
-        zeta: 1,
+        omega: 1.36,
+        zeta: 1.22,
         maxDurationMs: 14000,
       });
 
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => requestAnimationFrame(r));
 
       const picked = CaseReelWinner.pickCardUnderPointer(strip, container);
       this.applyReelWinnerHighlight(strip, picked);
       this.stopSpinSound();
       this.hapticImpact('medium');
 
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => setTimeout(r, 920));
 
       return this.resolveRevealWinnerFromPointer({
         cardEl: picked,
@@ -1303,7 +1303,7 @@ class RouletteUI {
       this._winnerModalCloseTimer = setTimeout(() => {
         this._winnerModalCloseTimer = null;
         this.closeRouletteWinnerModal();
-      }, 3200);
+      }, 5200);
     }
 
     // Confetti effect (if available)

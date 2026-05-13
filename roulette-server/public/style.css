@@ -379,13 +379,7 @@ body::before {
   filter: saturate(1.22) brightness(1.12) !important;
   outline: 3px solid rgba(140, 255, 193, 0.95);
   outline-offset: -3px;
-  animation: rouletteWinnerPulse 520ms ease-in-out 3;
-}
-
-@keyframes rouletteWinnerPulse {
-  0% { transform: scale(1.01); }
-  50% { transform: scale(1.08); }
-  100% { transform: scale(1.04); }
+  animation: none;
 }
 
 /* Players Section */

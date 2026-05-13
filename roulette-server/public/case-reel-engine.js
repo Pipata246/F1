@@ -126,7 +126,8 @@
     var D = target - pos0;
     if (Math.abs(D) < 1) return 0;
     var sign = D < 0 ? -1 : 1;
-    var mag = Math.min(5600, Math.abs(D) * 0.92);
+    // Ниже порог — меньше перелёта и «рвущей» середины траектории.
+    var mag = Math.min(2200, Math.abs(D) * 0.34);
     return sign * mag;
   };
 
@@ -134,8 +135,8 @@
    * @param {object} o
    * @param {HTMLElement} o.strip
    * @param {number} o.targetTranslateX
-   * @param {number} [o.omega] ~1.35–1.85: меньше = дольше докат
-   * @param {number} [o.zeta] = 1 критическое затухание
+   * @param {number} [o.omega] ~1.2–1.6: меньше = мягче докат
+   * @param {number} [o.zeta] >1 — перевозбуждённое затухание, меньше перелёта
    * @param {number} [o.maxDurationMs]
    * @param {number} [o.initialVelocity] px/s; иначе авто
    */
@@ -143,8 +144,8 @@
     var strip = o.strip;
     this._activeStrip = strip;
     var target = o.targetTranslateX;
-    var omega = o.omega != null ? o.omega : 1.58;
-    var zeta = o.zeta != null ? o.zeta : 1;
+    var omega = o.omega != null ? o.omega : 1.36;
+    var zeta = o.zeta != null ? o.zeta : 1.22;
     var maxMs = o.maxDurationMs != null ? o.maxDurationMs : 14000;
 
     this.abort();
@@ -181,12 +182,24 @@
           if (p0) p0();
           return;
         }
-        var dt = clamp((now - prev) / 1000, 0.001, 0.034);
+        var dtRaw = (now - prev) / 1000;
+        var steps = dtRaw > 0.018 ? 2 : 1;
+        var dt = clamp(dtRaw / steps, 0.001, 0.022);
         prev = now;
 
-        var accel = w2 * (target - pos) - z * vel;
-        vel += accel * dt;
-        pos += vel * dt;
+        for (var s = 0; s < steps; s++) {
+          var dist = target - pos;
+          var accel = w2 * dist - z * vel;
+          vel += accel * dt;
+          var maxSp = Math.min(2600, Math.max(220, Math.abs(dist) * 5.2));
+          if (vel > maxSp) vel = maxSp;
+          if (vel < -maxSp) vel = -maxSp;
+          pos += vel * dt;
+          if ((pos - target) * vel > 1e-4) {
+            pos = target;
+            vel *= 0.18;
+          }
+        }
 
         var settled = Math.abs(target - pos) < 0.4 && Math.abs(vel) < 8;
         var timeout = now - t0 > maxMs;
