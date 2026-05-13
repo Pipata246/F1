@@ -1172,17 +1172,16 @@ class RouletteUI {
       const finalPosition = containerCenterPx - targetCenterPx;
       const cardWidth = Math.max(1, targetCardEl.offsetWidth);
       
-      // Стабильный "обычный" спин:
-      // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
-      // Меньше «лишних» оборотов — ниже пиковая скорость, меньше ощущение «рваности».
-      const extraCardsTravel = Math.max(58, Math.min(96, Math.round(baseCardsCount * 0.45)));
+      // Дистанция прямо задаёт пиковую скорость при фиксированной длительности CSS-transition.
+      // Держим её низкой + мягкий easing — без «рвущегося» старта.
+      const extraCardsTravel = Math.max(22, Math.min(40, Math.round(baseCardsCount * 0.18)));
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
       const spinTargetPosition = finalPosition - extraSpins;
       const totalDistance = Math.abs(spinTargetPosition);
       
-      const duration = 9200;
+      const duration = 16800;
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
@@ -1275,7 +1274,7 @@ class RouletteUI {
         });
       };
 
-      // Один cinematic-спин: быстрый старт, длинное плавное торможение как в case-opening.
+      // Один плавный спин: без агрессивного старта (избегаем «рваного» cubic-bezier с высоким y1).
       requestAnimationFrame(() => {
         // Перезапуск transition кадр-в-кадр, чтобы избежать резкого рывка/дубля.
         strip.style.transition = 'none';
@@ -1283,7 +1282,7 @@ class RouletteUI {
         // Force reflow
         void strip.offsetWidth;
 
-        strip.style.transition = `transform ${totalMs}ms cubic-bezier(0.04, 0.86, 0.11, 1)`;
+        strip.style.transition = `transform ${totalMs}ms cubic-bezier(0.14, 0.72, 0.22, 1)`;
         strip.style.transform = `translateX(${spinTargetPosition}px)`;
 
         let done = false;
