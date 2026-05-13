@@ -1,7 +1,8 @@
 /**
  * CaseReelEngine — единственная RAF-анимация полосы кейса/рулетки.
- * Критически затухающая пружина: быстрый старт → плавное замедление → мягкая остановка в цели.
- * translate3d + will-change на время спина; pick по центру через elementsFromPoint.
+ * Затухающая пружина 2-го порядка (без потолков скорости и без «телепорта» в цель):
+ * старт с импульсом → скорость монотонно спадает → долгий медленный докат к центру.
+ * omega в рад/с (нормировка как в x''+2ζωx'+ω²x=ω²T): меньше omega = дольше и мягче хвост.
  */
 (function (global) {
   'use strict';
@@ -126,8 +127,8 @@
     var D = target - pos0;
     if (Math.abs(D) < 1) return 0;
     var sign = D < 0 ? -1 : 1;
-    // Ниже порог — меньше перелёта и «рвущей» середины траектории.
-    var mag = Math.min(2200, Math.abs(D) * 0.34);
+    // Импульс к цели; верх — чтобы не улететь за кадр при малой дистанции.
+    var mag = Math.min(4800, Math.abs(D) * 0.52);
     return sign * mag;
   };
 
@@ -135,8 +136,8 @@
    * @param {object} o
    * @param {HTMLElement} o.strip
    * @param {number} o.targetTranslateX
-   * @param {number} [o.omega] ~1.2–1.6: меньше = мягче докат
-   * @param {number} [o.zeta] >1 — перевозбуждённое затухание, меньше перелёта
+   * @param {number} [o.omega] рад/с (типично 0.38–0.55): меньше = дольше и «интригующее» замедление
+   * @param {number} [o.zeta] ≥1 — затухание; чуть >1 снижает перелёт при большом начальном импульсе
    * @param {number} [o.maxDurationMs]
    * @param {number} [o.initialVelocity] px/s; иначе авто
    */
@@ -144,9 +145,9 @@
     var strip = o.strip;
     this._activeStrip = strip;
     var target = o.targetTranslateX;
-    var omega = o.omega != null ? o.omega : 1.36;
-    var zeta = o.zeta != null ? o.zeta : 1.22;
-    var maxMs = o.maxDurationMs != null ? o.maxDurationMs : 14000;
+    var omega = o.omega != null ? o.omega : 0.46;
+    var zeta = o.zeta != null ? o.zeta : 1.1;
+    var maxMs = o.maxDurationMs != null ? o.maxDurationMs : 20000;
 
     this.abort();
     this._aborted = false;
@@ -183,25 +184,22 @@
           return;
         }
         var dtRaw = (now - prev) / 1000;
-        var steps = dtRaw > 0.018 ? 2 : 1;
-        var dt = clamp(dtRaw / steps, 0.001, 0.022);
+        var steps = dtRaw > 0.022 ? 2 : 1;
+        var dt = clamp(dtRaw / steps, 0.001, 0.02);
         prev = now;
 
         for (var s = 0; s < steps; s++) {
           var dist = target - pos;
           var accel = w2 * dist - z * vel;
           vel += accel * dt;
-          var maxSp = Math.min(2600, Math.max(220, Math.abs(dist) * 5.2));
-          if (vel > maxSp) vel = maxSp;
-          if (vel < -maxSp) vel = -maxSp;
+          // только защита от численного взрыва (фоновая вкладка / огромный dt)
+          var vSafe = 9000;
+          if (vel > vSafe) vel = vSafe;
+          if (vel < -vSafe) vel = -vSafe;
           pos += vel * dt;
-          if ((pos - target) * vel > 1e-4) {
-            pos = target;
-            vel *= 0.18;
-          }
         }
 
-        var settled = Math.abs(target - pos) < 0.4 && Math.abs(vel) < 8;
+        var settled = Math.abs(target - pos) < 0.35 && Math.abs(vel) < 10;
         var timeout = now - t0 > maxMs;
         if (settled || timeout) {
           pos = target;

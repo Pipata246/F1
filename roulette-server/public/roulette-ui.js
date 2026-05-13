@@ -1151,9 +1151,9 @@ class RouletteUI {
       await this.reelEngine.run({
         strip,
         targetTranslateX: targetX,
-        omega: 1.36,
-        zeta: 1.22,
-        maxDurationMs: 14000,
+        omega: 0.46,
+        zeta: 1.1,
+        maxDurationMs: 20000,
       });
 
       await new Promise((r) => requestAnimationFrame(r));
