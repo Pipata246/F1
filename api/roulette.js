@@ -642,7 +642,7 @@ async function handleGetActiveRound(body) {
   let round = await getActiveRound();
   
   if (!round) {
-    return { ok: true, round: null, bets: [], wheelCardsHTML: '', serverTime: new Date().toISOString() };
+    return { ok: true, round: null, bets: [], wheelCardsHTML: '', serverTime: new Date().toISOString(), roulette_timer_duration_seconds: TIMER_DURATION };
   }
 
   // SERVER-DRIVEN SPIN:
@@ -758,6 +758,7 @@ async function handleGetActiveRound(body) {
     winner_card_index: round.winner_card_index ?? null,
     spin_seed: round.spin_seed ?? null,
     spin_pick: round.spin_pick != null && round.spin_pick !== "" ? Number(round.spin_pick) : null,
+    roulette_timer_duration_seconds: TIMER_DURATION,
   };
 }
 

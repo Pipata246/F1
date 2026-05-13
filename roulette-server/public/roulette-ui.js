@@ -110,6 +110,8 @@ class RouletteUI {
       presentingRoundId: null,
       /** Идемпотентность локального onTimerEnd (один раз на конкретный таймер) */
       timerEndedKey: null,
+      /** Верхняя граница отображения секунд (с сервера, см. roulette_timer_duration_seconds) */
+      rouletteTimerCap: null,
     };
 
     this._spinFinishTimer = null;
@@ -476,6 +478,12 @@ class RouletteUI {
     return `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   }
 
+  rouletteTimerCapSeconds() {
+    const c = this.state.rouletteTimerCap;
+    if (typeof c === 'number' && Number.isFinite(c) && c > 0 && c <= 240) return c;
+    return ROULETTE_ROUND_TIMER_SECONDS;
+  }
+
   async loadActiveRound() {
     try {
       // Защита от гонок (polling + realtime одновременно).
@@ -490,6 +498,10 @@ class RouletteUI {
       }
 
       const data = await this.callAPI('getActiveRound');
+      const td = Number(data?.roulette_timer_duration_seconds);
+      if (Number.isFinite(td) && td >= 3 && td <= 240) {
+        this.state.rouletteTimerCap = td;
+      }
       
       if (data.round) {
         const previousStatus = this.state.currentRound?.status;
@@ -603,8 +615,9 @@ class RouletteUI {
           this.startSmoothTimer();
           // Показать значение сразу (без ожидания первого тика interval),
           // чтобы старт был визуально одинаковым у всех.
+          const cap = this.rouletteTimerCapSeconds();
           const initialRemaining = Math.max(0, Math.min(
-            ROULETTE_ROUND_TIMER_SECONDS,
+            cap,
             Math.ceil((this.state.timerEndTime - this.state.lastServerTime + 999) / 1000)
           ));
           this.updateTimerDisplay(initialRemaining);
@@ -858,9 +871,10 @@ class RouletteUI {
       
       // Вычисляем оставшееся время
       // +999ms дает стабильный визуальный старт с полного TIMER_DURATION на большинстве устройств.
+      const cap = this.rouletteTimerCapSeconds();
       const remaining = Math.max(
         0,
-        Math.min(ROULETTE_ROUND_TIMER_SECONDS, Math.ceil((this.state.timerEndTime - estimatedServerTime + 999) / 1000))
+        Math.min(cap, Math.ceil((this.state.timerEndTime - estimatedServerTime + 999) / 1000))
       );
       
       this.updateTimerDisplay(remaining);
@@ -887,7 +901,7 @@ class RouletteUI {
     if (this.elements.timer) {
       this.elements.timer.textContent = seconds;
 
-      const cap = ROULETTE_ROUND_TIMER_SECONDS;
+      const cap = this.rouletteTimerCapSeconds();
       if (seconds <= 2) {
         this.elements.timer.style.color = '#ff4444';
       } else if (seconds <= Math.max(3, Math.ceil(cap * 0.55))) {
@@ -905,7 +919,8 @@ class RouletteUI {
       }
     }
     if (this.elements.rollsHubText && this.state.currentRound?.status === 'active') {
-      const s = Math.max(0, Math.min(99, Number(seconds) || 0));
+      const cap = this.rouletteTimerCapSeconds();
+      const s = Math.max(0, Math.min(cap, Number(seconds) || 0));
       this.elements.rollsHubText.className = 'rolls-hub__text rolls-hub__text--timer';
       this.elements.rollsHubText.textContent = `00:${String(s).padStart(2, '0')}`;
       this.elements.rollsHub?.classList.remove('rolls-hub--wait');
@@ -1197,8 +1212,8 @@ class RouletteUI {
         : null;
     const endDeg = this.computeDonutEndRotationDeg(rows, round.winner_user_id, 7, spinPick);
     if (hubText) {
-      hubText.className = 'rolls-hub__text';
-      hubText.textContent = '…';
+      hubText.className = 'rolls-hub__text rolls-hub__text--spinlabel';
+      hubText.textContent = 'Розыгрыш';
     }
     hub?.classList.remove('rolls-hub--wait');
 
