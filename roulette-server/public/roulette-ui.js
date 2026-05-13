@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: ROULETTE_UI_STATIC_PANELS_20260513
+ * VERSION: ROLLS_DONUT_20260514
  */
 
 const ROULETTE_DEBUG =
@@ -17,6 +17,17 @@ const ROULETTE_SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
 const ROULETTE_SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
 
+const ROLLS_SEG_COLORS = [
+  '#e91e63',
+  '#f44336',
+  '#ff9800',
+  '#ffeb3b',
+  '#00bcd4',
+  '#7c4dff',
+  '#26a69a',
+  '#ab47bc',
+];
+
 class RouletteUI {
   constructor() {
     this.elements = {
@@ -26,9 +37,15 @@ class RouletteUI {
       timer: document.getElementById('rouletteTimer'),
       timerWrap: document.getElementById('rouletteTimerWrap'),
       
-      // Wheel
+      // Donut wheel (Rolls-style)
       wheelContainer: document.getElementById('rouletteWheelContainer'),
-      strip: document.getElementById('rouletteStrip'),
+      wheelSpin: document.getElementById('rollsWheelSpin'),
+      wheelConic: document.getElementById('rollsWheelConic'),
+      wheelAvatars: document.getElementById('rollsWheelAvatars'),
+      rollsHub: document.getElementById('rollsHub'),
+      rollsHubText: document.getElementById('rollsHubText'),
+      rollsRoundIdLabel: document.getElementById('rollsRoundIdLabel'),
+      rollsPotEcho: document.getElementById('rollsPotEcho'),
       
       // Players
       playerCount: document.getElementById('roulettePlayerCount'),
@@ -94,8 +111,7 @@ class RouletteUI {
       timerEndedKey: null,
     };
 
-    /** Единственный движок прокрутки кейса (RAF + пружина), см. case-reel-engine.js */
-    this.reelEngine = typeof CaseReelEngine !== 'undefined' ? new CaseReelEngine() : null;
+    this._spinFinishTimer = null;
 
     this._lastStatusUi = null;
     this._lastPotText = null;
@@ -138,21 +154,11 @@ class RouletteUI {
 
     // Не трогаем модалку — только базовый UI раунда
     if (this.elements.playersList) {
-      this.elements.playersList.innerHTML = `
-        <div style="text-align:center; padding:24px; color:var(--muted); font-size:13px;">
-          Пока нет игроков. Будь первым!
-        </div>
-      `;
+      this.elements.playersList.innerHTML = `<div class="rolls-empty">Пока нет игроков. Будь первым!</div>`;
     }
 
-    if (this.elements.strip && !preserveWheel) {
-      this.elements.strip.style.transition = 'none';
-      this.elements.strip.style.transform = 'translate3d(0,0,0)';
-      this.elements.strip.innerHTML = `
-        <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
-          Ожидание игроков...
-        </div>
-      `;
+    if (!preserveWheel) {
+      this.resetDonutToWaiting();
     }
 
     // Сброс внутренних ключей, чтобы следующий раунд точно перерисовался
@@ -170,16 +176,24 @@ class RouletteUI {
 
   /** Сброс полосы колеса после модалки победителя (когда ранее вызывали clearRoundUIToWaiting с preserveWheelStrip). */
   resetWheelStripToWaiting() {
-    if (!this.elements.strip) return;
+    this.resetDonutToWaiting();
+  }
+
+  resetDonutToWaiting() {
     this.abortCaseReel();
-    this.clearWinnerCardHighlight(this.elements.strip);
-    this.elements.strip.style.transition = 'none';
-    this.elements.strip.style.transform = 'translate3d(0,0,0)';
-    this.elements.strip.innerHTML = `
-      <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
-        Ожидание игроков...
-      </div>
-    `;
+    const spin = this.elements.wheelSpin;
+    if (spin) {
+      spin.style.transition = 'none';
+      spin.style.transform = 'rotate(0deg)';
+    }
+    this.clearWinnerWheelFlash();
+    if (this.elements.wheelConic) this.applyWaitingDonut();
+    if (this.elements.wheelAvatars) this.elements.wheelAvatars.innerHTML = '';
+    if (this.elements.rollsHubText) {
+      this.elements.rollsHubText.className = 'rolls-hub__text';
+      this.elements.rollsHubText.textContent = 'Ожидание';
+    }
+    this.elements.rollsHub?.classList.add('rolls-hub--wait');
     this.state.wheelCardsHTML = '';
   }
 
@@ -196,7 +210,17 @@ class RouletteUI {
   }
 
   abortCaseReel() {
-    if (this.reelEngine) this.reelEngine.abort();
+    if (this._spinFinishTimer) {
+      clearTimeout(this._spinFinishTimer);
+      this._spinFinishTimer = null;
+    }
+    const spin = this.elements.wheelSpin;
+    if (spin) {
+      try {
+        spin.getAnimations?.().forEach((a) => a.cancel());
+      } catch {}
+      spin.style.transition = 'none';
+    }
   }
 
   init() {
@@ -213,6 +237,27 @@ class RouletteUI {
       if (e.target === this.elements.historyModal) {
         this.elements.historyModal.classList.remove('show');
       }
+    });
+
+    document.getElementById('rollsHistoryBtn')?.addEventListener('click', () => {
+      this.elements.historyModal?.classList.add('show');
+      this.loadMyHistory(true).catch(() => {});
+    });
+    document.getElementById('rollsMenuBtn')?.addEventListener('click', () => {
+      this.showToast('Меню скоро');
+    });
+    document.getElementById('rollsChatBtn')?.addEventListener('click', () => {
+      this.showToast('Чат в разработке');
+    });
+    document.getElementById('rollsDailyBanner')?.addEventListener('click', () => {
+      this.showToast('Турнир скоро');
+    });
+    document.getElementById('rollsFocusBetBtn')?.addEventListener('click', () => {
+      this.elements.betInput?.focus();
+      this.elements.betSection?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    document.getElementById('rollsQuickPotBtn')?.addEventListener('click', () => {
+      this.elements.betInput?.focus();
     });
 
     // Initialize with empty state
@@ -489,16 +534,10 @@ class RouletteUI {
         this.updateStatus(effectiveStatus);
         this.updatePot(parseFloat(data.round.pot_amount));
 
-        // Всегда сохраняем HTML карточек, даже если идет спин.
-        if (data.wheelCardsHTML && data.wheelCardsHTML.length > 0) {
-          this.state.wheelCardsHTML = data.wheelCardsHTML;
-          // Если DOM пустой (например пользователь зашёл во время спина) — восстановим карточки.
-          if (this.elements.strip && this.elements.strip.querySelectorAll('.roulette-card').length === 0) {
-            rlog('[Roulette] Restoring wheel HTML during spin/page-enter');
-            this.elements.strip.innerHTML = this.state.wheelCardsHTML;
-          }
+        if (data.round && data.round.id && this.elements.rollsRoundIdLabel) {
+          this.elements.rollsRoundIdLabel.textContent = `ИГРА #${String(data.round.id).slice(0, 8)}`;
         }
-        
+
         // Если сервер отдал фото победителя (для finished) — запомним для модалки.
         if (data.winner && data.winner.photo_url) {
           this.state.lastWinnerPhotoUrl = data.winner.photo_url;
@@ -631,12 +670,9 @@ class RouletteUI {
             this.updateStatus('spinning');
 
             try {
-              rlog('[Roulette] Starting CaseReelEngine');
+              rlog('[Roulette] Starting donut spin');
               const outcome = await this.playFinishedRoundReveal({
                 round: data.round,
-                wheelHtml: data.wheelCardsHTML && data.wheelCardsHTML.length > 0
-                  ? data.wheelCardsHTML
-                  : this.state.wheelCardsHTML,
                 bets: data.bets || [],
                 winner: data.winner,
               });
@@ -684,6 +720,10 @@ class RouletteUI {
           return; // Полностью игнорируем отсутствие раунда
         }
         
+        if (this.elements.rollsRoundIdLabel) {
+          this.elements.rollsRoundIdLabel.textContent = '';
+        }
+
         this.state.currentRound = null;
         this.state.myBet = null;
         this._lastMyBetUi = '';
@@ -800,6 +840,13 @@ class RouletteUI {
       this.elements.status.textContent = config.text;
       this.elements.status.style.color = config.color;
     }
+    if (this.elements.rollsHubText && !this.state.isAnimating) {
+      if (status === 'spinning') {
+        this.elements.rollsHubText.className = 'rolls-hub__text';
+        this.elements.rollsHubText.textContent = 'Розыгрыш…';
+        this.elements.rollsHub?.classList.remove('rolls-hub--wait');
+      }
+    }
     this._lastStatusUi = status;
   }
 
@@ -809,6 +856,9 @@ class RouletteUI {
     this._lastPotText = t;
     if (this.elements.potAmount) {
       this.elements.potAmount.textContent = t;
+    }
+    if (this.elements.rollsPotEcho) {
+      this.elements.rollsPotEcho.textContent = t;
     }
   }
 
@@ -858,7 +908,7 @@ class RouletteUI {
   updateTimerDisplay(seconds) {
     if (this.elements.timer) {
       this.elements.timer.textContent = seconds;
-      
+
       // Change color when time is running out
       if (seconds <= 5) {
         this.elements.timer.style.color = '#ff4444';
@@ -876,6 +926,12 @@ class RouletteUI {
         this.state.lastTimerSecond = seconds;
       }
     }
+    if (this.elements.rollsHubText && this.state.currentRound?.status === 'active') {
+      const s = Math.max(0, Math.min(99, Number(seconds) || 0));
+      this.elements.rollsHubText.className = 'rolls-hub__text rolls-hub__text--timer';
+      this.elements.rollsHubText.textContent = `00:${String(s).padStart(2, '0')}`;
+      this.elements.rollsHub?.classList.remove('rolls-hub--wait');
+    }
   }
 
   onTimerEnd() {
@@ -890,7 +946,7 @@ class RouletteUI {
     this.state.isSpinning = true;
     
     // ВАЖНО: Сохраняем текущее состояние карточек чтобы их нельзя было удалить
-    rlog('[Roulette] Current cards count:', this.elements.strip?.children.length || 0);
+    rlog('[Roulette] Current wheel state:', this.state.players?.length || 0, 'players');
     rlog('[Roulette] Current players:', this.state.players.length);
     
     this.updateStatus('spinning');
@@ -969,128 +1025,138 @@ class RouletteUI {
     if (!this.elements.playersList) return;
 
     if (this.state.players.length === 0) {
-      this.elements.playersList.innerHTML = `
-        <div style="text-align:center; padding:24px; color:var(--muted); font-size:13px;">
-          Пока нет игроков. Будь первым!
-        </div>
-      `;
+      this.elements.playersList.innerHTML = `<div class="rolls-empty">Пока нет игроков. Будь первым!</div>`;
       return;
     }
 
-    this.elements.playersList.innerHTML = this.state.players.map(player => {
-      // Аватар: фото или инициал
-      const avatarContent = player.photoUrl 
-        ? `<img src="${this.escapeHtml(player.photoUrl)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:16px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`
-        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px; color:#07110c;">${player.name.charAt(0).toUpperCase()}</div>`;
-      
+    this.elements.playersList.innerHTML = this.state.players.map((player) => {
+      const avatarContent = player.photoUrl
+        ? `<img src="${this.escapeHtml(player.photoUrl)}" alt="" onerror="this.style.display='none'"/>`
+        : `<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#07110c;">${player.name.charAt(0).toUpperCase()}</span>`;
       return `
-        <div class="pill" style="padding:10px 12px;">
-          <div style="display:flex; align-items:center; gap:10px; flex:1;">
-            <div style="width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg, #8CFFC1, #4DFF9A); overflow:hidden; flex-shrink:0;">
-              ${avatarContent}
+        <div class="rolls-pcard" data-user-id="${this.escapeHtml(String(player.id))}">
+          <div class="rolls-pcard__top">
+            <div class="rolls-pcard__left">
+              <div class="rolls-pcard__av">${avatarContent}</div>
+              <div>
+                <div class="rolls-pcard__name">${this.escapeHtml(player.name)}</div>
+                <div class="rolls-pcard__sub">Игрок</div>
+              </div>
             </div>
-            <div style="flex:1; min-width:0;">
-              <div style="font-weight:800; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(player.name)}</div>
-              <div style="font-size:11px; color:var(--muted);">Ставка: <span style="color:var(--text); font-weight:700;">${player.bet.toFixed(2)} TON</span></div>
+            <div>
+              <div class="rolls-pcard__pct">${player.chance.toFixed(2)}%</div>
+              <div class="rolls-pcard__bet">${player.bet.toFixed(2)} TON</div>
             </div>
           </div>
-          <div style="text-align:right;">
-            <div style="font-size:18px; font-weight:900; color:var(--accent);">${player.chance.toFixed(1)}%</div>
-            <div style="font-size:10px; color:var(--muted);">шанс</div>
+          <div class="rolls-pcard__foot">
+            <button type="button" class="rolls-diamond-btn" disabled aria-hidden="true">💎 ${player.bet.toFixed(2)}</button>
+            <span class="rolls-pcard__chev">›</span>
           </div>
-        </div>
-      `;
+        </div>`;
     }).join('');
   }
 
-  // ==================== WHEEL ====================
-  renderWheel() {
-    if (!this.elements.strip) return;
+  // ==================== DONUT WHEEL (Rolls) ====================
 
-    // ВАЖНО: НИКОГДА не перерисовываем если идет локальная анимация/спин!
-    if (this.state.isSpinning || this.state.isAnimating) {
-      rlog('[Roulette] BLOCKED: Cannot render wheel during spin!');
-      return;
-    }
-
-    if (this.state.players.length === 0) {
-      this.elements.strip.innerHTML = `
-        <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
-          Ожидание игроков...
-        </div>
-      `;
-      return;
-    }
-
-    // Проверяем нужно ли перерисовывать
-    const playersKey = this.state.players.map(p => `${p.id}_${p.bet.toFixed(2)}`).join('|');
-    if (this.state.lastPlayersKey === playersKey && this.elements.strip.children.length > 0) {
-      rlog('[Roulette] Skipping wheel render - players unchanged');
-      return;
-    }
-    this.state.lastPlayersKey = playersKey;
-
-    rlog('[Roulette] Rendering wheel with', this.state.players.length, 'players');
-
-    // КРИТИЧЕСКИ ВАЖНО: Используем готовый HTML от СЕРВЕРА!
-    // Никаких вычислений на клиенте - просто вставляем HTML
-    if (this.state.wheelCardsHTML && this.state.wheelCardsHTML.length > 0) {
-      rlog('[Roulette] ✅ Using HTML from SERVER');
-      this.elements.strip.innerHTML = this.state.wheelCardsHTML;
-    } else {
-      // Не затираем текущие карточки лоадером, чтобы не было "резкого пропадания" полосы.
-      if (this.elements.strip.querySelectorAll('.roulette-card').length > 0) {
-        rlog('[Roulette] Keeping existing wheel cards until fresh HTML arrives');
-        return;
-      }
-      rlog('[Roulette] ⚠️ No HTML from server yet - waiting');
-      this.elements.strip.innerHTML = `<div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">Загрузка карточек...</div>`;
-      return;
-    }
-    
-    this.elements.strip.style.transform = 'translate3d(0,0,0)';
-    this.elements.strip.style.transition = 'none';
-    
-    rlog('[Roulette] ✅ Wheel rendered from SERVER HTML - Ready for animation');
+  sortPlayersForWheel(players) {
+    return [...(players || [])].sort((a, b) => String(a.id).localeCompare(String(b.id)));
   }
-  
-  clearWinnerCardHighlight(strip) {
-    if (!strip) return;
-    strip.querySelectorAll('.roulette-card--winner').forEach((el) => {
-      el.classList.remove('roulette-card--winner');
-      el.style.removeProperty('box-shadow');
-      el.style.removeProperty('filter');
-      el.style.removeProperty('transform');
-      el.style.removeProperty('z-index');
-      el.style.removeProperty('position');
+
+  applyWaitingDonut() {
+    if (!this.elements.wheelConic) return;
+    const parts = [];
+    for (let i = 0; i < 8; i++) {
+      const c = i % 2 === 0 ? '#3a3d46' : '#2a2d35';
+      parts.push(`${c} ${(i * 100) / 8}% ${((i + 1) * 100) / 8}%`);
+    }
+    this.elements.wheelConic.style.background = `conic-gradient(from -90deg, ${parts.join(', ')})`;
+  }
+
+  buildDonutFromPlayers(players) {
+    if (!this.elements.wheelConic || !this.elements.wheelAvatars) return;
+    const list = this.sortPlayersForWheel(players);
+    if (!list.length) {
+      this.applyWaitingDonut();
+      this.elements.wheelAvatars.innerHTML = '';
+      return;
+    }
+    const weights = list.map((p) => Math.max(0.35, Number(p.chance) || 0));
+    const sum = weights.reduce((a, b) => a + b, 0) || 1;
+    let accPct = 0;
+    const stops = [];
+    list.forEach((p, i) => {
+      const frac = (weights[i] / sum) * 100;
+      const c = ROLLS_SEG_COLORS[i % ROLLS_SEG_COLORS.length];
+      const next = accPct + frac;
+      stops.push(`${c} ${accPct}% ${next}%`);
+      accPct = next;
+    });
+    this.elements.wheelConic.style.background = `conic-gradient(from -90deg, ${stops.join(', ')})`;
+
+    let a = 0;
+    const html = [];
+    list.forEach((p, i) => {
+      const frac = weights[i] / sum;
+      const mid = (a + a + frac) / 2;
+      a += frac;
+      const theta = (mid - 0.25) * 2 * Math.PI;
+      const rad = 38;
+      const left = 50 + Math.sin(theta) * rad;
+      const top = 50 - Math.cos(theta) * rad;
+      const av = p.photoUrl
+        ? `<img src="${this.escapeHtml(p.photoUrl)}" alt="" onerror="this.parentElement.innerHTML='<span style=\\'display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:#fff\\'>${p.name.charAt(0).toUpperCase()}</span>'"/>`
+        : `<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:#fff">${p.name.charAt(0).toUpperCase()}</span>`;
+      html.push(
+        `<div class="rolls-wheel-av" data-user-id="${this.escapeHtml(String(p.id))}" style="left:${left}%;top:${top}%">${av}</div>`
+      );
+    });
+    this.elements.wheelAvatars.innerHTML = html.join('');
+  }
+
+  clearWinnerWheelFlash() {
+    this.elements.wheelAvatars?.querySelectorAll('.rolls-wheel-av--win').forEach((el) => {
+      el.classList.remove('rolls-wheel-av--win');
     });
   }
 
-  applyReelWinnerHighlight(strip, el) {
-    if (!strip || !el) return;
-    this.clearWinnerCardHighlight(strip);
-    el.classList.add('roulette-card--winner');
-    el.style.setProperty('box-shadow', 'inset 0 0 0 3px rgba(140,255,193,.95), 0 0 32px rgba(140,255,193,.9)', 'important');
-    el.style.setProperty('filter', 'brightness(1.22) saturate(1.2)', 'important');
-    el.style.setProperty('transform', 'scale(1.06)', 'important');
-    el.style.setProperty('z-index', '25', 'important');
-    el.style.setProperty('position', 'relative', 'important');
+  computeDonutEndRotationDeg(players, winnerUserId, fullTurns = 7) {
+    const list = this.sortPlayersForWheel(players);
+    const wuid = String(winnerUserId || '');
+    const weights = list.map((p) => Math.max(0.35, Number(p.chance) || 0));
+    const sum = weights.reduce((a, b) => a + b, 0) || 1;
+    let a = 0;
+    let midFrac = 0.5;
+    for (let i = 0; i < list.length; i++) {
+      const frac = weights[i] / sum;
+      if (String(list[i].id) === wuid) {
+        midFrac = a + frac / 2;
+        break;
+      }
+      a += frac;
+    }
+    const alphaMidDeg = midFrac * 360;
+    return -alphaMidDeg + 360 * fullTurns;
   }
 
-  resolveRevealWinnerFromPointer({ cardEl, bets, winnerPayload, round }) {
-    const uid = CaseReelWinner.resolveUserId(cardEl);
-    const bet = (bets || []).find((b) => String(b.user_id) === uid);
+  betsToPlayerRows(bets) {
+    return (bets || [])
+      .map((b) => ({
+        id: b.user_id,
+        name: b.display_name || 'Player',
+        bet: parseFloat(b.bet_amount) || 0,
+        chance: parseFloat(b.chance_percent) || 0,
+        photoUrl: b.photo_url || null,
+      }))
+      .filter((p) => p.id);
+  }
+
+  resolveRevealWinnerFromRound(round, bets, winnerPayload) {
     const serverUid = String(round?.winner_user_id || '');
-    if (uid && serverUid && uid !== serverUid) {
-      console.warn('[Roulette] Under-pointer uid !== server winner (layout drift?)', { uid, serverUid });
-    }
-    const displayName =
-      bet?.display_name ||
-      winnerPayload?.display_name ||
-      'Игрок';
+    const bet = (bets || []).find((b) => String(b.user_id) === serverUid);
+    const displayName = bet?.display_name || winnerPayload?.display_name || 'Игрок';
     const chance = bet != null ? parseFloat(bet.chance_percent || 0) : null;
     return {
-      userId: uid || serverUid,
+      userId: serverUid,
       displayName,
       amount: parseFloat(round?.winner_amount || 0),
       photoUrl: bet?.photo_url || winnerPayload?.photo_url || this.state.lastWinnerPhotoUrl,
@@ -1098,82 +1164,133 @@ class RouletteUI {
     };
   }
 
-  /**
-   * Полоса: CaseReelLayout. Движение: CaseReelEngine (пружина + RAF + deltaTime).
-   * Целевой translate считается по серверному индексу карты, чтобы под указателем оказался тот же слот;
-   * итоговый «победитель UI» — строго карта под центром после остановки.
-   */
-  async playFinishedRoundReveal({ round, wheelHtml, bets, winner }) {
-    if (!this.reelEngine || typeof CaseReelLayout === 'undefined' || typeof CaseReelWinner === 'undefined') {
-      throw new Error('[Roulette] case-reel-engine.js not loaded');
+  async playFinishedRoundReveal({ round, bets, winner }) {
+    const spin = this.elements.wheelSpin;
+    const hub = this.elements.rollsHub;
+    const hubText = this.elements.rollsHubText;
+    const rows = this.betsToPlayerRows(bets);
+    if (!spin || !rows.length) {
+      return this.resolveRevealWinnerFromRound(round, bets, winner);
     }
 
-    const strip = this.elements.strip;
-    const container = this.elements.wheelContainer;
-    const baseHtml = (wheelHtml && String(wheelHtml).trim())
-      ? String(wheelHtml).trim()
-      : String(this.state.wheelCardsHTML || '').trim();
+    this.buildDonutFromPlayers(rows);
+    this.clearWinnerWheelFlash();
+    await new Promise((r) => requestAnimationFrame(r));
 
-    if (!strip || !container || !baseHtml) {
-      throw new Error('[Roulette] Missing strip/container/wheelHtml');
+    spin.style.transition = 'none';
+    spin.style.transform = 'rotate(0deg)';
+    void spin.offsetHeight;
+
+    const endDeg = this.computeDonutEndRotationDeg(rows, round.winner_user_id, 7);
+    if (hubText) {
+      hubText.className = 'rolls-hub__text';
+      hubText.textContent = '…';
+    }
+    hub?.classList.remove('rolls-hub--wait');
+
+    await new Promise((r) => requestAnimationFrame(r));
+    spin.style.transition = 'transform 9.6s cubic-bezier(0.06, 0.72, 0.12, 1)';
+    spin.style.transform = `rotate(${endDeg}deg)`;
+
+    await new Promise((r) => {
+      this._spinFinishTimer = setTimeout(r, 9800);
+    });
+    this._spinFinishTimer = null;
+
+    const wuid = String(round?.winner_user_id || '');
+    this.elements.wheelAvatars?.querySelectorAll('.rolls-wheel-av').forEach((el) => {
+      if (String(el.getAttribute('data-user-id')) === wuid) el.classList.add('rolls-wheel-av--win');
+    });
+
+    this.stopSpinSound();
+    this.hapticImpact('medium');
+    await new Promise((r) => setTimeout(r, 720));
+    return this.resolveRevealWinnerFromRound(round, bets, winner);
+  }
+
+  renderWheel() {
+    if (!this.elements.wheelConic) return;
+    if (this.state.isSpinning || this.state.isAnimating) {
+      rlog('[Roulette] BLOCKED: Cannot render wheel during spin!');
+      return;
     }
 
-    this.abortCaseReel();
-    strip.style.transition = 'none';
-
-    const baseCount = CaseReelLayout.countCardsInBase(baseHtml);
-    if (!baseCount) {
-      throw new Error('[Roulette] No .roulette-card in wheel HTML');
+    const playersKey = this.state.players.map((p) => `${p.id}_${p.bet.toFixed(2)}`).join('|');
+    if (this.state.players.length === 0) {
+      this.state.lastPlayersKey = null;
+      this.applyWaitingDonut();
+      if (this.elements.wheelAvatars) this.elements.wheelAvatars.innerHTML = '';
+      this.syncRollsHubIdle();
+      return;
     }
 
-    const runwaySeg = 11;
-    const tailSeg = 9;
-    CaseReelLayout.fillRepeatedStrip(strip, baseHtml, runwaySeg, tailSeg);
-
-    const idxInBase = CaseReelLayout.winnerIndexInBase(baseHtml, round);
-    const globalIdx = CaseReelLayout.globalIndexForWinner(baseCount, runwaySeg, idxInBase);
-    const cards = strip.querySelectorAll('.roulette-card');
-    if (!cards[globalIdx]) {
-      throw new Error('[Roulette] Winner card index out of DOM range');
+    if (this.state.lastPlayersKey === playersKey && this.elements.wheelAvatars?.children.length > 0) {
+      rlog('[Roulette] Skipping wheel render - players unchanged');
+      this.syncRollsHubIdle();
+      return;
     }
-
-    this.clearWinnerCardHighlight(strip);
-    strip.style.transform = 'translate3d(0,0,0)';
-    void strip.offsetHeight;
-
-    const anchor = cards[globalIdx];
-    const cardW = Math.max(1, anchor.offsetWidth);
-    const extraRunway = cardW * 26 + container.offsetWidth * 0.4;
-    const targetX = CaseReelLayout.computeTargetTranslateX(strip, container, globalIdx, extraRunway);
-
-    strip.classList.add('reel-is-spinning');
-    try {
-      await this.reelEngine.run({
-        strip,
-        targetTranslateX: targetX,
-        omega: 0.46,
-        zeta: 1.1,
-        maxDurationMs: 20000,
-      });
-
-      await new Promise((r) => requestAnimationFrame(r));
-
-      const picked = CaseReelWinner.pickCardUnderPointer(strip, container);
-      this.applyReelWinnerHighlight(strip, picked);
-      this.stopSpinSound();
-      this.hapticImpact('medium');
-
-      await new Promise((r) => setTimeout(r, 920));
-
-      return this.resolveRevealWinnerFromPointer({
-        cardEl: picked,
-        bets,
-        winnerPayload: winner,
-        round,
-      });
-    } finally {
-      strip.classList.remove('reel-is-spinning');
+    this.state.lastPlayersKey = playersKey;
+    rlog('[Roulette] Rendering donut, players:', this.state.players.length);
+    this.buildDonutFromPlayers(this.state.players);
+    const spin = this.elements.wheelSpin;
+    if (spin) {
+      spin.style.transition = 'none';
+      spin.style.transform = 'rotate(0deg)';
     }
+    this.syncRollsHubIdle();
+  }
+
+  syncRollsHubIdle() {
+    if (!this.elements.rollsHubText || this.state.isAnimating) return;
+    if (this.state.isSpinning) return;
+    const st = this.state.currentRound?.status;
+    if (st === 'active') return;
+    if (st === 'spinning') return;
+    if (this.state.players?.length > 0) {
+      this.elements.rollsHubText.className = 'rolls-hub__text rolls-hub__text--game';
+      this.elements.rollsHubText.textContent = 'ИГРА';
+      this.elements.rollsHub?.classList.remove('rolls-hub--wait');
+    } else {
+      this.elements.rollsHubText.className = 'rolls-hub__text';
+      this.elements.rollsHubText.textContent = 'Ожидание';
+      this.elements.rollsHub?.classList.add('rolls-hub--wait');
+    }
+  }
+
+  updateRollsSpotlights(winners) {
+    const w = winners || [];
+    const setCard = (side, row) => {
+      const nameEl = document.getElementById(`rollsSpot${side}Name`);
+      const amtEl = document.getElementById(`rollsSpot${side}Amt`);
+      const chEl = document.getElementById(`rollsSpot${side}Chance`);
+      const avEl = document.getElementById(`rollsSpot${side}Av`);
+      if (!nameEl || !amtEl || !chEl || !avEl) return;
+      if (!row) {
+        nameEl.textContent = '—';
+        amtEl.textContent = '+0 TON';
+        chEl.textContent = 'ШАНС —';
+        avEl.innerHTML = '';
+        return;
+      }
+      const name = row.winner_display_name || '—';
+      const ton = parseFloat(row.winner_amount || 0);
+      const ch = parseFloat(row.winner_chance_percent || 0);
+      nameEl.textContent = name.length > 12 ? `${name.slice(0, 10)}…` : name;
+      amtEl.textContent = `+${ton.toFixed(ton >= 100 ? 0 : ton >= 10 ? 1 : 2)} TON`;
+      chEl.textContent = `ШАНС ${ch.toFixed(0)}%`;
+      const initial = String(name).charAt(0).toUpperCase();
+      if (row.photo_url) {
+        avEl.innerHTML = `<img src="${this.escapeHtml(row.photo_url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"/>`;
+      } else {
+        avEl.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#07110c;">${initial}</div>`;
+      }
+    };
+    setCard('Prev', w[0] || null);
+    let top = w[0] || null;
+    for (let i = 1; i < w.length; i++) {
+      if (parseFloat(w[i].winner_amount || 0) > parseFloat(top.winner_amount || 0)) top = w[i];
+    }
+    setCard('Top', top);
   }
 
   // ==================== ACTIONS ====================
@@ -1368,6 +1485,7 @@ class RouletteUI {
           История пока пуста
         </div>
       `;
+      this.updateRollsSpotlights([]);
       return;
     }
     
@@ -1398,6 +1516,7 @@ class RouletteUI {
         </div>
       `;
     }).join('');
+    this.updateRollsSpotlights(winners);
   }
 
   async loadMyHistory(force = false) {
@@ -1484,6 +1603,7 @@ function initRouletteUI() {
   window.rouletteUI = rouletteUI;
   // Load initial data and start polling
   rouletteUI.loadActiveRound();
+  rouletteUI.loadRecentWinners(true).catch(() => {});
   rouletteUI.startDataSync();
 }
 
