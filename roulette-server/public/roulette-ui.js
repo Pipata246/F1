@@ -1175,14 +1175,14 @@ class RouletteUI {
       // Стабильный "обычный" спин:
       // большая базовая дистанция -> одинаковый визуальный темп независимо от target index.
       // Меньше «лишних» оборотов — ниже пиковая скорость, меньше ощущение «рваности».
-      const extraCardsTravel = Math.max(85, Math.min(140, Math.round(baseCardsCount * 0.62)));
+      const extraCardsTravel = Math.max(58, Math.min(96, Math.round(baseCardsCount * 0.45)));
       const extraSpins = extraCardsTravel * cardWidth;
       
       // Финальная позиция с учетом дополнительного прокрута
       const spinTargetPosition = finalPosition - extraSpins;
       const totalDistance = Math.abs(spinTargetPosition);
       
-      const duration = 8400;
+      const duration = 9200;
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
