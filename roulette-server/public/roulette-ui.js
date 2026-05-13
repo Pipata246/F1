@@ -1104,10 +1104,21 @@ class RouletteUI {
   }
 
   /**
-   * Угол остановки: указатель сверху должен попасть в случайную точку **внутри** сектора победителя
-   * (тот же учёт угла, что и у маркеров в buildDonutFromPlayers: top = доля 0.25).
+   * Угол остановки под указателем (доля круга 0..1 от левой точки conic, как в buildDonutFromPlayers).
+   * Если сервер передал `spin_pick` — используем только его (тот же бросок, что выбрал победителя).
+   * Иначе (старые раунды) — случайная точка внутри сектора победителя.
    */
-  computeDonutEndRotationDeg(players, winnerUserId, fullTurns = 7) {
+  computeDonutEndRotationDeg(players, winnerUserId, fullTurns = 7, spinPick = null) {
+    const sp =
+      spinPick != null && spinPick !== ''
+        ? Number(spinPick)
+        : null;
+    if (sp != null && Number.isFinite(sp)) {
+      const r = Math.min(1 - Number.EPSILON * 8, Math.max(Number.EPSILON * 8, sp));
+      const degFromTopOnWheel = (r - 0.25) * 360;
+      return -degFromTopOnWheel + 360 * fullTurns;
+    }
+
     const list = this.sortPlayersForWheel(players);
     const wuid = String(winnerUserId || '');
     const weights = list.map((p) => Math.max(0.35, Number(p.chance) || 0));
@@ -1180,7 +1191,12 @@ class RouletteUI {
     spin.style.transform = 'rotate(0deg)';
     void spin.offsetHeight;
 
-    const endDeg = this.computeDonutEndRotationDeg(rows, round.winner_user_id, 7);
+    const spinPickRaw = round?.spin_pick;
+    const spinPick =
+      spinPickRaw != null && spinPickRaw !== '' && Number.isFinite(Number(spinPickRaw))
+        ? Number(spinPickRaw)
+        : null;
+    const endDeg = this.computeDonutEndRotationDeg(rows, round.winner_user_id, 7, spinPick);
     if (hubText) {
       hubText.className = 'rolls-hub__text';
       hubText.textContent = '…';

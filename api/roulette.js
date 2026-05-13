@@ -314,25 +314,45 @@ async function calculateChances(roundId) {
   }
 }
 
-function selectWinner(bets) {
-  const totalPot = bets.reduce((sum, bet) => sum + parseFloat(bet.bet_amount), 0);
-  
-  // Cryptographically secure random
-  const randomBuffer = crypto.randomBytes(8);
-  const randomValue = randomBuffer.readBigUInt64BE(0);
-  const maxValue = BigInt("0xFFFFFFFFFFFFFFFF");
-  const random = (Number(randomValue) / Number(maxValue)) * totalPot;
-  
-  let cumulative = 0;
-  for (const bet of bets) {
-    cumulative += parseFloat(bet.bet_amount);
-    if (random <= cumulative) {
-      return bet.user_id;
-    }
+/**
+ * Один криптографический бросок r∈[0,1) и проход по кольцу шансов — как на donut-колесе (sort by user_id, вес max(0.35, chance)).
+ * Победитель и визуальная остановка колеса определяются ТОЛЬКО этим r (spin_pick в БД).
+ */
+function pickDonutSpinOutcome(bets) {
+  if (!bets || bets.length < 2) {
+    throw new Error("Недостаточно игроков для розыгрыша");
   }
-  
-  // Fallback (не должно произойти)
-  return bets[bets.length - 1].user_id;
+  const sorted = [...bets].sort((a, b) => String(a.user_id).localeCompare(String(b.user_id)));
+  const weights = sorted.map((b) => Math.max(0.35, parseFloat(b.chance_percent) || 0));
+  const sum = weights.reduce((x, y) => x + y, 0) || 1;
+
+  const buf = crypto.randomBytes(8);
+  const rv = buf.readBigUInt64BE(0);
+  const maxV = BigInt("0xFFFFFFFFFFFFFFFF");
+  let r = Number(rv) / Number(maxV);
+  if (!Number.isFinite(r) || r >= 1) r = 1 - Number.EPSILON * 4;
+  if (r <= 0) r = Number.EPSILON * 4;
+
+  let acc = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    const share = weights[i] / sum;
+    const next = acc + share;
+    if (r < next || i === sorted.length - 1) {
+      return {
+        winnerBet: sorted[i],
+        winnerUserId: sorted[i].user_id,
+        spinPick: r,
+        sortedIndex: i,
+      };
+    }
+    acc = next;
+  }
+  return {
+    winnerBet: sorted[sorted.length - 1],
+    winnerUserId: sorted[sorted.length - 1].user_id,
+    spinPick: r,
+    sortedIndex: sorted.length - 1,
+  };
 }
 
 // ============================================
@@ -693,30 +713,9 @@ async function handleGetActiveRound(body) {
     ? generateWheelCards(betsLight, wheelSeed, wheelCardsCount) 
     : [];
 
-  // Жесткая защита от рассинхрона:
-  // Истина = winner_card_index (то, что выпало на барабане).
-  // Если есть расхождение, исправляем winner_user_id под индекс барабана.
-  let resolvedWinnerCardIndex = round.winner_card_index ?? null;
-  if (round.status === 'finished' && round.winner_user_id && wheelCards.length > 0) {
-    const idxNum = Number.isInteger(resolvedWinnerCardIndex) ? resolvedWinnerCardIndex : -1;
-    const indexIsValid = idxNum >= 0 && idxNum < wheelCards.length;
-    if (indexIsValid) {
-      const wheelWinnerUserId = String(wheelCards[idxNum]?.user_id || "");
-      if (wheelWinnerUserId && wheelWinnerUserId !== String(round.winner_user_id)) {
-        try {
-          await supabase
-            .from("roulette_rounds")
-            .update({ winner_user_id: wheelWinnerUserId })
-            .eq("id", round.id)
-            .eq("status", "finished");
-          round = { ...round, winner_user_id: wheelWinnerUserId };
-        } catch (e) {
-          console.warn("[Roulette API] failed to self-heal winner_user_id:", e?.message || e);
-        }
-      }
-    }
-  }
-  
+  // Победитель и угол остановки: spin_pick + winner_user_id из БД (после finalizeRoundSpin).
+  // Старый self-heal по winner_card_index / ленте карточек отключён — он расходился с donut UI.
+
   // ГЕНЕРИРУЕМ HTML НА СЕРВЕРЕ
   const wheelCardsHTML = wheelCards.length > 0 
     ? generateWheelCardsHTML(wheelCards)
@@ -755,8 +754,9 @@ async function handleGetActiveRound(body) {
     wheelCardsHTML,
     serverTime: new Date().toISOString(),
     winner,
-    winner_card_index: resolvedWinnerCardIndex,
+    winner_card_index: round.winner_card_index ?? null,
     spin_seed: round.spin_seed ?? null,
+    spin_pick: round.spin_pick != null && round.spin_pick !== "" ? Number(round.spin_pick) : null,
   };
 }
 
@@ -784,24 +784,13 @@ async function finalizeRoundSpin(supabase, round) {
     throw new Error("Недостаточно игроков для розыгрыша");
   }
 
-  // Синхронизация "серверный победитель == выпавшая карточка"
+  // Один криптобросок r∈[0,1) на кольце шансов (как donut UI): по нему и выплата, и угол спина.
   const spinSeed = crypto.randomBytes(4).readUInt32BE(0);
-  const wheelSeed = `${round.id}`;
-  const wheelCardsCount = getAdaptiveWheelCardCount(bets.length);
-  const wheelCards = generateWheelCards(bets, wheelSeed, wheelCardsCount);
-  if (!wheelCards.length) {
-    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
-    throw new Error("Ошибка генерации колеса");
-  }
-
-  const winnerCardIndex = crypto.randomBytes(4).readUInt32BE(0) % wheelCards.length;
-  const winnerId = wheelCards[winnerCardIndex]?.user_id;
-  const winnerBet = bets.find((b) => String(b.user_id) === String(winnerId));
-
-  if (!winnerBet) {
-    await supabaseUpdate("roulette_rounds", round.id, { status: "active" });
-    throw new Error("Ошибка выбора победителя");
-  }
+  const outcome = pickDonutSpinOutcome(bets);
+  const winnerId = outcome.winnerUserId;
+  const winnerBet = outcome.winnerBet;
+  const spinPick = outcome.spinPick;
+  const winnerSortedIndex = outcome.sortedIndex;
 
   const totalPot = parseFloat(round.pot_amount);
   const platformFee = totalPot * (PLATFORM_FEE_PERCENT / 100);
@@ -827,7 +816,8 @@ async function finalizeRoundSpin(supabase, round) {
     platform_fee_amount: platformFee,
     finished_at: new Date().toISOString(),
     spin_seed: spinSeed,
-    winner_card_index: winnerCardIndex
+    spin_pick: spinPick,
+    winner_card_index: winnerSortedIndex,
   });
 
   const winnerDisplayName = displayNameFromProfile(
@@ -856,7 +846,7 @@ async function finalizeRoundSpin(supabase, round) {
   });
 
   for (const bet of bets) {
-    const isWinner = bet.user_id === winnerId;
+    const isWinner = String(bet.user_id) === String(winnerId);
     const eventType = isWinner ? "win" : "loss";
     const amount = isWinner ? winnerAmount : -parseFloat(bet.bet_amount);
     const text = isWinner
@@ -879,6 +869,7 @@ async function finalizeRoundSpin(supabase, round) {
         winner_user_id: winnerId,
         winner_display_name: winnerDisplayName,
         winner_amount: winnerAmount,
+        spin_pick: spinPick,
         my_chance: parseFloat(bet.chance_percent),
         my_bet: parseFloat(bet.bet_amount)
       }
@@ -895,8 +886,9 @@ async function finalizeRoundSpin(supabase, round) {
       photo_url: winnerPhotoUrl
     },
     round_id: round.id,
-    winner_card_index: winnerCardIndex,
+    winner_card_index: winnerSortedIndex,
     spin_seed: spinSeed,
+    spin_pick: spinPick,
     round: {
       id: round.id,
       total_pot: totalPot,
