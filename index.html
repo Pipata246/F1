@@ -29,9 +29,19 @@
       --r: 22px;
     }
 
-    html,body{
-      margin:0; height:100%;
-      background: linear-gradient(180deg, var(--bg1), var(--bg2));
+    html{
+      margin:0;
+      min-height:100%;
+      background-color:var(--bg2);
+    }
+    body{
+      margin:0;
+      min-height:100%;
+      min-height:100dvh;
+      background-color:var(--bg2);
+      background-image:linear-gradient(180deg, var(--bg1), var(--bg2));
+      background-repeat:no-repeat;
+      background-size:100% 100%;
       color:var(--text);
       font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
       -webkit-user-select:none; user-select:none;
@@ -48,12 +58,17 @@
 
     body:before{
       content:"";
-      position:fixed; inset:0; pointer-events:none;
+      position:fixed; inset:0; pointer-events:none; z-index:0;
       background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Ccircle cx='20' cy='20' r='6' fill='%234de680' opacity='0.04'/%3E%3Ccircle cx='90' cy='50' r='5' fill='%234de680' opacity='0.03'/%3E%3Ccircle cx='150' cy='100' r='7' fill='%234de680' opacity='0.04'/%3E%3Ccircle cx='40' cy='140' r='4' fill='%234de680' opacity='0.03'/%3E%3Ccircle cx='130' cy='160' r='5' fill='%234de680' opacity='0.04'/%3E%3Cpath d='M25 25c3-2 7-2 10 0c-2 3-2 7 0 10c-3 2-7 2-10 0c2-3 2-7 0-10z' fill='%2363e6be' opacity='0.03'/%3E%3Cpath d='M100 80c3-2 7-2 10 0c-2 3-2 7 0 10c-3 2-7 2-10 0c2-3 2-7 0-10z' fill='%2363e6be' opacity='0.02'/%3E%3Cpath d='M160 130c2-1 5-1 7 0c-1 2-1 5 0 7c-2 1-5 1-7 0c1-2 1-5 0-7z' fill='%2363e6be' opacity='0.03'/%3E%3C/svg%3E");
+      background-repeat:repeat;
+      background-size:180px 180px;
+      background-attachment:fixed;
       opacity:1;
     }
 
     .app{
+      position:relative;
+      z-index:1;
       min-height:var(--app-vh);
       padding-bottom:calc(86px + var(--safe-bottom));
     }
@@ -3354,7 +3369,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_WHEEL_PCT5_20260514"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_BG_ROOTGRAD_20260514"></script>
 
 </body>
 </html>

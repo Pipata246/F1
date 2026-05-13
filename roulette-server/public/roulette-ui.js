@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: ROLLS_WHEEL_TIMER5_20260514
+ * VERSION: ROLLS_BG_ROOTGRAD_20260514
  */
 
 /** Длина активной фазы раунда (сек); должен совпадать с `TIMER_DURATION` в api/roulette.js */
@@ -1103,23 +1103,38 @@ class RouletteUI {
     });
   }
 
+  /**
+   * Угол остановки: указатель сверху должен попасть в случайную точку **внутри** сектора победителя
+   * (тот же учёт угла, что и у маркеров в buildDonutFromPlayers: top = доля 0.25).
+   */
   computeDonutEndRotationDeg(players, winnerUserId, fullTurns = 7) {
     const list = this.sortPlayersForWheel(players);
     const wuid = String(winnerUserId || '');
     const weights = list.map((p) => Math.max(0.35, Number(p.chance) || 0));
     const sum = weights.reduce((a, b) => a + b, 0) || 1;
-    let a = 0;
-    let midFrac = 0.5;
+    let cum = 0;
+    let startF = 0;
+    let winFrac = 0;
+    let found = false;
     for (let i = 0; i < list.length; i++) {
       const frac = weights[i] / sum;
       if (String(list[i].id) === wuid) {
-        midFrac = a + frac / 2;
+        startF = cum;
+        winFrac = frac;
+        found = true;
         break;
       }
-      a += frac;
+      cum += frac;
     }
-    const alphaMidDeg = midFrac * 360;
-    return -alphaMidDeg + 360 * fullTurns;
+    if (!found || winFrac <= 0) {
+      return 360 * fullTurns;
+    }
+    const inset = Math.max(1e-4, Math.min(winFrac * 0.06, 0.02));
+    const lo = startF + inset;
+    const hi = startF + winFrac - inset;
+    const pickFrac = hi <= lo ? startF + winFrac / 2 : lo + Math.random() * (hi - lo);
+    const degFromTopOnWheel = (pickFrac - 0.25) * 360;
+    return -degFromTopOnWheel + 360 * fullTurns;
   }
 
   betsToPlayerRows(bets) {
