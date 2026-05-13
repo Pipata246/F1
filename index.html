@@ -75,6 +75,8 @@
       z-index:1;
       min-height:var(--app-vh);
       padding-bottom:calc(86px + var(--safe-bottom));
+      max-width:100%;
+      overflow-x:hidden;
     }
     /* Случайная игра — полноэкранная без nav/topbar */
     #page-random-game {
@@ -92,6 +94,8 @@
       background: rgba(10,12,18,.45);
       backdrop-filter: blur(18px);
       border-bottom:1px solid rgba(255,255,255,.07);
+      max-width:100%;
+      overflow-x:hidden;
     }
     .brand{display:flex; align-items:center; gap:10px; font-weight:900; letter-spacing:.2px; min-width:0}
     .brandLogo{
@@ -177,7 +181,7 @@
       color:var(--text2);
     }
 
-    .container{padding:16px}
+    .container{padding:16px;max-width:100%;overflow-x:hidden}
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .glass{
       background: var(--glass-bg);
@@ -225,6 +229,8 @@
       backdrop-filter: blur(18px);
       border-top:1px solid rgba(255,255,255,.07);
       z-index:25;
+      max-width:100%;
+      overflow-x:hidden;
       box-sizing:border-box;
     }
     .nav button{
