@@ -1173,69 +1173,67 @@ class RouletteUI {
       // Карточки остаются на месте!
       this.elements.strip.style.transform = 'translateX(0)';
       
-      // Даем браузеру время применить (хотя ничего не меняется)
-      requestAnimationFrame(() => {
+      const totalMs = duration;
+      const strip = this.elements.strip;
+
+      const applyWinnerHighlight = () => {
+        strip.style.transition = 'none';
+        strip.style.transform = `translateX(${spinTargetPosition}px)`;
+
         requestAnimationFrame(() => {
-          // Одна гладкая кривая без стыков фаз (иначе рывки).
-          // Модель «равномерное торможение»: скорость монотонно падает, конец длинный и медленный.
-          // progress(u) = 2u - u², u ∈ [0,1]; мягче старт: сдвигаем время к середине через степень на u.
-          const totalMs = duration;
-          const startTs = performance.now();
-          const tick = (now) => {
-            const elapsed = Math.max(0, now - startTs);
-            const uLin = Math.min(1, elapsed / totalMs);
-            // Мягче старт (u^1.12), сильное замедление к концу — одна гладкая кривая без фазовых стыков.
-            const u = Math.pow(uLin, 1.12);
-            const progress = 1 - Math.pow(1 - u, 2.75);
-            const x = spinTargetPosition * progress;
-            this.elements.strip.style.transform = `translateX(${x}px)`;
-            if (elapsed < totalMs) {
-              requestAnimationFrame(tick);
-              return;
+          requestAnimationFrame(() => {
+            const cardsLive = strip.querySelectorAll('.roulette-card');
+            let highlightEl = cardsLive[targetCardIndex];
+            if (!highlightEl && cardsLive.length > 0) {
+              const wci = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
+              if (wci != null) {
+                const idxB = ((wci % baseCardsCount) + baseCardsCount) % baseCardsCount;
+                const alt = middleSegmentUsed * baseCardsCount + idxB;
+                if (alt >= 0 && alt < cardsLive.length) highlightEl = cardsLive[alt];
+              }
             }
-            this.elements.strip.style.transform = `translateX(${spinTargetPosition}px)`;
+            if (highlightEl) {
+              const uid = String(highlightEl.getAttribute('data-user-id') || '');
+              if (uid !== String(winnerUserId)) {
+                console.warn('[Roulette] Winner DOM card user mismatch', { uid, winnerUserId, targetCardIndex });
+              }
+              highlightEl.classList.add('roulette-card--winner');
+            } else {
+              console.warn('[Roulette] No element for winner highlight', { targetCardIndex, n: cardsLive.length });
+            }
 
             this.hapticImpact('medium');
             this.stopSpinSound();
 
-            // После финального translate ждём layout, затем подсветка по актуальному DOM (не устаревший массив).
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                const cardsLive = this.elements.strip.querySelectorAll('.roulette-card');
-                let highlightEl = cardsLive[targetCardIndex];
-                if (!highlightEl && cardsLive.length > 0) {
-                  const wci = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
-                  if (wci != null) {
-                    const idxB = ((wci % baseCardsCount) + baseCardsCount) % baseCardsCount;
-                    const alt = middleSegmentUsed * baseCardsCount + idxB;
-                    if (alt >= 0 && alt < cardsLive.length) highlightEl = cardsLive[alt];
-                  }
-                }
-                if (highlightEl) {
-                  const uid = String(highlightEl.getAttribute('data-user-id') || '');
-                  if (uid !== String(winnerUserId)) {
-                    console.warn('[Roulette] Winner DOM card user mismatch', { uid, winnerUserId, targetCardIndex });
-                  }
-                  highlightEl.classList.add('roulette-card--winner');
-                } else {
-                  console.warn('[Roulette] No element for winner highlight', { targetCardIndex, n: cardsLive.length });
-                }
-
-                setTimeout(() => {
-                  if (highlightEl) highlightEl.classList.remove('roulette-card--winner');
-                  console.log('[Roulette] Animation COMPLETED - resolving promise');
-                  resolve();
-                }, 950);
-              });
-            });
-          };
-          requestAnimationFrame(tick);
-          
-          console.log('[Roulette] ✅ Animation started', {
-            duration: totalMs,
-            totalDistance,
-            cards: allCards.length
+            setTimeout(() => {
+              if (highlightEl) highlightEl.classList.remove('roulette-card--winner');
+              console.log('[Roulette] Animation COMPLETED - resolving promise');
+              resolve();
+            }, 1000);
           });
+        });
+      };
+
+      // Один проход: нативная transition (как плавный кейс CS:GO) — без ручных «кривых» по RAF.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const onEnd = (ev) => {
+            if (ev.target !== strip || ev.propertyName !== 'transform') return;
+            strip.removeEventListener('transitionend', onEnd);
+            clearTimeout(fallbackDone);
+            applyWinnerHighlight();
+          };
+          strip.addEventListener('transitionend', onEnd);
+          const fallbackDone = setTimeout(() => {
+            strip.removeEventListener('transitionend', onEnd);
+            applyWinnerHighlight();
+          }, totalMs + 250);
+
+          // Быстрый старт → длинное ровное замедление, без изломов скорости.
+          strip.style.transition = `transform ${totalMs}ms cubic-bezier(0.1, 0.95, 0.2, 1)`;
+          strip.style.transform = `translateX(${spinTargetPosition}px)`;
+
+          console.log('[Roulette] ✅ CSS spin started', { duration: totalMs, totalDistance, cards: allCards.length });
         });
       });
     });
