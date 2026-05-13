@@ -357,6 +357,12 @@ body::before {
   padding: 0 20px;
   transition: none;
   will-change: transform;
+  transform: translateZ(0);
+}
+
+.wheel-strip.reel-is-spinning .roulette-card {
+  transition: none !important;
+  animation: none !important;
 }
 
 .roulette-card {

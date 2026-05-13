@@ -1,7 +1,7 @@
 /**
  * CaseReelEngine — единственная RAF-анимация полосы кейса/рулетки.
  * Критически затухающая пружина: быстрый старт → плавное замедление → мягкая остановка в цели.
- * Без CSS transition, без setInterval для движения.
+ * translate3d + will-change на время спина; pick по центру через elementsFromPoint.
  */
 (function (global) {
   'use strict';
@@ -64,7 +64,18 @@
     pickCardUnderPointer: function (strip, container) {
       if (!strip || !container) return null;
       var cr = container.getBoundingClientRect();
-      var centerX = cr.left + cr.width / 2;
+      var x = cr.left + cr.width / 2;
+      var y = cr.top + cr.height / 2;
+      try {
+        var stack = document.elementsFromPoint(x, y);
+        for (var i = 0; i < stack.length; i++) {
+          var hit = stack[i];
+          if (hit && strip.contains(hit) && hit.classList && hit.classList.contains('roulette-card')) {
+            return hit;
+          }
+        }
+      } catch (e) {}
+      var centerX = x;
       var best = null;
       var bestD = Infinity;
       strip.querySelectorAll('.roulette-card').forEach(function (el) {
@@ -89,10 +100,17 @@
     this._raf = null;
     this._aborted = false;
     this._pendingResolve = null;
+    this._activeStrip = null;
   }
 
   CaseReelEngine.prototype.abort = function () {
     this._aborted = true;
+    if (this._activeStrip) {
+      try {
+        this._activeStrip.style.willChange = 'auto';
+      } catch (e) {}
+      this._activeStrip = null;
+    }
     if (this._raf != null) {
       cancelAnimationFrame(this._raf);
       this._raf = null;
@@ -123,6 +141,7 @@
    */
   CaseReelEngine.prototype.run = function (o) {
     var strip = o.strip;
+    this._activeStrip = strip;
     var target = o.targetTranslateX;
     var omega = o.omega != null ? o.omega : 1.58;
     var zeta = o.zeta != null ? o.zeta : 1;
@@ -140,13 +159,23 @@
     var self = this;
 
     strip.style.transition = 'none';
+    strip.style.willChange = 'transform';
+
+    var applyPos = function (px) {
+      strip.style.transform = 'translate3d(' + px + 'px,0,0)';
+    };
 
     this._pendingResolve = null;
     return new Promise(function (resolve) {
       self._pendingResolve = resolve;
+      function finish() {
+        strip.style.willChange = 'auto';
+        self._activeStrip = null;
+      }
       function frame(now) {
         if (self._aborted) {
           self._raf = null;
+          finish();
           var p0 = self._pendingResolve;
           self._pendingResolve = null;
           if (p0) p0();
@@ -164,14 +193,15 @@
         if (settled || timeout) {
           pos = target;
           vel = 0;
-          strip.style.transform = 'translateX(' + pos + 'px)';
+          applyPos(pos);
+          finish();
           self._raf = null;
           var p1 = self._pendingResolve;
           self._pendingResolve = null;
           if (p1) p1();
           return;
         }
-        strip.style.transform = 'translateX(' + pos + 'px)';
+        applyPos(pos);
         self._raf = requestAnimationFrame(frame);
       }
       self._raf = requestAnimationFrame(frame);

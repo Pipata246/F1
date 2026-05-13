@@ -2,8 +2,16 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: CASE_REEL_ENGINE_V1_20260513
+ * VERSION: CASE_REEL_ENGINE_PERF_20260513
  */
+
+const ROULETTE_DEBUG =
+  typeof localStorage !== 'undefined' && localStorage.getItem('rouletteDebug') === '1';
+function rlog() {
+  if (ROULETTE_DEBUG && typeof console !== 'undefined' && console.log) {
+    console.log.apply(console, arguments);
+  }
+}
 
 const ROULETTE_SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
 const ROULETTE_SUPABASE_ANON_KEY =
@@ -48,7 +56,7 @@ class RouletteUI {
     };
 
     // Debug: проверяем что элементы найдены
-    console.log('[Roulette] Elements found:', {
+    rlog('[Roulette] Elements found:', {
       betBtn: !!this.elements.betBtn,
       betLabel: !!this.elements.betLabel,
       betHint: !!this.elements.betHint,
@@ -130,7 +138,7 @@ class RouletteUI {
 
     if (this.elements.strip && !preserveWheel) {
       this.elements.strip.style.transition = 'none';
-      this.elements.strip.style.transform = 'translateX(0)';
+      this.elements.strip.style.transform = 'translate3d(0,0,0)';
       this.elements.strip.innerHTML = `
         <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
           Ожидание игроков...
@@ -157,7 +165,7 @@ class RouletteUI {
     this.abortCaseReel();
     this.clearWinnerCardHighlight(this.elements.strip);
     this.elements.strip.style.transition = 'none';
-    this.elements.strip.style.transform = 'translateX(0)';
+    this.elements.strip.style.transform = 'translate3d(0,0,0)';
     this.elements.strip.innerHTML = `
       <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
         Ожидание игроков...
@@ -471,7 +479,7 @@ class RouletteUI {
           this.state.wheelCardsHTML = data.wheelCardsHTML;
           // Если DOM пустой (например пользователь зашёл во время спина) — восстановим карточки.
           if (this.elements.strip && this.elements.strip.querySelectorAll('.roulette-card').length === 0) {
-            console.log('[Roulette] Restoring wheel HTML during spin/page-enter');
+            rlog('[Roulette] Restoring wheel HTML during spin/page-enter');
             this.elements.strip.innerHTML = this.state.wheelCardsHTML;
           }
         }
@@ -488,7 +496,7 @@ class RouletteUI {
         // нам всё равно полезен (например для имени/аватара победителя).
         if (data.round.status !== 'spinning' && data.round.status !== 'finished' && !this.state.isAnimating && !this.state.isSpinning) {
           // Process players - ВАЖНО: проверяем что data.bets существует
-          console.log('[Roulette] Processing bets:', data.bets);
+          rlog('[Roulette] Processing bets:', data.bets);
           
           const players = (data.bets || []).map(bet => {
             const player = {
@@ -498,25 +506,25 @@ class RouletteUI {
               chance: parseFloat(bet.chance_percent) || 0,
               photoUrl: bet.photo_url || null
             };
-            console.log('[Roulette] Processed player:', player);
+            rlog('[Roulette] Processed player:', player);
             return player;
           }).filter(p => p.id && p.name); // Фильтруем невалидных игроков
           
-          console.log('[Roulette] Total players after processing:', players.length);
+          rlog('[Roulette] Total players after processing:', players.length);
           
           // DEBUG: Выводим информацию о каждом игроке
           players.forEach((p, i) => {
-            console.log(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet, 'ID:', p.id);
+            rlog(`[Roulette] Player ${i}:`, p.name, 'Chance:', p.chance, 'Bet:', p.bet, 'ID:', p.id);
           });
           
           // DEBUG для TMA: показываем toast с информацией о игроках
           if (players.length > 0) {
             const debugInfo = players.map(p => `${p.name}: ${p.chance.toFixed(1)}%`).join(', ');
-            console.log('[DEBUG TMA] Players:', debugInfo);
+            rlog('[DEBUG TMA] Players:', debugInfo);
           }
           
           // Обновляем игроков (только если НЕ идет спин)
-          console.log('[Roulette] Updating players, count:', players.length, 'status:', data.round.status);
+          rlog('[Roulette] Updating players, count:', players.length, 'status:', data.round.status);
           this.updatePlayers(players);
         } else {
           // Во время спина не обновляем DOM, но обновим state.players (без рендера),
@@ -596,7 +604,7 @@ class RouletteUI {
 
           if (this.state.presentingRoundId !== finishRoundId) {
             this.state.presentingRoundId = finishRoundId;
-            console.log('[Roulette] Round finished, starting case-opening spin');
+            rlog('[Roulette] Round finished, starting case-opening spin');
 
             this.state.isSpinning = true;
             this.state.isAnimating = true;
@@ -606,7 +614,7 @@ class RouletteUI {
             this.updateStatus('spinning');
 
             try {
-              console.log('[Roulette] Starting CaseReelEngine');
+              rlog('[Roulette] Starting CaseReelEngine');
               const outcome = await this.playFinishedRoundReveal({
                 round: data.round,
                 wheelHtml: data.wheelCardsHTML && data.wheelCardsHTML.length > 0
@@ -616,7 +624,7 @@ class RouletteUI {
                 winner: data.winner,
               });
               this.state.shownWinnerRoundId = finishRoundId;
-              console.log('[Roulette] Reel settled; pointer winner:', outcome.userId);
+              rlog('[Roulette] Reel settled; pointer winner:', outcome.userId);
 
               this.showWinner(
                 outcome.displayName,
@@ -651,11 +659,11 @@ class RouletteUI {
         
       } else {
         // No active round - это нормально после завершения
-        console.log('[Roulette] No active round from API');
+        rlog('[Roulette] No active round from API');
         
         // КРИТИЧЕСКИ ВАЖНО: Если идет спин - НЕ ТРОГАЕМ НИЧЕГО!
         if (this.state.isSpinning) {
-          console.log('[Roulette] 🔒 Spin in progress - NOT clearing anything');
+          rlog('[Roulette] 🔒 Spin in progress - NOT clearing anything');
           return; // Полностью игнорируем отсутствие раунда
         }
         
@@ -701,7 +709,7 @@ class RouletteUI {
       if (!this.state.isAnimating) {
         this.loadActiveRound();
       }
-    }, 350);
+    }, 480);
   }
 
   stopPolling() {
@@ -712,7 +720,7 @@ class RouletteUI {
   }
 
   updateBetButton(isInRound) {
-    console.log('[Roulette] updateBetButton called, isInRound:', isInRound);
+    rlog('[Roulette] updateBetButton called, isInRound:', isInRound);
     this.state.isInRound = isInRound;
     
     // Ищем элементы заново (на случай если они не были найдены в конструкторе)
@@ -860,13 +868,13 @@ class RouletteUI {
     if (this.state.timerEndedKey === timerKey) return;
     this.state.timerEndedKey = timerKey;
 
-    console.log('[Roulette] ⏰ Timer ended - LOCKING WHEEL');
+    rlog('[Roulette] ⏰ Timer ended - LOCKING WHEEL');
 
     this.state.isSpinning = true;
     
     // ВАЖНО: Сохраняем текущее состояние карточек чтобы их нельзя было удалить
-    console.log('[Roulette] Current cards count:', this.elements.strip?.children.length || 0);
-    console.log('[Roulette] Current players:', this.state.players.length);
+    rlog('[Roulette] Current cards count:', this.elements.strip?.children.length || 0);
+    rlog('[Roulette] Current players:', this.state.players.length);
     
     this.updateStatus('spinning');
     this.startSpinSound();
@@ -915,14 +923,14 @@ class RouletteUI {
 
   // ==================== PLAYERS ====================
   updatePlayers(players) {
-    console.log('[Roulette] updatePlayers called with', players.length, 'players, isSpinning:', this.state.isSpinning);
+    rlog('[Roulette] updatePlayers called with', players.length, 'players, isSpinning:', this.state.isSpinning);
     players.forEach((p, i) => {
-      console.log(`  - Player ${i}: ${p.name}, chance=${p.chance}, id=${p.id}`);
+      rlog(`  - Player ${i}: ${p.name}, chance=${p.chance}, id=${p.id}`);
     });
     
     // КРИТИЧЕСКИ ВАЖНО: Если идет спин - ПОЛНОСТЬЮ ВЫХОДИМ!
     if (this.state.isSpinning) {
-      console.log('[Roulette] 🔒 BLOCKED: updatePlayers during spin - NOT TOUCHING ANYTHING');
+      rlog('[Roulette] 🔒 BLOCKED: updatePlayers during spin - NOT TOUCHING ANYTHING');
       return; // ПОЛНОСТЬЮ блокируем
     }
     
@@ -984,7 +992,7 @@ class RouletteUI {
 
     // ВАЖНО: НИКОГДА не перерисовываем если идет локальная анимация/спин!
     if (this.state.isSpinning || this.state.isAnimating) {
-      console.log('[Roulette] BLOCKED: Cannot render wheel during spin!');
+      rlog('[Roulette] BLOCKED: Cannot render wheel during spin!');
       return;
     }
 
@@ -1000,33 +1008,33 @@ class RouletteUI {
     // Проверяем нужно ли перерисовывать
     const playersKey = this.state.players.map(p => `${p.id}_${p.bet.toFixed(2)}`).join('|');
     if (this.state.lastPlayersKey === playersKey && this.elements.strip.children.length > 0) {
-      console.log('[Roulette] Skipping wheel render - players unchanged');
+      rlog('[Roulette] Skipping wheel render - players unchanged');
       return;
     }
     this.state.lastPlayersKey = playersKey;
 
-    console.log('[Roulette] Rendering wheel with', this.state.players.length, 'players');
+    rlog('[Roulette] Rendering wheel with', this.state.players.length, 'players');
 
     // КРИТИЧЕСКИ ВАЖНО: Используем готовый HTML от СЕРВЕРА!
     // Никаких вычислений на клиенте - просто вставляем HTML
     if (this.state.wheelCardsHTML && this.state.wheelCardsHTML.length > 0) {
-      console.log('[Roulette] ✅ Using HTML from SERVER');
+      rlog('[Roulette] ✅ Using HTML from SERVER');
       this.elements.strip.innerHTML = this.state.wheelCardsHTML;
     } else {
       // Не затираем текущие карточки лоадером, чтобы не было "резкого пропадания" полосы.
       if (this.elements.strip.querySelectorAll('.roulette-card').length > 0) {
-        console.log('[Roulette] Keeping existing wheel cards until fresh HTML arrives');
+        rlog('[Roulette] Keeping existing wheel cards until fresh HTML arrives');
         return;
       }
-      console.log('[Roulette] ⚠️ No HTML from server yet - waiting');
+      rlog('[Roulette] ⚠️ No HTML from server yet - waiting');
       this.elements.strip.innerHTML = `<div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">Загрузка карточек...</div>`;
       return;
     }
     
-    this.elements.strip.style.transform = 'translateX(0)';
+    this.elements.strip.style.transform = 'translate3d(0,0,0)';
     this.elements.strip.style.transition = 'none';
     
-    console.log('[Roulette] ✅ Wheel rendered from SERVER HTML - Ready for animation');
+    rlog('[Roulette] ✅ Wheel rendered from SERVER HTML - Ready for animation');
   }
   
   clearWinnerCardHighlight(strip) {
@@ -1113,7 +1121,7 @@ class RouletteUI {
     }
 
     this.clearWinnerCardHighlight(strip);
-    strip.style.transform = 'translateX(0)';
+    strip.style.transform = 'translate3d(0,0,0)';
     void strip.offsetHeight;
 
     const anchor = cards[globalIdx];
@@ -1121,29 +1129,34 @@ class RouletteUI {
     const extraRunway = cardW * 26 + container.offsetWidth * 0.4;
     const targetX = CaseReelLayout.computeTargetTranslateX(strip, container, globalIdx, extraRunway);
 
-    await this.reelEngine.run({
-      strip,
-      targetTranslateX: targetX,
-      omega: 1.52,
-      zeta: 1,
-      maxDurationMs: 14000,
-    });
+    strip.classList.add('reel-is-spinning');
+    try {
+      await this.reelEngine.run({
+        strip,
+        targetTranslateX: targetX,
+        omega: 1.52,
+        zeta: 1,
+        maxDurationMs: 14000,
+      });
 
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-    const picked = CaseReelWinner.pickCardUnderPointer(strip, container);
-    this.applyReelWinnerHighlight(strip, picked);
-    this.stopSpinSound();
-    this.hapticImpact('medium');
+      const picked = CaseReelWinner.pickCardUnderPointer(strip, container);
+      this.applyReelWinnerHighlight(strip, picked);
+      this.stopSpinSound();
+      this.hapticImpact('medium');
 
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-    return this.resolveRevealWinnerFromPointer({
-      cardEl: picked,
-      bets,
-      winnerPayload: winner,
-      round,
-    });
+      return this.resolveRevealWinnerFromPointer({
+        cardEl: picked,
+        bets,
+        winnerPayload: winner,
+        round,
+      });
+    } finally {
+      strip.classList.remove('reel-is-spinning');
+    }
   }
 
   // ==================== ACTIONS ====================
@@ -1446,7 +1459,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  console.log('[Roulette] Script loaded - CASE_REEL_ENGINE_V1_20260513');
+  rlog('[Roulette] Script loaded - CASE_REEL_ENGINE_PERF_20260513');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
