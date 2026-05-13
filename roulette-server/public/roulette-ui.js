@@ -6,7 +6,7 @@
  */
 
 /** Длина активной фазы раунда (сек); должен совпадать с `TIMER_DURATION` в api/roulette.js */
-const ROULETTE_ROUND_TIMER_SECONDS = 5;
+const ROULETTE_ROUND_TIMER_SECONDS = 8;
 
 const ROULETTE_DEBUG =
   typeof localStorage !== 'undefined' && localStorage.getItem('rouletteDebug') === '1';

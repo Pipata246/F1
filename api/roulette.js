@@ -9,10 +9,11 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const MIN_BET = 0.1;
 
 // Комиссия платформы (%)
-const PLATFORM_FEE_PERCENT = 5.0;
+/** Комиссия с банка рулетки при победе (0 = победитель забирает весь банк). */
+const PLATFORM_FEE_PERCENT = 0;
 
 // Длительность таймера (секунды) — совпадайте с ROULETTE_ROUND_TIMER_SECONDS на клиенте
-const TIMER_DURATION = 5;
+const TIMER_DURATION = 8;
 const ACTION_RATE_LIMIT_PER_MIN = 10;
 const ACTION_MIN_INTERVAL_MS = 400;
 const MUTATING_ACTIONS = new Set(["joinRound", "raiseBet", "spinRoulette"]);
