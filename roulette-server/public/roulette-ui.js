@@ -2,8 +2,11 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: ROLLS_DONUT_20260514
+ * VERSION: ROLLS_WHEEL_TIMER5_20260514
  */
+
+/** Длина активной фазы раунда (сек); должен совпадать с `TIMER_DURATION` в api/roulette.js */
+const ROULETTE_ROUND_TIMER_SECONDS = 5;
 
 const ROULETTE_DEBUG =
   typeof localStorage !== 'undefined' && localStorage.getItem('rouletteDebug') === '1';
@@ -601,7 +604,7 @@ class RouletteUI {
           // Показать значение сразу (без ожидания первого тика interval),
           // чтобы старт был визуально одинаковым у всех.
           const initialRemaining = Math.max(0, Math.min(
-            20,
+            ROULETTE_ROUND_TIMER_SECONDS,
             Math.ceil((this.state.timerEndTime - this.state.lastServerTime + 999) / 1000)
           ));
           this.updateTimerDisplay(initialRemaining);
@@ -854,10 +857,10 @@ class RouletteUI {
       const estimatedServerTime = this.state.lastServerTime + localElapsed;
       
       // Вычисляем оставшееся время
-      // +999ms дает стабильный визуальный старт с 20 на большинстве устройств.
+      // +999ms дает стабильный визуальный старт с полного TIMER_DURATION на большинстве устройств.
       const remaining = Math.max(
         0,
-        Math.min(20, Math.ceil((this.state.timerEndTime - estimatedServerTime + 999) / 1000))
+        Math.min(ROULETTE_ROUND_TIMER_SECONDS, Math.ceil((this.state.timerEndTime - estimatedServerTime + 999) / 1000))
       );
       
       this.updateTimerDisplay(remaining);
@@ -884,17 +887,17 @@ class RouletteUI {
     if (this.elements.timer) {
       this.elements.timer.textContent = seconds;
 
-      // Change color when time is running out
-      if (seconds <= 5) {
+      const cap = ROULETTE_ROUND_TIMER_SECONDS;
+      if (seconds <= 2) {
         this.elements.timer.style.color = '#ff4444';
-      } else if (seconds <= 10) {
+      } else if (seconds <= Math.max(3, Math.ceil(cap * 0.55))) {
         this.elements.timer.style.color = '#fbbf24';
       } else {
         this.elements.timer.style.color = '#ff5c5c';
       }
 
       if (seconds !== this.state.lastTimerSecond) {
-        if (seconds > 0 && seconds <= 5) {
+        if (seconds > 0 && seconds <= 2) {
           this.playTickSound();
           this.hapticImpact('light');
         }
@@ -1075,14 +1078,20 @@ class RouletteUI {
       const mid = (a + a + frac) / 2;
       a += frac;
       const theta = (mid - 0.25) * 2 * Math.PI;
-      const rad = 38;
-      const left = 50 + Math.sin(theta) * rad;
-      const top = 50 - Math.cos(theta) * rad;
-      const av = p.photoUrl
-        ? `<img src="${this.escapeHtml(p.photoUrl)}" alt="" onerror="this.parentElement.innerHTML='<span style=\\'display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:#fff\\'>${p.name.charAt(0).toUpperCase()}</span>'"/>`
-        : `<span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-weight:900;font-size:12px;color:#fff">${p.name.charAt(0).toUpperCase()}</span>`;
+      const radAv = 36;
+      const radPct = 47;
+      const leftAv = 50 + Math.sin(theta) * radAv;
+      const topAv = 50 - Math.cos(theta) * radAv;
+      const leftPct = 50 + Math.sin(theta) * radPct;
+      const topPct = 50 - Math.cos(theta) * radPct;
+      const pctLabel = `${Number(p.chance).toFixed(1)}%`;
+      const initial = this.escapeHtml(String(p.name || 'P').charAt(0).toUpperCase());
+      const avInner = p.photoUrl
+        ? `<img src="${this.escapeHtml(p.photoUrl)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none';var n=this.nextElementSibling;if(n)n.style.display='flex';"/><span class="rolls-wheel-av__ph" style="display:none" aria-hidden="true">${initial}</span>`
+        : `<span class="rolls-wheel-av__ph" aria-hidden="true">${initial}</span>`;
       html.push(
-        `<div class="rolls-wheel-av" data-user-id="${this.escapeHtml(String(p.id))}" style="left:${left}%;top:${top}%">${av}</div>`
+        `<div class="rolls-wheel-pct" style="left:${leftPct}%;top:${topPct}%">${this.escapeHtml(pctLabel)}</div>` +
+          `<div class="rolls-wheel-av" data-user-id="${this.escapeHtml(String(p.id))}" style="left:${leftAv}%;top:${topAv}%">${avInner}</div>`
       );
     });
     this.elements.wheelAvatars.innerHTML = html.join('');
@@ -1190,7 +1199,9 @@ class RouletteUI {
       return;
     }
 
-    const playersKey = this.state.players.map((p) => `${p.id}_${p.bet.toFixed(2)}`).join('|');
+    const playersKey = this.state.players
+      .map((p) => `${p.id}_${p.bet.toFixed(2)}_${Number(p.chance).toFixed(4)}`)
+      .join('|');
     if (this.state.players.length === 0) {
       this.state.lastPlayersKey = null;
       this.applyWaitingDonut();

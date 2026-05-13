@@ -11,8 +11,8 @@ const MIN_BET = 0.1;
 // Комиссия платформы (%)
 const PLATFORM_FEE_PERCENT = 5.0;
 
-// Длительность таймера (секунды)
-const TIMER_DURATION = 20;
+// Длительность таймера (секунды) — совпадайте с ROULETTE_ROUND_TIMER_SECONDS на клиенте
+const TIMER_DURATION = 5;
 const ACTION_RATE_LIMIT_PER_MIN = 10;
 const ACTION_MIN_INTERVAL_MS = 400;
 const MUTATING_ACTIONS = new Set(["joinRound", "raiseBet", "spinRoulette"]);
@@ -1048,7 +1048,7 @@ async function handleJoinRound(body, tgUserId) {
     total_bets_count: (allBets || []).length
   };
   
-  // Таймер: стартует когда игроков стало >=2, и СБРАСЫВАЕТСЯ на 20s при каждом новом игроке.
+  // Таймер: стартует когда игроков стало >=2, и СБРАСЫВАЕТСЯ на TIMER_DURATION сек при каждом новом игроке.
   // Это даёт всем "досыпать" игроков перед розыгрышем.
   if (newPlayersCount >= 2) {
     // Если это второй игрок — фиксируем started_at (одноразово).

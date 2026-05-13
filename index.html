@@ -645,7 +645,10 @@
     .rolls-wheel-spin{position:absolute;inset:8%;border-radius:50%;transform-origin:50% 50%;will-change:transform;box-shadow:0 0 0 3px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55)}
     .rolls-wheel-conic{position:absolute;inset:0;border-radius:50%}
     .rolls-wheel-avatars{position:absolute;inset:0;pointer-events:none}
-    .rolls-wheel-av{position:absolute;width:15%;height:15%;min-width:36px;min-height:36px;border-radius:50%;border:3px solid rgba(0,0,0,.55);overflow:hidden;background:#222;transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.45)}
+    .rolls-wheel-pct{position:absolute;z-index:3;transform:translate(-50%,-50%);font-size:11px;font-weight:950;font-variant-numeric:tabular-nums;color:#fff;line-height:1;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 10px rgba(0,0,0,.75)}
+    .rolls-wheel-av{position:absolute;z-index:2;width:15%;height:15%;min-width:36px;min-height:36px;border-radius:50%;border:3px solid rgba(0,0,0,.55);overflow:hidden;background:linear-gradient(135deg,#8CFFC1,#4DFF9A);transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.45)}
+    .rolls-wheel-av img{width:100%;height:100%;object-fit:cover;display:block;position:relative;z-index:1}
+    .rolls-wheel-av__ph{display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#07110c;background:linear-gradient(135deg,#8CFFC1,#4DFF9A)}
     .rolls-wheel-av--win{box-shadow:0 0 0 3px #fff,0 0 28px rgba(105,240,174,.95)!important;z-index:4}
     .rolls-hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;width:30%;height:30%;min-width:96px;min-height:96px;border-radius:50%;background:#0a0a0c;border:4px solid rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center;text-align:center;padding:6px;box-shadow:inset 0 0 24px rgba(0,0,0,.85)}
     .rolls-hub--wait{border-color:rgba(255,255,255,.35)}
@@ -3351,7 +3354,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_SPOTLIGHT_20260514"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_WHEEL_PCT5_20260514"></script>
 
 </body>
 </html>
