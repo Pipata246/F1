@@ -1197,31 +1197,46 @@ async function handleRaiseBet(body, tgUserId) {
 }
 
 async function handleGetRecentWinners(body) {
-  const { limit = 10 } = body;
+  const limit = Math.max(1, Math.min(50, Number(body.limit) || 10));
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  
-  const { data, error } = await supabase
-    .from("roulette_results")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  
-  if (error) throw new Error(error.message);
-  
-  // Добавляем фото профилей для победителей
+
+  const [{ data: recent, error: errRecent }, { data: topArr, error: errTop }] = await Promise.all([
+    supabase.from("roulette_results").select("*").order("created_at", { ascending: false }).limit(limit),
+    supabase.from("roulette_results").select("*").order("winner_amount", { ascending: false }).limit(1),
+  ]);
+
+  if (errRecent) throw new Error(errRecent.message);
+  if (errTop) throw new Error(errTop.message);
+
   const winnersWithPhotos = await Promise.all(
-    (data || []).map(async (winner) => {
+    (recent || []).map(async (winner) => {
       const photoUrl = await getTelegramPhotoUrl(winner.winner_user_id);
       return {
         ...winner,
-        photo_url: photoUrl
+        photo_url: photoUrl,
       };
     })
   );
-  
+
+  const topRaw = topArr?.[0] || null;
+  let topGame = null;
+  if (topRaw) {
+    const found = winnersWithPhotos.find((w) => w.id === topRaw.id);
+    if (found) {
+      topGame = found;
+    } else {
+      const photoUrl = await getTelegramPhotoUrl(topRaw.winner_user_id);
+      topGame = { ...topRaw, photo_url: photoUrl };
+    }
+  }
+
+  const lastGame = winnersWithPhotos[0] || null;
+
   return {
     ok: true,
-    winners: winnersWithPhotos
+    winners: winnersWithPhotos,
+    lastGame,
+    topGame,
   };
 }
 

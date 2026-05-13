@@ -97,7 +97,7 @@ class RouletteUI {
       lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
       /** Throttle для «последние победы» + «моя история» (не дергать DOM на каждом poll) */
       lastSidePanelsFetchAt: 0,
-      _lastRecentWinnersKey: null,
+      _rollsSpotlightsKey: null,
       _lastMyHistoryKey: null,
       isLoadingRound: false,
       lastTimerSecond: null,
@@ -496,7 +496,7 @@ class RouletteUI {
 
         if (previousRoundId != null && String(data.round.id) !== String(previousRoundId)) {
           this.state.timerEndedKey = null;
-          this.state._lastRecentWinnersKey = null;
+          this.state._rollsSpotlightsKey = null;
           this.state._lastMyHistoryKey = null;
           this._lastPotText = null;
         }
@@ -1232,8 +1232,7 @@ class RouletteUI {
     }
   }
 
-  updateRollsSpotlights(winners) {
-    const w = winners || [];
+  updateRollsSpotlights(lastGame, topGame) {
     const setCard = (side, row) => {
       const nameEl = document.getElementById(`rollsSpot${side}Name`);
       const amtEl = document.getElementById(`rollsSpot${side}Amt`);
@@ -1252,7 +1251,7 @@ class RouletteUI {
       const ch = parseFloat(row.winner_chance_percent || 0);
       nameEl.textContent = name.length > 12 ? `${name.slice(0, 10)}…` : name;
       amtEl.textContent = `+${ton.toFixed(ton >= 100 ? 0 : ton >= 10 ? 1 : 2)} TON`;
-      chEl.textContent = `ШАНС ${ch.toFixed(0)}%`;
+      chEl.textContent = `ШАНС ${Number.isFinite(ch) ? ch.toFixed(0) : '—'}%`;
       const initial = String(name).charAt(0).toUpperCase();
       if (row.photo_url) {
         avEl.innerHTML = `<img src="${this.escapeHtml(row.photo_url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"/>`;
@@ -1260,12 +1259,8 @@ class RouletteUI {
         avEl.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#07110c;">${initial}</div>`;
       }
     };
-    setCard('Prev', w[0] || null);
-    let top = w[0] || null;
-    for (let i = 1; i < w.length; i++) {
-      if (parseFloat(w[i].winner_amount || 0) > parseFloat(top.winner_amount || 0)) top = w[i];
-    }
-    setCard('Top', top);
+    setCard('Prev', lastGame || null);
+    setCard('Top', topGame || null);
   }
 
   // ==================== ACTIONS ====================
@@ -1419,11 +1414,10 @@ class RouletteUI {
     this.loadMyHistory(false).catch(() => {});
   }
 
-  fingerprintRecentWinners(winners) {
-    if (!winners || !winners.length) return 'empty';
-    return winners.map((w) =>
-      `${String(w.created_at)}|${String(w.winner_display_name || '')}|${String(w.winner_amount)}|${String(w.players_count ?? '')}`
-    ).join('~');
+  fingerprintRollsSpotlights(lastGame, topGame) {
+    const L = lastGame || {};
+    const T = topGame || {};
+    return `${String(L.id || '')}|${String(L.created_at || '')}|${String(L.winner_amount || '')}|${String(T.id || '')}|${String(T.winner_amount || '')}`;
   }
 
   fingerprintMyHistory(history) {
@@ -1433,46 +1427,45 @@ class RouletteUI {
     ).join('~');
   }
 
-  // ==================== RECENT WINNERS ====================
   async loadRecentWinners(force = false) {
     try {
-      const data = await this.callAPI('getRecentWinners', { limit: 5 });
+      const data = await this.callAPI('getRecentWinners', { limit: 12 });
       const list = data.winners || [];
-      const fp = this.fingerprintRecentWinners(list);
-      if (!force && fp === this.state._lastRecentWinnersKey) return;
-      this.state._lastRecentWinnersKey = fp;
-      if (data.winners && data.winners.length > 0) {
-        this.renderRecentWinners(data.winners);
-      } else {
-        this.renderRecentWinners([]);
-      }
+      const lastGame = data.lastGame != null ? data.lastGame : list[0] || null;
+      const topGame = data.topGame != null ? data.topGame : null;
+
+      const fp = this.fingerprintRollsSpotlights(lastGame, topGame);
+      if (!force && fp === this.state._rollsSpotlightsKey) return;
+      this.state._rollsSpotlightsKey = fp;
+
+      this.renderRecentWinnersList(list);
+      this.updateRollsSpotlights(lastGame, topGame);
     } catch (error) {
       console.error('Failed to load recent winners:', error);
     }
   }
-  
-  renderRecentWinners(winners) {
+
+  /** Список в DOM (если контейнер есть); карточки Rolls обновляются в loadRecentWinners. */
+  renderRecentWinnersList(winners) {
     if (!this.elements.recentWinners) return;
-    
-    if (winners.length === 0) {
+
+    if (!winners || winners.length === 0) {
       this.elements.recentWinners.innerHTML = `
         <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">
           История пока пуста
         </div>
       `;
-      this.updateRollsSpotlights([]);
       return;
     }
-    
-    this.elements.recentWinners.innerHTML = winners.map(winner => {
+
+    this.elements.recentWinners.innerHTML = winners.map((winner) => {
       const date = new Date(winner.created_at);
       const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      
-      // Аватар: фото или инициал
-      const avatarContent = winner.photo_url 
+
+      const avatarContent = winner.photo_url
         ? `<img src="${this.escapeHtml(winner.photo_url)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${winner.winner_display_name.charAt(0).toUpperCase()}</div>`
         : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${winner.winner_display_name.charAt(0).toUpperCase()}</div>`;
-      
+
       return `
         <div class="pill" style="padding:10px 12px;">
           <div style="display:flex; align-items:center; gap:10px; flex:1;">
@@ -1491,7 +1484,6 @@ class RouletteUI {
         </div>
       `;
     }).join('');
-    this.updateRollsSpotlights(winners);
   }
 
   async loadMyHistory(force = false) {
