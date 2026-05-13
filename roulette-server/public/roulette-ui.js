@@ -1212,6 +1212,24 @@ class RouletteUI {
 
         requestAnimationFrame(() => {
           const cardsLive = strip.querySelectorAll('.roulette-card');
+          const pickCardByCenter = () => {
+            if (!cardsLive || cardsLive.length === 0) return null;
+            const containerRect = this.elements.wheelContainer.getBoundingClientRect();
+            const centerX = containerRect.left + (containerRect.width / 2);
+            let bestEl = null;
+            let bestDist = Number.POSITIVE_INFINITY;
+            cardsLive.forEach((cardEl) => {
+              const r = cardEl.getBoundingClientRect();
+              const cardCenter = r.left + (r.width / 2);
+              const dist = Math.abs(cardCenter - centerX);
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestEl = cardEl;
+              }
+            });
+            return bestEl;
+          };
+
           let highlightEl = cardsLive[targetCardIndex];
           if (!highlightEl && cardsLive.length > 0) {
             const wci = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
@@ -1221,9 +1239,18 @@ class RouletteUI {
               if (alt >= 0 && alt < cardsLive.length) highlightEl = cardsLive[alt];
             }
           }
+          if (!highlightEl) {
+            highlightEl = pickCardByCenter();
+          }
 
           if (highlightEl) {
             highlightEl.classList.add('roulette-card--winner');
+            // Inline fallback, если на странице отсутствуют/перекрыты нужные CSS-правила.
+            highlightEl.style.boxShadow = 'inset 0 0 0 3px rgba(140,255,193,.78), 0 0 26px rgba(140,255,193,.85)';
+            highlightEl.style.filter = 'brightness(1.15) saturate(1.16)';
+            highlightEl.style.transform = 'scale(1.04)';
+            highlightEl.style.zIndex = '20';
+            highlightEl.style.position = 'relative';
           } else {
             console.warn('[Roulette] No element for winner highlight', { targetCardIndex, n: cardsLive.length });
           }
@@ -1232,7 +1259,14 @@ class RouletteUI {
           this.stopSpinSound();
 
           setTimeout(() => {
-            if (highlightEl) highlightEl.classList.remove('roulette-card--winner');
+            if (highlightEl) {
+              highlightEl.classList.remove('roulette-card--winner');
+              highlightEl.style.boxShadow = '';
+              highlightEl.style.filter = '';
+              highlightEl.style.transform = '';
+              highlightEl.style.zIndex = '';
+              highlightEl.style.position = '';
+            }
             console.log('[Roulette] Animation COMPLETED - resolving promise');
             this.state.activeSpinPromise = null;
             this.state.activeSpinRoundId = null;
