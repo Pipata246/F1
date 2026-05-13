@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: CASE_SPIN_6S_INTRIGUE_20260513
+ * VERSION: CASE_SPIN_6S_SMOOTH_DECEL_20260513
  */
 
 const ROULETTE_SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
@@ -1130,21 +1130,11 @@ class RouletteUI {
       const runwayPx = cardW * 28 + cw * 0.42;
       const finalTranslate = pointerX - targetCenter - runwayPx;
 
-      // Ровно 6 с: быстро в начале → скорость быстро падает → последние 1.5 с линейно и медленно (интрига перед стопом).
+      // 6 с, одна гладкая кривая: скорость плавно падает к нулю (ease-out), без фазовых стыков и без «удара» в конце.
       const durationMs = 6000;
-      const INTRIGUE_MS = 1500;
-      const intrigueFrac = INTRIGUE_MS / durationMs; // 0.25
-      const mainPhaseEnd = 1 - intrigueFrac; // 0.75 @ 4500 ms
-      /** Доля полного translate, пройденная к концу «быстрой» фазы — остаток добивается ровно за 1.5 с. */
-      const distAtMainEnd = 0.87;
-      const easeCaseOpen = (t) => {
-        if (t >= mainPhaseEnd) {
-          const v = (t - mainPhaseEnd) / intrigueFrac;
-          return distAtMainEnd + (1 - distAtMainEnd) * v;
-        }
-        const u = t / mainPhaseEnd;
-        const punch = 0.44;
-        return distAtMainEnd * Math.pow(u, punch);
+      const easeProgress = (t) => {
+        const inv = 1 - t;
+        return 1 - inv * inv * inv * inv * inv;
       };
       const t0 = performance.now();
 
@@ -1178,7 +1168,7 @@ class RouletteUI {
 
       const step = (now) => {
         const u = Math.min(1, (now - t0) / durationMs);
-        const e = easeCaseOpen(u);
+        const e = easeProgress(u);
         strip.style.transform = 'translateX(' + (finalTranslate * e) + 'px)';
         if (u < 1) {
           this.caseSpinRafId = requestAnimationFrame(step);
