@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: CASE_REEL_ENGINE_PERF_20260513
+ * VERSION: ROULETTE_UI_STATIC_PANELS_20260513
  */
 
 const ROULETTE_DEBUG =
@@ -80,8 +80,10 @@ class RouletteUI {
       lastPlayersKey: null, // Ключ для проверки изменения состава игроков
       wheelCardsHTML: '', // Готовый HTML карточек от сервера
       lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
-      lastWinnersLoadAt: 0, // throttling для истории победителей
-      lastMyHistoryLoadAt: 0,
+      /** Throttle для «последние победы» + «моя история» (не дергать DOM на каждом poll) */
+      lastSidePanelsFetchAt: 0,
+      _lastRecentWinnersKey: null,
+      _lastMyHistoryKey: null,
       isLoadingRound: false,
       lastTimerSecond: null,
       audioEnabled: false,
@@ -94,6 +96,10 @@ class RouletteUI {
 
     /** Единственный движок прокрутки кейса (RAF + пружина), см. case-reel-engine.js */
     this.reelEngine = typeof CaseReelEngine !== 'undefined' ? new CaseReelEngine() : null;
+
+    this._lastStatusUi = null;
+    this._lastPotText = null;
+    this._lastMyBetUi = '';
 
     this.pollInterval = null;
     this.realtimeClient = null;
@@ -111,6 +117,9 @@ class RouletteUI {
   clearRoundUIToWaiting(opts = {}) {
     const preserveWheel = !!opts.preserveWheelStrip;
     this.abortCaseReel();
+    this._lastStatusUi = null;
+    this._lastPotText = null;
+    this._lastMyBetUi = '';
     // Скрываем таймер
     this.stopSmoothTimer();
     if (this.elements.timerWrap) {
@@ -181,6 +190,9 @@ class RouletteUI {
     }
     this.elements.winnerModal?.classList.remove('show');
     this.resetWheelStripToWaiting();
+    this.state.lastSidePanelsFetchAt = 0;
+    this.loadRecentWinners(true).catch(() => {});
+    this.loadMyHistory(true).catch(() => {});
   }
 
   abortCaseReel() {
@@ -192,7 +204,7 @@ class RouletteUI {
     this.elements.betBtn?.addEventListener('click', () => this.handleBet());
     this.elements.openHistoryBtn?.addEventListener('click', () => {
       this.elements.historyModal?.classList.add('show');
-      this.loadMyHistory().catch(() => {});
+      this.loadMyHistory(true).catch(() => {});
     });
     this.elements.historyCloseBtn?.addEventListener('click', () => {
       this.elements.historyModal?.classList.remove('show');
@@ -461,6 +473,9 @@ class RouletteUI {
 
         if (previousRoundId != null && String(data.round.id) !== String(previousRoundId)) {
           this.state.timerEndedKey = null;
+          this.state._lastRecentWinnersKey = null;
+          this.state._lastMyHistoryKey = null;
+          this._lastPotText = null;
         }
 
         // ВАЖНО: `isSpinning` должен означать "идёт анимация/колесо залочено",
@@ -549,7 +564,9 @@ class RouletteUI {
           this.updateMyBetInfo(parseFloat(myBet.bet_amount), parseFloat(myBet.chance_percent));
         } else {
           this.state.myBet = null;
+          this._lastMyBetUi = '';
           this.updateBetButton(false); // Не в раунде
+          this.updateMyBetInfo(0, 0);
         }
         
         // Handle timer - используем СЕРВЕРНОЕ время из API с локальной интерполяцией
@@ -669,6 +686,7 @@ class RouletteUI {
         
         this.state.currentRound = null;
         this.state.myBet = null;
+        this._lastMyBetUi = '';
         this.updateStatus('waiting');
         this.updatePot(0);
         this.updatePlayers([]);
@@ -679,16 +697,7 @@ class RouletteUI {
         }
       }
       
-      // Историю победителей грузим неблокирующе и не на каждом poll.
-      const now = Date.now();
-      if (!this.state.lastWinnersLoadAt || now - this.state.lastWinnersLoadAt > 10000) {
-        this.state.lastWinnersLoadAt = now;
-        this.loadRecentWinners().catch(() => {});
-      }
-      if (!this.state.lastMyHistoryLoadAt || now - this.state.lastMyHistoryLoadAt > 10000) {
-        this.state.lastMyHistoryLoadAt = now;
-        this.loadMyHistory().catch(() => {});
-      }
+      this.maybeRefreshRouletteSidePanels();
     } catch (error) {
       console.error('[Roulette] Failed to load active round:', error);
       // НЕ показываем toast - тихо логируем ошибку
@@ -761,6 +770,9 @@ class RouletteUI {
   }
 
   updateMyBetInfo(betAmount, chancePercent) {
+    const key = `${Number(betAmount).toFixed(2)}|${Number(chancePercent).toFixed(1)}`;
+    if (this._lastMyBetUi === key) return;
+    this._lastMyBetUi = key;
     // Ищем элементы заново
     const yourBet = document.getElementById('rouletteYourBet');
     const yourChance = document.getElementById('rouletteYourChance');
@@ -775,6 +787,7 @@ class RouletteUI {
 
   // ==================== STATUS UPDATES ====================
   updateStatus(status) {
+    if (this._lastStatusUi === status) return;
     const statusMap = {
       waiting: { text: 'Ожидание игроков', color: '#888' },
       active: { text: 'Идет прием ставок', color: '#8CFFC1' },
@@ -787,11 +800,15 @@ class RouletteUI {
       this.elements.status.textContent = config.text;
       this.elements.status.style.color = config.color;
     }
+    this._lastStatusUi = status;
   }
 
   updatePot(amount) {
+    const t = Number(amount).toFixed(2);
+    if (this._lastPotText === t) return;
+    this._lastPotText = t;
     if (this.elements.potAmount) {
-      this.elements.potAmount.textContent = amount.toFixed(2);
+      this.elements.potAmount.textContent = t;
     }
   }
 
@@ -1208,7 +1225,10 @@ class RouletteUI {
       
       // Reload round data
       await this.loadActiveRound();
-      
+      this.state.lastSidePanelsFetchAt = 0;
+      this.loadRecentWinners(true).catch(() => {});
+      this.loadMyHistory(true).catch(() => {});
+
       // Refresh user balance
       if (typeof window.hydrateUserFromServer === 'function') {
         // ВАЖНО: Передаем skipBalanceIncreaseToast чтобы не показывать toast о пополнении
@@ -1296,18 +1316,39 @@ class RouletteUI {
     }
   }
 
+  /** Нижние блоки (последние победы / моя история): редко и только если вкладка видна; без лишнего DOM. */
+  maybeRefreshRouletteSidePanels() {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    const cooldownMs = 45000;
+    if (this.state.lastSidePanelsFetchAt && now - this.state.lastSidePanelsFetchAt < cooldownMs) return;
+    this.state.lastSidePanelsFetchAt = now;
+    this.loadRecentWinners(false).catch(() => {});
+    this.loadMyHistory(false).catch(() => {});
+  }
+
+  fingerprintRecentWinners(winners) {
+    if (!winners || !winners.length) return 'empty';
+    return winners.map((w) =>
+      `${String(w.created_at)}|${String(w.winner_display_name || '')}|${String(w.winner_amount)}|${String(w.players_count ?? '')}`
+    ).join('~');
+  }
+
+  fingerprintMyHistory(history) {
+    if (!history || !history.length) return 'empty';
+    return history.map((h) =>
+      `${String(h.created_at)}|${String(h.result)}|${String(h.amount_ton)}|${String(h.bet_amount)}|${String(h.chance_percent)}`
+    ).join('~');
+  }
+
   // ==================== RECENT WINNERS ====================
-  async loadRecentWinners() {
+  async loadRecentWinners(force = false) {
     try {
-      if (this.elements.recentWinners) {
-        this.elements.recentWinners.innerHTML = `
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-        `;
-      }
       const data = await this.callAPI('getRecentWinners', { limit: 5 });
-      
+      const list = data.winners || [];
+      const fp = this.fingerprintRecentWinners(list);
+      if (!force && fp === this.state._lastRecentWinnersKey) return;
+      this.state._lastRecentWinnersKey = fp;
       if (data.winners && data.winners.length > 0) {
         this.renderRecentWinners(data.winners);
       } else {
@@ -1359,17 +1400,14 @@ class RouletteUI {
     }).join('');
   }
 
-  async loadMyHistory() {
+  async loadMyHistory(force = false) {
     try {
-      if (this.elements.myHistory) {
-        this.elements.myHistory.innerHTML = `
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-          <div class="skeleton-card"></div>
-        `;
-      }
       const data = await this.callAPI('getMyHistory', { limit: 8 });
-      this.renderMyHistory(data.history || []);
+      const list = data.history || [];
+      const fp = this.fingerprintMyHistory(list);
+      if (!force && fp === this.state._lastMyHistoryKey) return;
+      this.state._lastMyHistoryKey = fp;
+      this.renderMyHistory(list);
     } catch (error) {
       console.error('Failed to load my roulette history:', error);
     }
@@ -1459,7 +1497,7 @@ function stopRouletteUI() {
 // Listen for tab changes
 if (typeof window !== 'undefined') {
   // VERSION CHECK
-  rlog('[Roulette] Script loaded - CASE_REEL_ENGINE_PERF_20260513');
+  rlog('[Roulette] Script loaded - ROULETTE_UI_STATIC_PANELS_20260513');
   
   // Check if we're on roulette tab on load
   window.addEventListener('DOMContentLoaded', () => {
