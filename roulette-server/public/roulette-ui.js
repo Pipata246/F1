@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: CASE_OPENING_SPIN_20260513
+ * VERSION: CASE_SPIN_TIMING_WINNER_20260513b
  */
 
 const ROULETTE_SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
@@ -101,7 +101,8 @@ class RouletteUI {
   }
 
   // ==================== ROUND UI RESET ====================
-  clearRoundUIToWaiting() {
+  clearRoundUIToWaiting(opts = {}) {
+    const preserveWheel = !!opts.preserveWheelStrip;
     this.cancelCaseOpeningRaf();
     // Скрываем таймер
     this.stopSmoothTimer();
@@ -128,7 +129,7 @@ class RouletteUI {
       `;
     }
 
-    if (this.elements.strip) {
+    if (this.elements.strip && !preserveWheel) {
       this.elements.strip.style.transition = 'none';
       this.elements.strip.style.transform = 'translateX(0)';
       this.elements.strip.innerHTML = `
@@ -140,13 +141,39 @@ class RouletteUI {
 
     // Сброс внутренних ключей, чтобы следующий раунд точно перерисовался
     this.state.lastPlayersKey = null;
-    this.state.wheelCardsHTML = '';
+    if (!preserveWheel) {
+      this.state.wheelCardsHTML = '';
+    }
     this.state.currentRound = null;
     this.state.players = [];
     this.state.myBet = null;
     this.state.lastTimerSecond = null;
     this.stopSpinSound();
     this.updateBetButton(false);
+  }
+
+  /** Сброс полосы колеса после модалки победителя (когда ранее вызывали clearRoundUIToWaiting с preserveWheelStrip). */
+  resetWheelStripToWaiting() {
+    if (!this.elements.strip) return;
+    this.cancelCaseOpeningRaf();
+    this.clearWinnerCardHighlight(this.elements.strip);
+    this.elements.strip.style.transition = 'none';
+    this.elements.strip.style.transform = 'translateX(0)';
+    this.elements.strip.innerHTML = `
+      <div style="padding:0 20px; text-align:center; color:var(--muted); font-size:13px;">
+        Ожидание игроков...
+      </div>
+    `;
+    this.state.wheelCardsHTML = '';
+  }
+
+  closeRouletteWinnerModal() {
+    if (this._winnerModalCloseTimer) {
+      clearTimeout(this._winnerModalCloseTimer);
+      this._winnerModalCloseTimer = null;
+    }
+    this.elements.winnerModal?.classList.remove('show');
+    this.resetWheelStripToWaiting();
   }
 
   cancelCaseOpeningRaf() {
@@ -609,7 +636,7 @@ class RouletteUI {
                 winnerBet ? parseFloat(winnerBet.chance_percent || 0) : null
               );
 
-              this.clearRoundUIToWaiting();
+              this.clearRoundUIToWaiting({ preserveWheelStrip: true });
 
               if (String(data.round.winner_user_id) === myUserIdStr) {
                 if (window.userState && typeof window.userState.balance === 'number') {
@@ -1028,11 +1055,11 @@ class RouletteUI {
     if (!strip) return;
     strip.querySelectorAll('.roulette-card--winner').forEach((el) => {
       el.classList.remove('roulette-card--winner');
-      el.style.boxShadow = '';
-      el.style.filter = '';
-      el.style.transform = '';
-      el.style.zIndex = '';
-      el.style.position = '';
+      el.style.removeProperty('box-shadow');
+      el.style.removeProperty('filter');
+      el.style.removeProperty('transform');
+      el.style.removeProperty('z-index');
+      el.style.removeProperty('position');
     });
   }
 
@@ -1078,16 +1105,16 @@ class RouletteUI {
         idxInBase = found >= 0 ? found : 0;
       }
 
-      const RUNWAY_SEGMENTS = 18;
-      const TAIL_SEGMENTS = 14;
+      const RUNWAY_SEGMENTS = 11;
+      const TAIL_SEGMENTS = 9;
       const repeats = RUNWAY_SEGMENTS + 1 + TAIL_SEGMENTS;
       strip.innerHTML = new Array(repeats).fill(baseHtml).join('');
 
       const globalWinnerIndex = RUNWAY_SEGMENTS * baseCount + idxInBase;
       const allLive = strip.querySelectorAll('.roulette-card');
-      const winnerEl = allLive[globalWinnerIndex];
+      const winnerElPlanned = allLive[globalWinnerIndex];
 
-      if (!winnerEl) {
+      if (!winnerElPlanned) {
         reject(new Error('[Roulette] Winner card index out of DOM range'));
         return;
       }
@@ -1097,19 +1124,55 @@ class RouletteUI {
       void strip.offsetHeight;
 
       const cw = container.offsetWidth;
-      const cardW = Math.max(1, winnerEl.offsetWidth);
-      const targetCenter = winnerEl.offsetLeft + cardW / 2;
+      const cardW = Math.max(1, winnerElPlanned.offsetWidth);
+      const targetCenter = winnerElPlanned.offsetLeft + cardW / 2;
       const pointerX = cw / 2;
-      const runwayPx = cardW * 46 + cw * 0.48;
+      const runwayPx = cardW * 28 + cw * 0.42;
       const finalTranslate = pointerX - targetCenter - runwayPx;
 
-      const durationMs = 14000;
-      const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
+      // Короче и «как кейс»: быстрый основной ход + мягкая долгая посадка (~6.8s).
+      const durationMs = 6800;
+      const easeCaseOpen = (t) => {
+        if (t <= 0.55) {
+          const u = t / 0.55;
+          return 0.86 * (1 - (1 - u) * (1 - u));
+        }
+        const u = (t - 0.55) / 0.45;
+        return 0.86 + 0.14 * (1 - Math.pow(1 - u, 4));
+      };
       const t0 = performance.now();
+
+      const pickCardUnderPointer = () => {
+        const cr = container.getBoundingClientRect();
+        const centerX = cr.left + cr.width / 2;
+        let best = null;
+        let bestD = Infinity;
+        strip.querySelectorAll('.roulette-card').forEach((el) => {
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const d = Math.abs(cx - centerX);
+          if (d < bestD) {
+            bestD = d;
+            best = el;
+          }
+        });
+        return best;
+      };
+
+      const applyWinnerHighlight = (el) => {
+        if (!el) return;
+        this.clearWinnerCardHighlight(strip);
+        el.classList.add('roulette-card--winner');
+        el.style.setProperty('box-shadow', 'inset 0 0 0 3px rgba(140,255,193,.95), 0 0 32px rgba(140,255,193,.9)', 'important');
+        el.style.setProperty('filter', 'brightness(1.22) saturate(1.2)', 'important');
+        el.style.setProperty('transform', 'scale(1.06)', 'important');
+        el.style.setProperty('z-index', '25', 'important');
+        el.style.setProperty('position', 'relative', 'important');
+      };
 
       const step = (now) => {
         const u = Math.min(1, (now - t0) / durationMs);
-        const e = easeOutQuint(u);
+        const e = easeCaseOpen(u);
         strip.style.transform = 'translateX(' + (finalTranslate * e) + 'px)';
         if (u < 1) {
           this.caseSpinRafId = requestAnimationFrame(step);
@@ -1117,17 +1180,13 @@ class RouletteUI {
           this.caseSpinRafId = null;
           strip.style.transform = 'translateX(' + finalTranslate + 'px)';
           requestAnimationFrame(() => {
-            this.clearWinnerCardHighlight(strip);
-            winnerEl.classList.add('roulette-card--winner');
-            winnerEl.style.boxShadow =
-              'inset 0 0 0 3px rgba(140,255,193,.78), 0 0 26px rgba(140,255,193,.85)';
-            winnerEl.style.filter = 'brightness(1.15) saturate(1.16)';
-            winnerEl.style.transform = 'scale(1.04)';
-            winnerEl.style.zIndex = '20';
-            winnerEl.style.position = 'relative';
+            void strip.offsetWidth;
+            const under = pickCardUnderPointer();
+            const targetEl = under || winnerElPlanned;
+            applyWinnerHighlight(targetEl);
             this.stopSpinSound();
             this.hapticImpact('medium');
-            setTimeout(resolve, 1250);
+            setTimeout(resolve, 720);
           });
         }
       };
@@ -1251,16 +1310,19 @@ class RouletteUI {
     }
     
     if (this.elements.winnerModal) {
+      if (this._winnerModalCloseTimer) {
+        clearTimeout(this._winnerModalCloseTimer);
+        this._winnerModalCloseTimer = null;
+      }
       this.elements.winnerModal.classList.add('show');
       const isWin = String(winnerUserId) === String(this.state.myUserId);
       this.playResultSound(isWin);
       this.hapticNotify(isWin ? 'success' : 'warning');
-      
-      // Автоматически закрываем через 5 секунд
-      setTimeout(() => {
-        if (this.elements.winnerModal) {
-          this.elements.winnerModal.classList.remove('show');
-        }
+
+      // Автоматически закрываем и убираем полосу с подсветкой (полоса жила до закрытия модалки).
+      this._winnerModalCloseTimer = setTimeout(() => {
+        this._winnerModalCloseTimer = null;
+        this.closeRouletteWinnerModal();
       }, 3200);
     }
 
@@ -1421,6 +1483,7 @@ function initRouletteUI() {
   if (!rouletteUI) {
     rouletteUI = new RouletteUI();
   }
+  window.rouletteUI = rouletteUI;
   // Load initial data and start polling
   rouletteUI.loadActiveRound();
   rouletteUI.startDataSync();
