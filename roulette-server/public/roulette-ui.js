@@ -88,6 +88,9 @@ class RouletteUI {
       audioEnabled: false,
       spinSoundActive: false,
       spinTickTimer: null,
+      activeSpinRoundId: null, // Защита от двойного запуска анимации одного раунда
+      activeSpinPromise: null,
+      activeSpinToken: 0,
     };
 
     this.pollInterval = null;
@@ -1050,9 +1053,24 @@ class RouletteUI {
   
   // Анимация вращения рулетки (как в CS:GO кейсах)
   spinWheelAnimation(winnerUserId, roundId, winnerCardIndex = null) {
-    return new Promise((resolve) => {
+    if (this.state.activeSpinPromise) {
+      if (this.state.activeSpinRoundId === roundId) {
+        console.log('[Roulette] Reusing current spin promise for round:', roundId);
+        return this.state.activeSpinPromise;
+      }
+      console.warn('[Roulette] Another spin is already running, skipping new one');
+      return this.state.activeSpinPromise;
+    }
+
+    this.state.activeSpinRoundId = roundId || null;
+    this.state.activeSpinToken += 1;
+    const spinToken = this.state.activeSpinToken;
+
+    const spinPromise = new Promise((resolve) => {
       if (!this.elements.strip || !this.elements.wheelContainer) {
         console.error('[Roulette] Missing elements for animation');
+        this.state.activeSpinPromise = null;
+        this.state.activeSpinRoundId = null;
         resolve();
         return;
       }
@@ -1064,6 +1082,8 @@ class RouletteUI {
       const baseWheelHtml = this.state.wheelCardsHTML || '';
       if (!baseWheelHtml) {
         console.error('[Roulette] ❌ No wheelCardsHTML — cannot animate');
+        this.state.activeSpinPromise = null;
+        this.state.activeSpinRoundId = null;
         resolve();
         return;
       }
@@ -1076,6 +1096,8 @@ class RouletteUI {
       let allCards = Array.from(this.elements.strip.querySelectorAll('.roulette-card'));
       if (allCards.length === 0) {
         console.error('[Roulette] ❌ Cannot animate - wheel HTML has no cards');
+        this.state.activeSpinPromise = null;
+        this.state.activeSpinRoundId = null;
         resolve();
         return;
       }
@@ -1108,6 +1130,8 @@ class RouletteUI {
         
         if (winnerCards.length === 0) {
           console.error('[Roulette] No winner cards found for user:', winnerUserId);
+          this.state.activeSpinPromise = null;
+          this.state.activeSpinRoundId = null;
           resolve();
           return;
         }
@@ -1138,6 +1162,8 @@ class RouletteUI {
       const targetCardEl = allCards[targetCardIndex];
       if (!targetCardEl) {
         console.error('[Roulette] Target card element not found for index:', targetCardIndex);
+        this.state.activeSpinPromise = null;
+        this.state.activeSpinRoundId = null;
         resolve();
         return;
       }
@@ -1156,7 +1182,7 @@ class RouletteUI {
       const spinTargetPosition = finalPosition - extraSpins;
       const totalDistance = Math.abs(spinTargetPosition);
       
-      const duration = 7000;
+      const duration = 8400;
       console.log('[Roulette] SYNC Animation:', {
         currentPosition: 0,
         finalPosition,
@@ -1172,71 +1198,79 @@ class RouletteUI {
       this.elements.strip.style.transition = 'none';
       // Карточки остаются на месте!
       this.elements.strip.style.transform = 'translateX(0)';
-      
+
       const totalMs = duration;
       const strip = this.elements.strip;
+      const finishAnimation = () => {
+        if (spinToken !== this.state.activeSpinToken) {
+          console.warn('[Roulette] Stale spin token finished, ignoring');
+          return;
+        }
 
-      // Один стабильный закон движения: v(t)=v0*(1-t/T), без фаз/переключений.
-      // Это дает ровный спин "как кейс": быстро в начале и долгое плавное затухание к стопу.
-      requestAnimationFrame(() => {
+        strip.style.transition = 'none';
+        strip.style.transform = `translateX(${spinTargetPosition}px)`;
+
         requestAnimationFrame(() => {
-          const startTs = performance.now();
-          const v0 = (2 * totalDistance) / totalMs; // px/ms
-          const animate = (now) => {
-            const elapsed = Math.min(totalMs, Math.max(0, now - startTs));
-            const t = elapsed;
-            const T = totalMs;
-            const traveled = (v0 * t) - ((v0 * t * t) / (2 * T)); // интеграл скорости
-            const progress = totalDistance > 0 ? Math.min(1, traveled / totalDistance) : 1;
-            const x = spinTargetPosition * progress;
-            strip.style.transform = `translateX(${x}px)`;
-
-            if (elapsed < totalMs) {
-              requestAnimationFrame(animate);
-              return;
+          const cardsLive = strip.querySelectorAll('.roulette-card');
+          let highlightEl = cardsLive[targetCardIndex];
+          if (!highlightEl && cardsLive.length > 0) {
+            const wci = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
+            if (wci != null) {
+              const idxB = ((wci % baseCardsCount) + baseCardsCount) % baseCardsCount;
+              const alt = middleSegmentUsed * baseCardsCount + idxB;
+              if (alt >= 0 && alt < cardsLive.length) highlightEl = cardsLive[alt];
             }
+          }
 
-            // Финальная фиксация в точке победной карточки.
-            strip.style.transition = 'none';
-            strip.style.transform = `translateX(${spinTargetPosition}px)`;
+          if (highlightEl) {
+            highlightEl.classList.add('roulette-card--winner');
+          } else {
+            console.warn('[Roulette] No element for winner highlight', { targetCardIndex, n: cardsLive.length });
+          }
 
-            // Ждем layout и подсвечиваем целевую карту.
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                const cardsLive = strip.querySelectorAll('.roulette-card');
-                let highlightEl = cardsLive[targetCardIndex];
-                if (!highlightEl && cardsLive.length > 0) {
-                  const wci = Number.isInteger(winnerCardIndex) ? winnerCardIndex : null;
-                  if (wci != null) {
-                    const idxB = ((wci % baseCardsCount) + baseCardsCount) % baseCardsCount;
-                    const alt = middleSegmentUsed * baseCardsCount + idxB;
-                    if (alt >= 0 && alt < cardsLive.length) highlightEl = cardsLive[alt];
-                  }
-                }
+          this.hapticImpact('medium');
+          this.stopSpinSound();
 
-                if (highlightEl) {
-                  highlightEl.classList.add('roulette-card--winner');
-                } else {
-                  console.warn('[Roulette] No element for winner highlight', { targetCardIndex, n: cardsLive.length });
-                }
-
-                this.hapticImpact('medium');
-                this.stopSpinSound();
-
-                setTimeout(() => {
-                  if (highlightEl) highlightEl.classList.remove('roulette-card--winner');
-                  console.log('[Roulette] Animation COMPLETED - resolving promise');
-                  resolve();
-                }, 1100);
-              });
-            });
-          };
-
-          requestAnimationFrame(animate);
-          console.log('[Roulette] ✅ Physics spin started', { duration: totalMs, totalDistance, v0, cards: allCards.length });
+          setTimeout(() => {
+            if (highlightEl) highlightEl.classList.remove('roulette-card--winner');
+            console.log('[Roulette] Animation COMPLETED - resolving promise');
+            this.state.activeSpinPromise = null;
+            this.state.activeSpinRoundId = null;
+            resolve();
+          }, 1600);
         });
+      };
+
+      // Один cinematic-спин: быстрый старт, длинное плавное торможение как в case-opening.
+      requestAnimationFrame(() => {
+        // Перезапуск transition кадр-в-кадр, чтобы избежать резкого рывка/дубля.
+        strip.style.transition = 'none';
+        strip.style.transform = 'translateX(0)';
+        // Force reflow
+        void strip.offsetWidth;
+
+        strip.style.transition = `transform ${totalMs}ms cubic-bezier(0.04, 0.86, 0.11, 1)`;
+        strip.style.transform = `translateX(${spinTargetPosition}px)`;
+
+        let done = false;
+        const completeOnce = () => {
+          if (done) return;
+          done = true;
+          strip.removeEventListener('transitionend', onEnd);
+          finishAnimation();
+        };
+        const onEnd = (evt) => {
+          if (evt.propertyName !== 'transform') return;
+          completeOnce();
+        };
+        strip.addEventListener('transitionend', onEnd);
+        setTimeout(completeOnce, totalMs + 120);
+
+        console.log('[Roulette] ✅ Cinematic spin started', { duration: totalMs, totalDistance, cards: allCards.length });
       });
     });
+    this.state.activeSpinPromise = spinPromise;
+    return spinPromise;
   }
 
   // ==================== ACTIONS ====================

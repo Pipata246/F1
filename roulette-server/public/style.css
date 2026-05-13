@@ -355,7 +355,26 @@ body::before {
   align-items: center;
   height: 100%;
   padding: 0 20px;
-  transition: transform 0.1s ease-out;
+  transition: none;
+  will-change: transform;
+}
+
+.roulette-card {
+  transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
+}
+
+.roulette-card--winner {
+  z-index: 2;
+  transform: scale(1.04);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.82) inset, 0 0 28px rgba(140,255,193,.92);
+  filter: saturate(1.18) brightness(1.06);
+  animation: rouletteWinnerPulse 520ms ease-in-out 2;
+}
+
+@keyframes rouletteWinnerPulse {
+  0% { transform: scale(1.01); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1.04); }
 }
 
 /* Players Section */
