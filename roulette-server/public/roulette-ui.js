@@ -45,7 +45,6 @@ class RouletteUI {
       rollsHub: document.getElementById('rollsHub'),
       rollsHubText: document.getElementById('rollsHubText'),
       rollsRoundIdLabel: document.getElementById('rollsRoundIdLabel'),
-      rollsPotEcho: document.getElementById('rollsPotEcho'),
       
       // Players
       playerCount: document.getElementById('roulettePlayerCount'),
@@ -61,10 +60,9 @@ class RouletteUI {
       yourBet: document.getElementById('rouletteYourBet'),
       yourChance: document.getElementById('rouletteYourChance'),
       
-      // Winners
+      // Winners / history modal
       recentWinners: document.getElementById('rouletteRecentWinners'),
       myHistory: document.getElementById('rouletteMyHistory'),
-      openHistoryBtn: document.getElementById('rouletteOpenHistoryBtn'),
       historyModal: document.getElementById('rouletteHistoryModal'),
       historyCloseBtn: document.getElementById('rouletteHistoryCloseBtn'),
       winnerModal: document.getElementById('rouletteWinnerModal'),
@@ -226,10 +224,6 @@ class RouletteUI {
   init() {
     // Setup event listeners
     this.elements.betBtn?.addEventListener('click', () => this.handleBet());
-    this.elements.openHistoryBtn?.addEventListener('click', () => {
-      this.elements.historyModal?.classList.add('show');
-      this.loadMyHistory(true).catch(() => {});
-    });
     this.elements.historyCloseBtn?.addEventListener('click', () => {
       this.elements.historyModal?.classList.remove('show');
     });
@@ -242,22 +236,6 @@ class RouletteUI {
     document.getElementById('rollsHistoryBtn')?.addEventListener('click', () => {
       this.elements.historyModal?.classList.add('show');
       this.loadMyHistory(true).catch(() => {});
-    });
-    document.getElementById('rollsMenuBtn')?.addEventListener('click', () => {
-      this.showToast('Меню скоро');
-    });
-    document.getElementById('rollsChatBtn')?.addEventListener('click', () => {
-      this.showToast('Чат в разработке');
-    });
-    document.getElementById('rollsDailyBanner')?.addEventListener('click', () => {
-      this.showToast('Турнир скоро');
-    });
-    document.getElementById('rollsFocusBetBtn')?.addEventListener('click', () => {
-      this.elements.betInput?.focus();
-      this.elements.betSection?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-    document.getElementById('rollsQuickPotBtn')?.addEventListener('click', () => {
-      this.elements.betInput?.focus();
     });
 
     // Initialize with empty state
@@ -856,9 +834,6 @@ class RouletteUI {
     this._lastPotText = t;
     if (this.elements.potAmount) {
       this.elements.potAmount.textContent = t;
-    }
-    if (this.elements.rollsPotEcho) {
-      this.elements.rollsPotEcho.textContent = t;
     }
   }
 
