@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: CASE_SPIN_TIMING_WINNER_20260513b
+ * VERSION: CASE_SPIN_6S_INTRIGUE_20260513
  */
 
 const ROULETTE_SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
@@ -1130,15 +1130,21 @@ class RouletteUI {
       const runwayPx = cardW * 28 + cw * 0.42;
       const finalTranslate = pointerX - targetCenter - runwayPx;
 
-      // Короче и «как кейс»: быстрый основной ход + мягкая долгая посадка (~6.8s).
-      const durationMs = 6800;
+      // Ровно 6 с: быстро в начале → скорость быстро падает → последние 1.5 с линейно и медленно (интрига перед стопом).
+      const durationMs = 6000;
+      const INTRIGUE_MS = 1500;
+      const intrigueFrac = INTRIGUE_MS / durationMs; // 0.25
+      const mainPhaseEnd = 1 - intrigueFrac; // 0.75 @ 4500 ms
+      /** Доля полного translate, пройденная к концу «быстрой» фазы — остаток добивается ровно за 1.5 с. */
+      const distAtMainEnd = 0.87;
       const easeCaseOpen = (t) => {
-        if (t <= 0.55) {
-          const u = t / 0.55;
-          return 0.86 * (1 - (1 - u) * (1 - u));
+        if (t >= mainPhaseEnd) {
+          const v = (t - mainPhaseEnd) / intrigueFrac;
+          return distAtMainEnd + (1 - distAtMainEnd) * v;
         }
-        const u = (t - 0.55) / 0.45;
-        return 0.86 + 0.14 * (1 - Math.pow(1 - u, 4));
+        const u = t / mainPhaseEnd;
+        const punch = 0.44;
+        return distAtMainEnd * Math.pow(u, punch);
       };
       const t0 = performance.now();
 
