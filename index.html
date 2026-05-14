@@ -760,6 +760,23 @@
     .action-section{margin-bottom:20px}
     .action-card{padding:16px;border-radius:20px;background:var(--glass-bg);border:1px solid var(--glass-border);backdrop-filter:blur(var(--blur));box-shadow:var(--shadow)}
     .action-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:10px}
+    .rolls-stake-wrap{margin-bottom:12px}
+    .rolls-stake-row{display:flex;align-items:stretch;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);box-shadow:0 1px 0 rgba(255,255,255,.04) inset}
+    .rolls-stake-btn{flex:0 0 52px;min-height:52px;border:none;background:rgba(255,255,255,.08);color:#fff;font-size:26px;font-weight:300;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .12s ease}
+    .rolls-stake-btn:active{background:rgba(255,255,255,.16)}
+    .rolls-stake-btn:disabled{opacity:.45;pointer-events:none}
+    .rolls-stake-display{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 8px;font-variant-numeric:tabular-nums;font-size:22px;font-weight:950;color:#fff;min-width:0}
+    .rolls-stake-ton{font-size:13px;font-weight:800;color:rgba(255,255,255,.5);letter-spacing:.02em}
+    .rolls-preset-wrap{margin-top:4px;margin-bottom:4px}
+    .rolls-preset-hint{font-size:11px;font-weight:650;color:rgba(255,255,255,.45);line-height:1.35;margin-bottom:10px}
+    .rolls-preset-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+    .rolls-preset-chip{display:flex;align-items:stretch;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.1);background:rgba(24,26,32,.92);box-shadow:0 2px 8px rgba(0,0,0,.25)}
+    .rolls-preset-btn{flex:0 0 40px;width:40px;min-height:44px;border:none;background:transparent;color:rgba(255,255,255,.88);font-size:20px;font-weight:400;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .12s ease}
+    .rolls-preset-btn:active{background:rgba(255,255,255,.08)}
+    .rolls-preset-btn:disabled{opacity:.45;pointer-events:none}
+    .rolls-preset-mid{flex:1;min-width:48px;padding:0 10px;min-height:44px;border:none;border-left:1px solid rgba(255,255,255,.08);border-right:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:var(--accent);font-weight:950;font-size:15px;font-variant-numeric:tabular-nums;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .12s ease}
+    .rolls-preset-mid:active{background:rgba(140,255,193,.12)}
+    .rolls-preset-mid:disabled{opacity:.45;pointer-events:none}
     .input-group{position:relative;margin-bottom:12px}
     .bet-input{width:100%;padding:14px 60px 14px 14px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:var(--text);outline:none;font-size:18px;font-weight:700;font-family:inherit}
     .bet-input::placeholder{color:rgba(255,255,255,.35)}
@@ -1323,9 +1340,17 @@
               <div class="divider" style="margin:10px 0;"></div>
             </div>
             <div class="action-label" id="rouletteBetLabel">Сделать ставку</div>
-            <div class="input-group">
-              <input type="number" id="rouletteBetInput" class="bet-input" placeholder="0.1" min="0.1" step="0.1"/>
-              <span class="input-currency">TON</span>
+            <div class="rolls-stake-wrap">
+              <div class="rolls-stake-row" role="group" aria-label="Сумма ставки">
+                <button type="button" class="rolls-stake-btn" id="rollsStakeMinus" aria-label="Минус 0.1 TON">−</button>
+                <div class="rolls-stake-display" id="rollsStakeDisplay" aria-live="polite">0.0<span class="rolls-stake-ton"> TON</span></div>
+                <button type="button" class="rolls-stake-btn" id="rollsStakePlus" aria-label="Плюс 0.1 TON">+</button>
+              </div>
+              <input type="hidden" id="rouletteBetInput" value="0"/>
+            </div>
+            <div class="rolls-preset-wrap">
+              <div class="rolls-preset-hint">Быстрые суммы · нажми число — подставить в ставку · ± меняют пресет</div>
+              <div class="rolls-preset-row" id="rollsPresetRow" aria-label="Пресеты"></div>
             </div>
             <button id="rouletteBetBtn" class="btn primary" style="width:100%;margin-top:4px;">Войти в раунд</button>
             <div class="action-hint" id="rouletteBetHint">Минимальная ставка: 0.1 TON</div>
@@ -3417,7 +3442,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_TIMER8_HUB_20260514"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_STAKE_STEPPER_20260515"></script>
 
 </body>
 </html>

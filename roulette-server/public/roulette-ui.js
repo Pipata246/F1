@@ -31,6 +31,9 @@ const ROLLS_SEG_COLORS = [
   '#ab47bc',
 ];
 
+const ROLLS_PRESET_STORAGE_KEY = 'rolls_roulette_presets_v1';
+const ROLLS_PRESET_DEFAULTS = [1, 3, 5, 7, 10, 15, 20, 30, 50, 75, 100];
+
 class RouletteUI {
   constructor() {
     this.elements = {
@@ -242,6 +245,8 @@ class RouletteUI {
       this.elements.historyModal?.classList.add('show');
       this.loadMyHistory(true).catch(() => {});
     });
+
+    this.initStakeControls();
 
     // Initialize with empty state
     this.updateStatus('waiting');
@@ -962,7 +967,7 @@ class RouletteUI {
   disableBetButton() {
     const betBtn = document.getElementById('rouletteBetBtn');
     const betInput = document.getElementById('rouletteBetInput');
-    
+
     if (betBtn) {
       betBtn.disabled = true;
       betBtn.textContent = 'Идет розыгрыш...';
@@ -970,21 +975,175 @@ class RouletteUI {
     if (betInput) {
       betInput.disabled = true;
     }
+    this.setStakeStepperDisabled(true);
   }
 
   enableBetButton() {
     const betBtn = document.getElementById('rouletteBetBtn');
     const betInput = document.getElementById('rouletteBetInput');
-    
+
     if (betBtn) {
       betBtn.disabled = false;
     }
     if (betInput) {
       betInput.disabled = false;
     }
-    
+    this.setStakeStepperDisabled(false);
+    this.syncStakeDisplay();
+
     // Восстанавливаем правильный текст кнопки
     this.updateBetButton(this.state.isInRound);
+  }
+
+  setStakeStepperDisabled(disabled) {
+    document.getElementById('rollsStakeMinus')?.toggleAttribute('disabled', !!disabled);
+    document.getElementById('rollsStakePlus')?.toggleAttribute('disabled', !!disabled);
+    document.querySelectorAll('#rollsPresetRow button').forEach((b) => {
+      b.disabled = !!disabled;
+    });
+  }
+
+  /** После перерисовки пресетов восстановить disabled, если кнопка ставки заблокирована */
+  refreshStakeStepperLockFromBetBtn() {
+    if (document.getElementById('rouletteBetBtn')?.disabled) {
+      this.setStakeStepperDisabled(true);
+    }
+  }
+
+  roundStakeTon(x) {
+    const n = Math.min(1e9, Math.max(0, Number(x) || 0));
+    return Math.round(n * 10) / 10;
+  }
+
+  getPresetValues() {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(ROLLS_PRESET_STORAGE_KEY) : null;
+      if (!raw) return [...ROLLS_PRESET_DEFAULTS];
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr) || arr.length !== ROLLS_PRESET_DEFAULTS.length) return [...ROLLS_PRESET_DEFAULTS];
+      return arr.map((v, i) => {
+        const t = this.roundStakeTon(v);
+        return t >= 0 ? t : ROLLS_PRESET_DEFAULTS[i];
+      });
+    } catch {
+      return [...ROLLS_PRESET_DEFAULTS];
+    }
+  }
+
+  savePresetValues(arr) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(ROLLS_PRESET_STORAGE_KEY, JSON.stringify(arr));
+      }
+    } catch {}
+  }
+
+  formatPresetLabel(v) {
+    const x = this.roundStakeTon(v);
+    if (Math.abs(x - Math.round(x)) < 0.001) return String(Math.round(x));
+    return x.toFixed(1);
+  }
+
+  renderPresetRow() {
+    const wrap = document.getElementById('rollsPresetRow');
+    if (!wrap) return;
+    const vals = this.getPresetValues();
+    wrap.innerHTML = vals
+      .map(
+        (v, i) => `
+      <div class="rolls-preset-chip" data-slot="${i}">
+        <button type="button" class="rolls-preset-btn rolls-preset-btn--dec" aria-label="Пресет ${i + 1}: минус">−</button>
+        <button type="button" class="rolls-preset-mid" data-slot="${i}" aria-label="Поставить ${this.formatPresetLabel(v)} TON">${this.escapeHtml(this.formatPresetLabel(v))}</button>
+        <button type="button" class="rolls-preset-btn rolls-preset-btn--inc" aria-label="Пресет ${i + 1}: плюс">+</button>
+      </div>`
+      )
+      .join('');
+  }
+
+  syncStakeDisplay() {
+    const inp = this.elements.betInput;
+    const el = document.getElementById('rollsStakeDisplay');
+    const mi = document.getElementById('rollsStakeMinus');
+    if (!inp || !el) return;
+    const v = this.roundStakeTon(inp.value || 0);
+    inp.value = String(v);
+    el.innerHTML = `${v.toFixed(1)}<span class="rolls-stake-ton"> TON</span>`;
+    if (mi && !document.getElementById('rouletteBetBtn')?.disabled) {
+      mi.disabled = v <= 0;
+    }
+  }
+
+  setMainStake(v) {
+    if (!this.elements.betInput) return;
+    const x = this.roundStakeTon(v);
+    this.elements.betInput.value = String(x);
+    this.syncStakeDisplay();
+  }
+
+  adjustMainStake(delta) {
+    const cur = this.roundStakeTon(this.elements.betInput?.value || 0);
+    const next = this.roundStakeTon(cur + delta);
+    if (next < 0) return;
+    this.setMainStake(next);
+  }
+
+  initStakeControls() {
+    const row = document.getElementById('rollsPresetRow');
+    const mi = document.getElementById('rollsStakeMinus');
+    const pl = document.getElementById('rollsStakePlus');
+    if (!this.elements.betInput) return;
+
+    if (!this._stakeControlsBound) {
+      this._stakeControlsBound = true;
+      mi?.addEventListener('click', () => {
+        const cur = this.roundStakeTon(this.elements.betInput?.value || 0);
+        if (cur <= 0) return;
+        this.adjustMainStake(-0.1);
+        this.playClickSound();
+        this.hapticImpact('light');
+      });
+      pl?.addEventListener('click', () => {
+        this.adjustMainStake(0.1);
+        this.playClickSound();
+        this.hapticImpact('light');
+      });
+      row?.addEventListener('click', (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLElement)) return;
+        const chip = t.closest('.rolls-preset-chip');
+        if (!chip || !row.contains(chip)) return;
+        const slot = parseInt(chip.getAttribute('data-slot') || '-1', 10);
+        if (slot < 0 || slot >= ROLLS_PRESET_DEFAULTS.length) return;
+        const vals = this.getPresetValues();
+        if (t.classList.contains('rolls-preset-btn--dec')) {
+          vals[slot] = this.roundStakeTon(vals[slot] - 0.1);
+          if (vals[slot] < 0) vals[slot] = 0;
+          this.savePresetValues(vals);
+          this.renderPresetRow();
+          this.refreshStakeStepperLockFromBetBtn();
+          this.playClickSound();
+          this.hapticImpact('light');
+        } else if (t.classList.contains('rolls-preset-btn--inc')) {
+          vals[slot] = this.roundStakeTon(vals[slot] + 0.1);
+          this.savePresetValues(vals);
+          this.renderPresetRow();
+          this.refreshStakeStepperLockFromBetBtn();
+          this.playClickSound();
+          this.hapticImpact('light');
+        } else if (t.classList.contains('rolls-preset-mid')) {
+          this.setMainStake(vals[slot]);
+          this.playClickSound();
+          this.hapticImpact('medium');
+        }
+      });
+    }
+
+    this.renderPresetRow();
+    this.refreshStakeStepperLockFromBetBtn();
+    if (this.elements.betInput.value === '' || this.elements.betInput.value == null) {
+      this.elements.betInput.value = '0';
+    }
+    this.syncStakeDisplay();
   }
 
   // ==================== PLAYERS ====================
@@ -1361,10 +1520,8 @@ class RouletteUI {
       // Показываем правильное уведомление на основе ПРЕДЫДУЩЕГО состояния
       this.showToast(wasInRound ? 'Ставка повышена!' : 'Ставка принята!');
       
-      // Clear input
-      if (betInput) {
-        betInput.value = '';
-      }
+      // Сброс суммы после успешной ставки
+      this.setMainStake(0);
       
       // Reload round data
       await this.loadActiveRound();
