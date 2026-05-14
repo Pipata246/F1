@@ -773,6 +773,7 @@
     .rolls-stake-ton{font-size:13px;font-weight:800;color:rgba(255,255,255,.5);letter-spacing:.02em}
     .rolls-preset-wrap{margin-top:4px;margin-bottom:4px}
     .rolls-preset-hint{font-size:11px;font-weight:650;color:rgba(255,255,255,.45);line-height:1.35;margin-bottom:10px}
+    .rolls-preset-rows{display:flex;flex-direction:column;gap:8px;align-items:stretch}
     .rolls-preset-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center}
     .rolls-preset-pill{
       min-width:44px;padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
@@ -1355,7 +1356,10 @@
             </div>
             <div class="rolls-preset-wrap">
               <div class="rolls-preset-hint">Быстрый выбор суммы</div>
-              <div class="rolls-preset-row" id="rollsPresetRow" aria-label="Пресеты"></div>
+              <div class="rolls-preset-rows" id="rollsPresetRows">
+                <div class="rolls-preset-row" id="rollsPresetRow" aria-label="Пресеты"></div>
+                <div class="rolls-preset-row" id="rollsPresetRowHigh" aria-label="Крупные пресеты"></div>
+              </div>
             </div>
             <button id="rouletteBetBtn" class="btn primary" style="width:100%;margin-top:4px;">Войти в раунд</button>
             <div class="action-hint" id="rouletteBetHint">Минимальная ставка: 0.1 TON</div>
@@ -3447,7 +3451,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_STAKE_ROW_PM_20260513"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_PRESET_HIGH_ROW_20260513"></script>
 
 </body>
 </html>

@@ -32,6 +32,7 @@ const ROLLS_SEG_COLORS = [
 ];
 
 const ROLLS_PRESET_DEFAULTS = [1, 2, 5, 7, 10];
+const ROLLS_PRESET_HIGH_DEFAULTS = [15, 20, 30, 50, 100];
 const ROLLS_STAKE_FINE_STEP = 0.1;
 
 class RouletteUI {
@@ -998,7 +999,7 @@ class RouletteUI {
   setStakeStepperDisabled(disabled) {
     document.getElementById('rollsStakeMinus')?.toggleAttribute('disabled', !!disabled);
     document.getElementById('rollsStakePlus')?.toggleAttribute('disabled', !!disabled);
-    document.querySelectorAll('#rollsPresetRow button').forEach((b) => {
+    document.querySelectorAll('#rollsPresetRow button, #rollsPresetRowHigh button').forEach((b) => {
       b.disabled = !!disabled;
     });
   }
@@ -1019,15 +1020,20 @@ class RouletteUI {
     return [...ROLLS_PRESET_DEFAULTS];
   }
 
-  renderPresetRow() {
-    const wrap = document.getElementById('rollsPresetRow');
-    if (!wrap) return;
-    wrap.innerHTML = this.getPresetValues()
+  presetPillsHtml(values) {
+    return values
       .map(
         (v) => `
       <button type="button" class="rolls-preset-pill" data-amount="${v}" aria-label="Поставить ${v} TON">${this.escapeHtml(String(v))}</button>`
       )
       .join('');
+  }
+
+  renderPresetRow() {
+    const wrap = document.getElementById('rollsPresetRow');
+    const hi = document.getElementById('rollsPresetRowHigh');
+    if (wrap) wrap.innerHTML = this.presetPillsHtml(this.getPresetValues());
+    if (hi) hi.innerHTML = this.presetPillsHtml([...ROLLS_PRESET_HIGH_DEFAULTS]);
   }
 
   syncStakeDisplay() {
@@ -1058,7 +1064,7 @@ class RouletteUI {
   }
 
   initStakeControls() {
-    const row = document.getElementById('rollsPresetRow');
+    const presetRows = document.getElementById('rollsPresetRows');
     const mi = document.getElementById('rollsStakeMinus');
     const pl = document.getElementById('rollsStakePlus');
     if (!this.elements.betInput) return;
@@ -1077,11 +1083,11 @@ class RouletteUI {
         this.playClickSound();
         this.hapticImpact('light');
       });
-      row?.addEventListener('click', (e) => {
+      presetRows?.addEventListener('click', (e) => {
         const t = e.target;
         if (!(t instanceof HTMLElement)) return;
         const pill = t.closest('.rolls-preset-pill');
-        if (!pill || !row.contains(pill)) return;
+        if (!pill || !presetRows.contains(pill)) return;
         const amt = this.roundStakeTon(pill.getAttribute('data-amount'));
         if (amt <= 0) return;
         this.setMainStake(amt);
