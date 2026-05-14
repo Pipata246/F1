@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: ROLLS_BG_ROOTGRAD_20260514
+ * VERSION: ROLLS_PUBLIC_HISTORY_IDLE_20260513
  */
 
 /** Длина активной фазы раунда (сек); должен совпадать с `TIMER_DURATION` в api/roulette.js */
@@ -46,6 +46,7 @@ class RouletteUI {
       
       // Donut wheel (Rolls-style)
       wheelContainer: document.getElementById('rouletteWheelContainer'),
+      wheelSpinWrap: document.getElementById('rollsWheelSpinWrap'),
       wheelSpin: document.getElementById('rollsWheelSpin'),
       wheelConic: document.getElementById('rollsWheelConic'),
       wheelAvatars: document.getElementById('rollsWheelAvatars'),
@@ -67,11 +68,9 @@ class RouletteUI {
       yourBet: document.getElementById('rouletteYourBet'),
       yourChance: document.getElementById('rouletteYourChance'),
       
-      // Winners / history modal
+      // Winners / public history
       recentWinners: document.getElementById('rouletteRecentWinners'),
-      myHistory: document.getElementById('rouletteMyHistory'),
-      historyModal: document.getElementById('rouletteHistoryModal'),
-      historyCloseBtn: document.getElementById('rouletteHistoryCloseBtn'),
+      publicHistoryList: document.getElementById('roulettePublicHistoryList'),
       winnerModal: document.getElementById('rouletteWinnerModal'),
       winnerName: document.getElementById('rouletteWinnerName'),
       winnerAmount: document.getElementById('rouletteWinnerAmount'),
@@ -102,14 +101,17 @@ class RouletteUI {
       lastPlayersKey: null, // Ключ для проверки изменения состава игроков
       wheelCardsHTML: '', // Готовый HTML карточек от сервера
       lastWinnerPhotoUrl: null, // Фото победителя (если пришло с сервера)
-      /** Throttle для «последние победы» + «моя история» (не дергать DOM на каждом poll) */
+      /** Throttle для «последние победы» (не дергать DOM на каждом poll) */
       lastSidePanelsFetchAt: 0,
       _rollsSpotlightsKey: null,
-      _lastMyHistoryKey: null,
+      _lastPublicHistoryKey: null,
       isLoadingRound: false,
       lastTimerSecond: null,
       audioEnabled: false,
       spinSoundActive: false,
+      /** Фильтр страницы общей истории: large | recent | lucky */
+      publicHistoryFilter: 'recent',
+      historyPageOpen: false,
       /** Защита от двух параллельных `loadActiveRound` на одном finished-раунде */
       presentingRoundId: null,
       /** Идемпотентность локального onTimerEnd (один раз на конкретный таймер) */
@@ -179,11 +181,146 @@ class RouletteUI {
     this.state.lastTimerSecond = null;
     this.stopSpinSound();
     this.updateBetButton(false);
+    this.syncWheelIdleMotion();
   }
 
   /** Сброс полосы колеса после модалки победителя (когда ранее вызывали clearRoundUIToWaiting с preserveWheelStrip). */
   resetWheelStripToWaiting() {
     this.resetDonutToWaiting();
+  }
+
+  shouldWheelIdleSpin() {
+    if (this.state.isAnimating || this.state.isSpinning) return false;
+    if (this.state.historyPageOpen) return false;
+    if (this.elements.winnerModal?.classList.contains('show')) return false;
+    return true;
+  }
+
+  stopWheelIdle() {
+    const wrap = this.elements.wheelSpinWrap;
+    if (!wrap) return;
+    wrap.classList.remove('rolls-wheel-spin-wrap--idle');
+    try {
+      wrap.getAnimations?.().forEach((a) => a.cancel());
+    } catch {}
+    wrap.style.transform = '';
+    wrap.style.transition = '';
+  }
+
+  syncWheelIdleMotion() {
+    if (this.shouldWheelIdleSpin()) {
+      const wrap = this.elements.wheelSpinWrap;
+      if (!wrap) return;
+      this.stopWheelIdle();
+      wrap.classList.add('rolls-wheel-spin-wrap--idle');
+    } else {
+      this.stopWheelIdle();
+    }
+  }
+
+  openPublicHistoryPage() {
+    this.state.historyPageOpen = true;
+    this.stopWheelIdle();
+    document.getElementById('rollsMainGameView')?.classList.add('hidden');
+    const hv = document.getElementById('rollsPublicHistoryView');
+    if (hv) {
+      hv.classList.remove('hidden');
+      hv.setAttribute('aria-hidden', 'false');
+    }
+    this.loadPublicHistory(true).catch(() => {});
+  }
+
+  closePublicHistoryPage() {
+    if (!this.state.historyPageOpen) {
+      document.getElementById('rollsPublicHistoryView')?.classList.add('hidden');
+      document.getElementById('rollsMainGameView')?.classList.remove('hidden');
+      return;
+    }
+    this.state.historyPageOpen = false;
+    document.getElementById('rollsPublicHistoryView')?.classList.add('hidden');
+    document.getElementById('rollsPublicHistoryView')?.setAttribute('aria-hidden', 'true');
+    document.getElementById('rollsMainGameView')?.classList.remove('hidden');
+    this.syncWheelIdleMotion();
+  }
+
+  setPublicHistoryFilter(filter) {
+    const f = String(filter || '').toLowerCase();
+    if (f !== 'large' && f !== 'recent' && f !== 'lucky') return;
+    this.state.publicHistoryFilter = f;
+    document.querySelectorAll('.rolls-public-history__filter').forEach((btn) => {
+      const on = btn.getAttribute('data-rolls-history-filter') === f;
+      btn.classList.toggle('is-active', on);
+    });
+    this.state._lastPublicHistoryKey = null;
+    this.loadPublicHistory(true).catch(() => {});
+  }
+
+  renderPublicHistory(rows) {
+    const listEl = this.elements.publicHistoryList;
+    if (!listEl) return;
+    if (!rows || !rows.length) {
+      listEl.innerHTML = `<div class="rolls-empty">Пока нет записей</div>`;
+      return;
+    }
+    listEl.innerHTML = rows
+      .map((w) => {
+        const date = new Date(w.created_at || Date.now());
+        const timeStr = date.toLocaleString('ru-RU', {
+          day: '2-digit',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        const name = w.winner_display_name || 'Игрок';
+        const ton = parseFloat(w.winner_amount || 0);
+        const ch = parseFloat(w.winner_chance_percent || 0);
+        const pot = parseFloat(w.total_pot || 0);
+        const pc = Number(w.players_count || 0);
+        const initial = this.escapeHtml(String(name).charAt(0).toUpperCase());
+        const avatarContent = w.photo_url
+          ? `<img src="${this.escapeHtml(w.photo_url)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${initial}</div>`
+          : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:14px; color:#07110c;">${initial}</div>`;
+        return `
+        <div class="pill" style="padding:10px 12px;">
+          <div style="display:flex; align-items:center; gap:10px; flex:1;">
+            <div style="width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg, #fbbf24, #f59e0b); overflow:hidden; flex-shrink:0;">
+              ${avatarContent}
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(name)}</div>
+              <div style="font-size:11px; color:var(--muted);">${timeStr} • ${pc} игроков • банк ${pot.toFixed(2)} TON</div>
+            </div>
+          </div>
+          <div style="text-align:right; margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="font-size:11px; color:var(--muted);">Шанс ${Number.isFinite(ch) ? ch.toFixed(1) : '—'}%</div>
+            <div>
+              <div style="font-size:16px; font-weight:900; color:var(--accent);">${ton.toFixed(2)}</div>
+              <div style="font-size:10px; color:var(--muted);">TON выигрыш</div>
+            </div>
+          </div>
+        </div>`;
+      })
+      .join('');
+  }
+
+  async loadPublicHistory(force = false) {
+    const listEl = this.elements.publicHistoryList;
+    if (!listEl) return;
+    const filter = this.state.publicHistoryFilter || 'recent';
+    if (force) {
+      listEl.innerHTML = `<div class="rolls-empty">Загрузка…</div>`;
+    }
+    try {
+      const data = await this.callAPI('getPublicRouletteHistory', { filter, limit: 45 });
+      const list = data.history || [];
+      const fp = `${filter}|${list.map((r) => `${r.id}|${r.created_at}`).join('~')}`;
+      if (!force && fp === this.state._lastPublicHistoryKey) return;
+      this.state._lastPublicHistoryKey = fp;
+      this.renderPublicHistory(list);
+    } catch (error) {
+      console.error('Failed to load public roulette history:', error);
+      listEl.innerHTML = `<div class="rolls-empty">Не удалось загрузить историю</div>`;
+    }
   }
 
   resetDonutToWaiting() {
@@ -202,6 +339,7 @@ class RouletteUI {
     }
     this.elements.rollsHub?.classList.add('rolls-hub--wait');
     this.state.wheelCardsHTML = '';
+    this.syncWheelIdleMotion();
   }
 
   closeRouletteWinnerModal() {
@@ -213,7 +351,7 @@ class RouletteUI {
     this.resetWheelStripToWaiting();
     this.state.lastSidePanelsFetchAt = 0;
     this.loadRecentWinners(true).catch(() => {});
-    this.loadMyHistory(true).catch(() => {});
+    this.syncWheelIdleMotion();
   }
 
   abortCaseReel() {
@@ -221,6 +359,7 @@ class RouletteUI {
       clearTimeout(this._spinFinishTimer);
       this._spinFinishTimer = null;
     }
+    this.stopWheelIdle();
     const spin = this.elements.wheelSpin;
     if (spin) {
       try {
@@ -257,18 +396,16 @@ class RouletteUI {
     betModalEl?.addEventListener('click', (e) => {
       if (e.target === betModalEl) this.closeBetModal();
     });
-    this.elements.historyCloseBtn?.addEventListener('click', () => {
-      this.elements.historyModal?.classList.remove('show');
-    });
-    this.elements.historyModal?.addEventListener('click', (e) => {
-      if (e.target === this.elements.historyModal) {
-        this.elements.historyModal.classList.remove('show');
-      }
+    document.getElementById('rollsHistoryBackBtn')?.addEventListener('click', () => this.closePublicHistoryPage());
+    document.getElementById('rollsPublicHistoryView')?.addEventListener('click', (e) => {
+      const pill = e.target && e.target.closest && e.target.closest('[data-rolls-history-filter]');
+      if (!pill) return;
+      const f = pill.getAttribute('data-rolls-history-filter');
+      if (f) this.setPublicHistoryFilter(f);
     });
 
     document.getElementById('rollsHistoryBtn')?.addEventListener('click', () => {
-      this.elements.historyModal?.classList.add('show');
-      this.loadMyHistory(true).catch(() => {});
+      this.openPublicHistoryPage();
     });
 
     this.initStakeControls();
@@ -286,6 +423,7 @@ class RouletteUI {
         this.state.myUserId = user.id;
       }
     }
+    this.syncWheelIdleMotion();
   }
 
   // ==================== HAPTIC ====================
@@ -542,7 +680,7 @@ class RouletteUI {
         if (previousRoundId != null && String(data.round.id) !== String(previousRoundId)) {
           this.state.timerEndedKey = null;
           this.state._rollsSpotlightsKey = null;
-          this.state._lastMyHistoryKey = null;
+          this.state._lastPublicHistoryKey = null;
           this._lastPotText = null;
         }
 
@@ -767,6 +905,7 @@ class RouletteUI {
       // НЕ показываем toast - тихо логируем ошибку
     } finally {
       this.state.isLoadingRound = false;
+      this.syncWheelIdleMotion();
     }
   }
 
@@ -988,6 +1127,7 @@ class RouletteUI {
     // Блокируем кнопку ставки
     this.disableBetButton();
     
+    this.syncWheelIdleMotion();
     // Сервер сам переводит раунд в spinning/finished; сразу тянем состояние.
     this.loadActiveRound().catch(() => {});
     this.startDataSync();
@@ -1344,6 +1484,7 @@ class RouletteUI {
   }
 
   async playFinishedRoundReveal({ round, bets, winner }) {
+    this.stopWheelIdle();
     const spin = this.elements.wheelSpin;
     const hub = this.elements.rollsHub;
     const hubText = this.elements.rollsHubText;
@@ -1407,12 +1548,14 @@ class RouletteUI {
       this.applyWaitingDonut();
       if (this.elements.wheelAvatars) this.elements.wheelAvatars.innerHTML = '';
       this.syncRollsHubIdle();
+      this.syncWheelIdleMotion();
       return;
     }
 
     if (this.state.lastPlayersKey === playersKey && this.elements.wheelAvatars?.children.length > 0) {
       rlog('[Roulette] Skipping wheel render - players unchanged');
       this.syncRollsHubIdle();
+      this.syncWheelIdleMotion();
       return;
     }
     this.state.lastPlayersKey = playersKey;
@@ -1424,6 +1567,7 @@ class RouletteUI {
       spin.style.transform = 'rotate(0deg)';
     }
     this.syncRollsHubIdle();
+    this.syncWheelIdleMotion();
   }
 
   syncRollsHubIdle() {
@@ -1529,7 +1673,6 @@ class RouletteUI {
       await this.loadActiveRound();
       this.state.lastSidePanelsFetchAt = 0;
       this.loadRecentWinners(true).catch(() => {});
-      this.loadMyHistory(true).catch(() => {});
 
       // Refresh user balance
       if (typeof window.hydrateUserFromServer === 'function') {
@@ -1629,20 +1772,12 @@ class RouletteUI {
     if (this.state.lastSidePanelsFetchAt && now - this.state.lastSidePanelsFetchAt < cooldownMs) return;
     this.state.lastSidePanelsFetchAt = now;
     this.loadRecentWinners(false).catch(() => {});
-    this.loadMyHistory(false).catch(() => {});
   }
 
   fingerprintRollsSpotlights(lastGame, topGame) {
     const L = lastGame || {};
     const T = topGame || {};
     return `${String(L.id || '')}|${String(L.created_at || '')}|${String(L.winner_amount || '')}|${String(T.id || '')}|${String(T.winner_amount || '')}`;
-  }
-
-  fingerprintMyHistory(history) {
-    if (!history || !history.length) return 'empty';
-    return history.map((h) =>
-      `${String(h.created_at)}|${String(h.result)}|${String(h.amount_ton)}|${String(h.bet_amount)}|${String(h.chance_percent)}`
-    ).join('~');
   }
 
   async loadRecentWinners(force = false) {
@@ -1704,62 +1839,6 @@ class RouletteUI {
     }).join('');
   }
 
-  async loadMyHistory(force = false) {
-    try {
-      const data = await this.callAPI('getMyHistory', { limit: 8 });
-      const list = data.history || [];
-      const fp = this.fingerprintMyHistory(list);
-      if (!force && fp === this.state._lastMyHistoryKey) return;
-      this.state._lastMyHistoryKey = fp;
-      this.renderMyHistory(list);
-    } catch (error) {
-      console.error('Failed to load my roulette history:', error);
-    }
-  }
-
-  renderMyHistory(history) {
-    if (!this.elements.myHistory) return;
-
-    if (!history || history.length === 0) {
-      this.elements.myHistory.innerHTML = `
-        <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">
-          Пока нет раундов
-        </div>
-      `;
-      return;
-    }
-
-    this.elements.myHistory.innerHTML = history.map((h) => {
-      const created = new Date(h.created_at || Date.now());
-      const timeStr = created.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-
-      const result = String(h.result || 'pending');
-      const resultText = result === 'win' ? 'Победа' : result === 'loss' ? 'Поражение' : 'В процессе';
-      const resultColor = result === 'win' ? 'var(--accent)' : result === 'loss' ? '#ff7a7a' : 'var(--text2)';
-
-      const amountNum = Number(h.amount_ton || 0);
-      const amountText = result === 'pending'
-        ? '—'
-        : `${amountNum > 0 ? '+' : ''}${amountNum.toFixed(2)} TON`;
-
-      return `
-        <div class="pill" style="padding:10px 12px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%;">
-            <div style="min-width:0;">
-              <div style="font-weight:800; font-size:13px; color:${resultColor};">${resultText}</div>
-              <div style="font-size:11px; color:var(--muted);">
-                Ставка ${Number(h.bet_amount || 0).toFixed(2)} TON • Шанс ${Number(h.chance_percent || 0).toFixed(1)}% • ${timeStr}
-              </div>
-            </div>
-            <div style="text-align:right; font-size:13px; font-weight:900; color:${resultColor}; white-space:nowrap;">
-              ${amountText}
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
   // ==================== UTILS ====================
   showToast(message) {
     const toast = document.getElementById('toast');
@@ -1786,6 +1865,7 @@ function initRouletteUI() {
     rouletteUI = new RouletteUI();
   }
   window.rouletteUI = rouletteUI;
+  rouletteUI.closePublicHistoryPage();
   // Load initial data and start polling
   rouletteUI.loadActiveRound();
   rouletteUI.loadRecentWinners(true).catch(() => {});
@@ -1796,6 +1876,7 @@ function initRouletteUI() {
 function stopRouletteUI() {
   if (rouletteUI) {
     rouletteUI.stopDataSync();
+    rouletteUI.closePublicHistoryPage();
   }
 }
 

@@ -1300,6 +1300,37 @@ async function handleGetMyHistory(body, tgUserId) {
   return { ok: true, history };
 }
 
+/** Общая история завершённых раундов (по таблице roulette_results). */
+async function handleGetPublicRouletteHistory(body) {
+  const filter = String(body?.filter || "recent").toLowerCase();
+  const limit = Math.max(1, Math.min(60, Number(body.limit) || 40));
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  let query = supabase.from("roulette_results").select("*");
+  if (filter === "large") {
+    query = query.order("winner_amount", { ascending: false }).limit(limit);
+  } else if (filter === "lucky") {
+    query = query
+      .lte("winner_chance_percent", 15)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+  } else {
+    query = query.order("created_at", { ascending: false }).limit(limit);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const history = await Promise.all(
+    (data || []).map(async (row) => {
+      const photoUrl = await getTelegramPhotoUrl(row.winner_user_id);
+      return { ...row, photo_url: photoUrl };
+    })
+  );
+
+  return { ok: true, history };
+}
+
 // ============================================
 // MAIN HANDLER
 // ============================================
@@ -1319,6 +1350,7 @@ module.exports = async (req, res) => {
 
     const allowedActions = new Set([
       "getRecentWinners",
+      "getPublicRouletteHistory",
       "getMyHistory",
       "getActiveRound",
       "joinRound",
@@ -1332,6 +1364,10 @@ module.exports = async (req, res) => {
     // Actions that don't require auth
     if (action === "getRecentWinners") {
       const result = await handleGetRecentWinners(body);
+      return res.status(200).json(result);
+    }
+    if (action === "getPublicRouletteHistory") {
+      const result = await handleGetPublicRouletteHistory(body);
       return res.status(200).json(result);
     }
 

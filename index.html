@@ -728,21 +728,49 @@
     .rolls-bet-actions{display:flex;align-items:stretch;gap:clamp(8px,2.2vw,12px);margin-top:clamp(2px,1vw,6px);margin-bottom:clamp(2px,1vw,6px);flex-shrink:0}
     .rolls-bet-open-btn{flex:1;min-width:0;font-weight:950;font-size:clamp(12px,3.5vw,15px)!important;padding:clamp(10px,3vw,14px) 12px!important;white-space:nowrap}
     .rolls-round-count-pill{
-      flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:2px;
+      flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;
       padding:clamp(8px,2.2vw,11px) clamp(10px,2.8vw,14px);border-radius:clamp(12px,3.5vw,16px);
-      background:rgba(24,26,32,.95);border:1px solid rgba(255,255,255,.1);min-width:min(38vw,148px);text-align:right;
+      background:rgba(24,26,32,.95);border:1px solid rgba(255,255,255,.1);min-width:min(38vw,148px);text-align:center;
     }
-    .rolls-round-count-pill__row{display:flex;align-items:baseline;justify-content:flex-end;gap:4px;flex-wrap:wrap}
+    .rolls-round-count-pill__row{display:flex;align-items:baseline;justify-content:center;gap:4px;flex-wrap:wrap;width:100%}
     .rolls-round-count-pill #roulettePlayerCount{font-size:clamp(17px,5vw,22px);font-weight:950;color:var(--accent);font-variant-numeric:tabular-nums;line-height:1}
     .rolls-round-count-pill__suffix{font-size:clamp(11px,3vw,12px);font-weight:800;color:rgba(255,255,255,.48);white-space:nowrap}
-    .rolls-round-count-pill__id{font-size:clamp(9px,2.4vw,10px);font-weight:700;color:rgba(255,255,255,.32);letter-spacing:.04em;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+    .rolls-round-count-pill__id{font-size:clamp(9px,2.4vw,10px);font-weight:700;color:rgba(255,255,255,.32);letter-spacing:.04em;max-width:100%;overflow:hidden;text-overflow:ellipsis;text-align:center;width:100%}
+    .rolls-wheel-spin-wrap{
+      position:absolute;inset:8%;border-radius:50%;transform-origin:50% 50%;z-index:1;overflow:visible;
+    }
+    .rolls-wheel-spin-wrap--idle{
+      animation:rollsWheelIdleSlow 48s linear infinite;
+    }
+    @keyframes rollsWheelIdleSlow{
+      from{transform:rotate(0deg)}
+      to{transform:rotate(360deg)}
+    }
+    .rolls-public-history{
+      display:flex;flex-direction:column;min-height:min(88dvh,calc(var(--app-vh,100vh) - 96px));
+      padding:0 0 max(12px,env(safe-area-inset-bottom));
+    }
+    .rolls-public-history__top{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-top:4px}
+    .rolls-public-history__back{
+      flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#fff;cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .rolls-public-history__title{margin:0;font-size:clamp(17px,4.5vw,20px);font-weight:950;letter-spacing:.02em;color:#fff;flex:1}
+    .rolls-public-history__filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+    .rolls-public-history__filter{
+      border-radius:999px;padding:8px 14px;font-weight:850;font-size:12px;border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.05);color:rgba(255,255,255,.72);cursor:pointer;-webkit-tap-highlight-color:transparent;
+    }
+    .rolls-public-history__filter.is-active{border-color:rgba(105,240,174,.55);background:rgba(105,240,174,.12);color:#cfffdf}
+    .rolls-public-history__list{flex:1;min-height:120px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:8px}
     #page-roulette.rolls-page{--rolls-wheel:min(260px,calc(100vw - 24px),max(92px,calc(100dvh - clamp(198px,36dvh,300px))))}
     #page-roulette .rolls-pcards{max-height:clamp(100px,38dvh,min(300px,52dvh))}
     .rolls-bet-modal-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}
     #rouletteBetModal .rolls-bet-modal-card{margin-bottom:0!important;box-shadow:none}
     #rouletteBetModal .rolls-bet-sheet{max-height:min(92dvh, calc(var(--app-vh, 100vh) - 36px))}
     .rolls-pointer{position:absolute;left:50%;top:0;transform:translateX(-50%);z-index:5;width:0;height:0;border-left:clamp(10px,3vw,14px) solid transparent;border-right:clamp(10px,3vw,14px) solid transparent;border-top:clamp(14px,4vw,18px) solid #fff;filter:drop-shadow(0 2px 0 rgba(0,0,0,.5))}
-    .rolls-wheel-spin{position:absolute;inset:8%;border-radius:50%;transform-origin:50% 50%;will-change:transform;box-shadow:0 0 0 3px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55)}
+    .rolls-wheel-spin{position:absolute;inset:0;border-radius:50%;transform-origin:50% 50%;will-change:transform;box-shadow:0 0 0 3px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55)}
     .rolls-wheel-conic{position:absolute;inset:0;border-radius:50%}
     .rolls-wheel-avatars{position:absolute;inset:0;pointer-events:none}
     .rolls-wheel-slot{position:absolute;z-index:3;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none}
@@ -1347,6 +1375,7 @@
 
       <!-- ROULETTE (Rolls-style) -->
       <section id="page-roulette" class="hidden rolls-page">
+        <div id="rollsMainGameView">
         <div class="rolls-topbar">
           <h1 class="rolls-title">Rolls</h1>
           <button type="button" class="rolls-iconbtn" id="helpButton" aria-label="Правила игры">
@@ -1393,9 +1422,11 @@
         <div id="rouletteWheelContainer" class="rolls-wheel-wrap">
           <div class="rolls-stars" aria-hidden="true"></div>
           <div class="rolls-pointer" aria-hidden="true"></div>
+          <div class="rolls-wheel-spin-wrap" id="rollsWheelSpinWrap" aria-hidden="true">
           <div class="rolls-wheel-spin" id="rollsWheelSpin">
             <div class="rolls-wheel-conic" id="rollsWheelConic"></div>
             <div class="rolls-wheel-avatars" id="rollsWheelAvatars"></div>
+          </div>
           </div>
           <div class="rolls-hub rolls-hub--wait" id="rollsHub">
             <span id="rollsHubText" class="rolls-hub__text">Ожидание</span>
@@ -1416,6 +1447,22 @@
           </div>
         </div>
         <div id="roulettePlayersList" class="rolls-pcards"></div>
+        </div>
+
+        <div id="rollsPublicHistoryView" class="rolls-public-history hidden" aria-hidden="true">
+          <div class="rolls-public-history__top">
+            <button type="button" class="rolls-public-history__back" id="rollsHistoryBackBtn" aria-label="Назад">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <h2 class="rolls-public-history__title">История раундов</h2>
+          </div>
+          <div class="rolls-public-history__filters" role="tablist" aria-label="Фильтр истории">
+            <button type="button" class="rolls-public-history__filter" data-rolls-history-filter="large" role="tab">Крупные</button>
+            <button type="button" class="rolls-public-history__filter is-active" data-rolls-history-filter="recent" role="tab">Последние</button>
+            <button type="button" class="rolls-public-history__filter" data-rolls-history-filter="lucky" role="tab">Удачные</button>
+          </div>
+          <div id="roulettePublicHistoryList" class="rolls-public-history__list winners-list"></div>
+        </div>
       </section>
 
     </main>
@@ -1505,25 +1552,6 @@
         </div>
         <div class="rouletteWinnerChance">
           Шанс: <span id="rouletteWinnerChance">0.0</span>%
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="rouletteHistoryModal" class="modalWrap">
-    <div class="modal modal-card--rules" style="max-width:520px;">
-      <div class="modal-header">
-        <h3>Мои последние раунды</h3>
-        <button class="modal-close" id="rouletteHistoryCloseBtn" aria-label="Закрыть">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-      <div id="rouletteMyHistory" class="winners-list" style="margin-bottom:8px;">
-        <div style="text-align:center; padding:20px; color:var(--muted); font-size:13px;">
-          Загрузка...
         </div>
       </div>
     </div>
@@ -3549,7 +3577,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_BET_MODAL_20260513"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_PUBLIC_HISTORY_IDLE_20260513"></script>
 
 </body>
 </html>
