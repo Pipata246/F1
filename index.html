@@ -766,7 +766,16 @@
     .rolls-stake-ton{font-size:13px;font-weight:800;color:rgba(255,255,255,.5);letter-spacing:.02em}
     .rolls-preset-wrap{margin-top:4px;margin-bottom:4px}
     .rolls-preset-hint{font-size:11px;font-weight:650;color:rgba(255,255,255,.45);line-height:1.35;margin-bottom:10px}
-    .rolls-preset-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+    .rolls-preset-bar{display:flex;align-items:center;gap:8px;width:100%}
+    .rolls-preset-step{
+      flex:0 0 44px;width:44px;height:44px;padding:0;border-radius:14px;border:1px solid rgba(255,255,255,.12);
+      background:rgba(24,26,32,.95);color:#fff;font-size:22px;font-weight:300;line-height:1;cursor:pointer;
+      -webkit-tap-highlight-color:transparent;transition:background .12s ease,border-color .12s ease,transform .1s ease;
+      box-shadow:0 2px 8px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;
+    }
+    .rolls-preset-step:active{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);transform:scale(.97)}
+    .rolls-preset-step:disabled{opacity:.45;pointer-events:none}
+    .rolls-preset-row{display:flex;flex:1;min-width:0;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center}
     .rolls-preset-pill{
       min-width:44px;padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
       background:rgba(24,26,32,.95);color:var(--accent);font-weight:950;font-size:15px;font-variant-numeric:tabular-nums;
@@ -1344,7 +1353,11 @@
             </div>
             <div class="rolls-preset-wrap">
               <div class="rolls-preset-hint">Быстрый выбор суммы</div>
-              <div class="rolls-preset-row" id="rollsPresetRow" aria-label="Пресеты"></div>
+              <div class="rolls-preset-bar" role="group" aria-label="Сумма и пресеты">
+                <button type="button" class="rolls-preset-step" id="rollsPresetMinus" aria-label="Уменьшить ставку на 0.1 TON">−</button>
+                <div class="rolls-preset-row" id="rollsPresetRow" aria-label="Пресеты"></div>
+                <button type="button" class="rolls-preset-step" id="rollsPresetPlus" aria-label="Увеличить ставку на 0.1 TON">+</button>
+              </div>
             </div>
             <button id="rouletteBetBtn" class="btn primary" style="width:100%;margin-top:4px;">Войти в раунд</button>
             <div class="action-hint" id="rouletteBetHint">Минимальная ставка: 0.1 TON</div>
@@ -3436,7 +3449,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_STAKE_FIELD_20260515"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_PRESET_BAR_PM_20260513"></script>
 
 </body>
 </html>

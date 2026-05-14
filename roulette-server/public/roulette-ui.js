@@ -32,6 +32,7 @@ const ROLLS_SEG_COLORS = [
 ];
 
 const ROLLS_PRESET_DEFAULTS = [1, 2, 5, 7, 10];
+const ROLLS_STAKE_FINE_STEP = 0.1;
 
 class RouletteUI {
   constructor() {
@@ -995,6 +996,8 @@ class RouletteUI {
   }
 
   setStakeStepperDisabled(disabled) {
+    document.getElementById('rollsPresetMinus')?.toggleAttribute('disabled', !!disabled);
+    document.getElementById('rollsPresetPlus')?.toggleAttribute('disabled', !!disabled);
     document.querySelectorAll('#rollsPresetRow button').forEach((b) => {
       b.disabled = !!disabled;
     });
@@ -1030,10 +1033,14 @@ class RouletteUI {
   syncStakeDisplay() {
     const inp = this.elements.betInput;
     const el = document.getElementById('rollsStakeDisplay');
+    const mi = document.getElementById('rollsPresetMinus');
     if (!inp || !el) return;
     const v = this.roundStakeTon(inp.value || 0);
     inp.value = String(v);
     el.innerHTML = `${v.toFixed(1)}<span class="rolls-stake-ton"> TON</span>`;
+    if (mi && !document.getElementById('rouletteBetBtn')?.disabled) {
+      mi.disabled = v <= 0;
+    }
   }
 
   setMainStake(v) {
@@ -1043,12 +1050,33 @@ class RouletteUI {
     this.syncStakeDisplay();
   }
 
+  adjustMainStake(delta) {
+    const cur = this.roundStakeTon(this.elements.betInput?.value || 0);
+    const next = this.roundStakeTon(cur + delta);
+    if (next < 0) return;
+    this.setMainStake(next);
+  }
+
   initStakeControls() {
     const row = document.getElementById('rollsPresetRow');
+    const mi = document.getElementById('rollsPresetMinus');
+    const pl = document.getElementById('rollsPresetPlus');
     if (!this.elements.betInput) return;
 
     if (!this._stakeControlsBound) {
       this._stakeControlsBound = true;
+      mi?.addEventListener('click', () => {
+        const cur = this.roundStakeTon(this.elements.betInput?.value || 0);
+        if (cur <= 0) return;
+        this.adjustMainStake(-ROLLS_STAKE_FINE_STEP);
+        this.playClickSound();
+        this.hapticImpact('light');
+      });
+      pl?.addEventListener('click', () => {
+        this.adjustMainStake(ROLLS_STAKE_FINE_STEP);
+        this.playClickSound();
+        this.hapticImpact('light');
+      });
       row?.addEventListener('click', (e) => {
         const t = e.target;
         if (!(t instanceof HTMLElement)) return;
