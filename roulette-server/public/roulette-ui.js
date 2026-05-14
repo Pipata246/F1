@@ -230,9 +230,33 @@ class RouletteUI {
     }
   }
 
+  openBetModal() {
+    const openBtn = document.getElementById('rouletteBetBtn');
+    if (!openBtn || openBtn.disabled) return;
+    const m = document.getElementById('rouletteBetModal');
+    if (!m) return;
+    m.classList.add('show');
+    m.setAttribute('aria-hidden', 'false');
+    this.syncStakeDisplay();
+    this.refreshStakeStepperLockFromBetBtn();
+  }
+
+  closeBetModal() {
+    const m = document.getElementById('rouletteBetModal');
+    if (!m) return;
+    m.classList.remove('show');
+    m.setAttribute('aria-hidden', 'true');
+  }
+
   init() {
     // Setup event listeners
-    this.elements.betBtn?.addEventListener('click', () => this.handleBet());
+    this.elements.betBtn?.addEventListener('click', () => this.openBetModal());
+    document.getElementById('rouletteBetConfirmBtn')?.addEventListener('click', () => this.handleBet());
+    const betModalEl = document.getElementById('rouletteBetModal');
+    document.getElementById('rouletteBetModalClose')?.addEventListener('click', () => this.closeBetModal());
+    betModalEl?.addEventListener('click', (e) => {
+      if (e.target === betModalEl) this.closeBetModal();
+    });
     this.elements.historyCloseBtn?.addEventListener('click', () => {
       this.elements.historyModal?.classList.remove('show');
     });
@@ -795,7 +819,7 @@ class RouletteUI {
     } else {
       // Пользователь не в раунде - показываем режим входа
       if (betBtn) {
-        betBtn.textContent = 'Войти в раунд';
+        betBtn.textContent = 'Войти в игру';
       }
       if (betLabel) {
         betLabel.textContent = 'Сделать ставку';
@@ -806,6 +830,10 @@ class RouletteUI {
       if (currentBetInfo) {
         currentBetInfo.classList.add('hidden');
       }
+    }
+    const confirmBtn = document.getElementById('rouletteBetConfirmBtn');
+    if (confirmBtn && !confirmBtn.disabled) {
+      confirmBtn.textContent = isInRound ? 'Повысить ставку' : 'Войти в раунд';
     }
   }
 
@@ -968,23 +996,32 @@ class RouletteUI {
   disableBetButton() {
     const betBtn = document.getElementById('rouletteBetBtn');
     const betInput = document.getElementById('rouletteBetInput');
+    const confirmBtn = document.getElementById('rouletteBetConfirmBtn');
 
     if (betBtn) {
       betBtn.disabled = true;
       betBtn.textContent = 'Идет розыгрыш...';
     }
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+    }
     if (betInput) {
       betInput.disabled = true;
     }
     this.setStakeStepperDisabled(true);
+    this.closeBetModal();
   }
 
   enableBetButton() {
     const betBtn = document.getElementById('rouletteBetBtn');
     const betInput = document.getElementById('rouletteBetInput');
+    const confirmBtn = document.getElementById('rouletteBetConfirmBtn');
 
     if (betBtn) {
       betBtn.disabled = false;
+    }
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
     }
     if (betInput) {
       betInput.disabled = false;
@@ -999,6 +1036,7 @@ class RouletteUI {
   setStakeStepperDisabled(disabled) {
     document.getElementById('rollsStakeMinus')?.toggleAttribute('disabled', !!disabled);
     document.getElementById('rollsStakePlus')?.toggleAttribute('disabled', !!disabled);
+    document.getElementById('rouletteBetConfirmBtn')?.toggleAttribute('disabled', !!disabled);
     document.querySelectorAll('#rollsPresetRow button, #rollsPresetRowHigh button').forEach((b) => {
       b.disabled = !!disabled;
     });
@@ -1450,11 +1488,15 @@ class RouletteUI {
     this.state.isLoading = true;
     
     const betBtn = document.getElementById('rouletteBetBtn');
+    const confirmBtn = document.getElementById('rouletteBetConfirmBtn');
     const betInput = document.getElementById('rouletteBetInput');
     
     if (betBtn) {
       betBtn.disabled = true;
-      betBtn.textContent = 'Отправка...';
+    }
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Отправка...';
     }
     if (betInput) {
       betInput.disabled = true;
@@ -1477,6 +1519,8 @@ class RouletteUI {
       
       // Показываем правильное уведомление на основе ПРЕДЫДУЩЕГО состояния
       this.showToast(wasInRound ? 'Ставка повышена!' : 'Ставка принята!');
+      
+      this.closeBetModal();
       
       // Сброс суммы после успешной ставки
       this.setMainStake(0);
@@ -1503,6 +1547,9 @@ class RouletteUI {
       this.state.isLoading = false;
       if (betBtn) {
         betBtn.disabled = false;
+      }
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
       }
       if (betInput) {
         betInput.disabled = false;
