@@ -996,8 +996,8 @@ class RouletteUI {
   }
 
   setStakeStepperDisabled(disabled) {
-    document.getElementById('rollsPresetMinus')?.toggleAttribute('disabled', !!disabled);
-    document.getElementById('rollsPresetPlus')?.toggleAttribute('disabled', !!disabled);
+    document.getElementById('rollsStakeMinus')?.toggleAttribute('disabled', !!disabled);
+    document.getElementById('rollsStakePlus')?.toggleAttribute('disabled', !!disabled);
     document.querySelectorAll('#rollsPresetRow button').forEach((b) => {
       b.disabled = !!disabled;
     });
@@ -1033,7 +1033,7 @@ class RouletteUI {
   syncStakeDisplay() {
     const inp = this.elements.betInput;
     const el = document.getElementById('rollsStakeDisplay');
-    const mi = document.getElementById('rollsPresetMinus');
+    const mi = document.getElementById('rollsStakeMinus');
     if (!inp || !el) return;
     const v = this.roundStakeTon(inp.value || 0);
     inp.value = String(v);
@@ -1059,8 +1059,8 @@ class RouletteUI {
 
   initStakeControls() {
     const row = document.getElementById('rollsPresetRow');
-    const mi = document.getElementById('rollsPresetMinus');
-    const pl = document.getElementById('rollsPresetPlus');
+    const mi = document.getElementById('rollsStakeMinus');
+    const pl = document.getElementById('rollsStakePlus');
     if (!this.elements.betInput) return;
 
     if (!this._stakeControlsBound) {
