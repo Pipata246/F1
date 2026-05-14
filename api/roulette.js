@@ -33,6 +33,12 @@ function displayNameFromProfile(first_name, last_name, username) {
 // HELPER FUNCTIONS
 // ============================================
 
+/** Solo в комнате: раунд `waiting`; после 2+ игроков — `active`. Повышать ставку нужно в обоих. */
+function roundStatusAllowsRaise(status) {
+  const s = String(status || "");
+  return s === "active" || s === "waiting";
+}
+
 function parseInitData(initData) {
   const params = new URLSearchParams(initData);
   const data = {};
@@ -1092,13 +1098,16 @@ async function handleRaiseBet(body, tgUserId) {
   if (!round) {
     throw new Error("Нет активного раунда");
   }
-  if (round.status !== 'active') {
-    if (round.status === 'spinning') {
-      throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
-    }
+  if (round.status === 'spinning') {
+    throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
+  }
+  if (round.status === 'finished') {
+    throw new Error("Раунд уже завершен");
+  }
+  if (!roundStatusAllowsRaise(round.status)) {
     throw new Error("Раунд не активен для повышения ставки");
   }
-  if (round.timer_ends_at) {
+  if (round.status === 'active' && round.timer_ends_at) {
     const msLeft = new Date(round.timer_ends_at).getTime() - Date.now();
     if (Number.isFinite(msLeft) && msLeft <= 0) {
       throw new Error("Таймер истек, ставку повышать нельзя");
@@ -1116,12 +1125,12 @@ async function handleRaiseBet(body, tgUserId) {
       .select("id,status")
       .eq("id", round.id)
       .single();
-    if (freshErr || !freshRound || freshRound.status !== 'active') {
+    if (freshErr || !freshRound || !roundStatusAllowsRaise(freshRound.status)) {
       throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
     }
   } else if (lockedRound && lockedRound.length > 0) {
     round = lockedRound[0];
-    if (round.status !== 'active') {
+    if (!roundStatusAllowsRaise(round.status)) {
       throw new Error("Розыгрыш уже идет, ставку повышать нельзя");
     }
   }
