@@ -2,8 +2,11 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: ROLLS_IDLE_NO_RESTART_20260513
+ * VERSION: ROLLS_TMA_SOFT_AUDIO_20260513
  */
+
+/** Должен совпадать с `cubic-bezier` у финального спина колеса */
+const ROULETTE_SPIN_EASE = { x1: 0.06, y1: 0.72, x2: 0.12, y2: 1 };
 
 /** Длина активной фазы раунда (сек); должен совпадать с `TIMER_DURATION` в api/roulette.js */
 const ROULETTE_ROUND_TIMER_SECONDS = 8;
@@ -14,6 +17,25 @@ function rlog() {
   if (ROULETTE_DEBUG && typeof console !== 'undefined' && console.log) {
     console.log.apply(console, arguments);
   }
+}
+
+/** Прогресс eased [0..1] по линейному времени t∈[0..1] — как `transition-timing-function` у финального спина */
+function rouletteSpinEasedProgress(linearT) {
+  const t = Math.min(1, Math.max(0, linearT));
+  const x1 = ROULETTE_SPIN_EASE.x1;
+  const y1 = ROULETTE_SPIN_EASE.y1;
+  const x2 = ROULETTE_SPIN_EASE.x2;
+  const y2 = ROULETTE_SPIN_EASE.y2;
+  let lo = 0;
+  let hi = 1;
+  for (let k = 0; k < 14; k++) {
+    const u = (lo + hi) / 2;
+    const x = 3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u ** 2 * x2 + u ** 3;
+    if (x < t) lo = u;
+    else hi = u;
+  }
+  const u = (lo + hi) / 2;
+  return 3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u ** 2 * y2 + u ** 3;
 }
 
 const ROULETTE_SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
@@ -121,6 +143,7 @@ class RouletteUI {
     };
 
     this._spinFinishTimer = null;
+    this._spinSegmentRaf = null;
 
     this._lastStatusUi = null;
     this._lastPotText = null;
@@ -363,6 +386,7 @@ class RouletteUI {
       clearTimeout(this._spinFinishTimer);
       this._spinFinishTimer = null;
     }
+    this.stopSpinSegmentTickLoop();
     this.stopWheelIdle();
     const spin = this.elements.wheelSpin;
     if (spin) {
@@ -376,6 +400,7 @@ class RouletteUI {
   openBetModal() {
     const openBtn = document.getElementById('rouletteBetBtn');
     if (!openBtn || openBtn.disabled) return;
+    this.primeAudioOnGesture();
     const m = document.getElementById('rouletteBetModal');
     if (!m) return;
     m.classList.add('show');
@@ -439,7 +464,15 @@ class RouletteUI {
     return;
   }
 
-  // ==================== AUDIO ====================
+  // ==================== AUDIO (мягкие TMA-стиль, Web Audio API) ====================
+  isSoundEnabled() {
+    try {
+      const el = document.getElementById('setSound');
+      if (el) return !!el.checked;
+    } catch {}
+    return true;
+  }
+
   ensureAudioContext() {
     if (this.audioCtx) return this.audioCtx;
     const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -452,24 +485,100 @@ class RouletteUI {
     }
   }
 
-  playTone({ freq = 440, durationMs = 90, gain = 0.035, type = 'sine' } = {}) {
-    return;
+  /** Разблокировка AudioContext после жеста (TMA / iOS) */
+  primeAudioOnGesture() {
+    const ctx = this.ensureAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      try {
+        void ctx.resume();
+      } catch {}
+    }
+  }
+
+  /**
+   * Короткий мягкий тон. `when` — абсолютное время AudioContext (для «аккордов»).
+   */
+  playTone({ freq = 440, durationMs = 80, gain = 0.02, type = 'sine', when = null } = {}) {
+    if (!this.isSoundEnabled()) return;
+    const ctx = this.ensureAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      try {
+        void ctx.resume();
+      } catch {}
+    }
+    const now = when != null ? when : ctx.currentTime;
+    const dur = Math.max(0.022, Math.min(0.42, durationMs / 1000));
+    const g0 = Math.min(0.06, Math.max(0.0006, gain));
+    const osc = ctx.createOscillator();
+    const gn = ctx.createGain();
+    osc.type = type === 'triangle' ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+    const a0 = 0.0001;
+    gn.gain.setValueAtTime(a0, now);
+    gn.gain.exponentialRampToValueAtTime(g0, now + 0.004);
+    gn.gain.exponentialRampToValueAtTime(a0, now + dur);
+    osc.connect(gn).connect(ctx.destination);
+    try {
+      osc.start(now);
+      osc.stop(now + dur + 0.04);
+    } catch {}
+  }
+
+  /** Тихий тик UI: шаг ставки / пресет */
+  playStakeUiTick() {
+    this.playTone({ freq: 605, durationMs: 22, gain: 0.013, type: 'sine' });
+  }
+
+  /** Мягкий звук при принятии ставки (вход в раунд) */
+  playBetPlacedSoftSound() {
+    if (!this.isSoundEnabled()) return;
+    const ctx = this.ensureAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      try {
+        void ctx.resume();
+      } catch {}
+    }
+    const t0 = ctx.currentTime;
+    this.playTone({ freq: 392, durationMs: 46, gain: 0.017, type: 'sine', when: t0 });
+    this.playTone({ freq: 494, durationMs: 50, gain: 0.014, type: 'sine', when: t0 + 0.036 });
+  }
+
+  /** Мягкий звук при повышении ставки */
+  playBetRaiseSoftSound() {
+    if (!this.isSoundEnabled()) return;
+    const ctx = this.ensureAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      try {
+        void ctx.resume();
+      } catch {}
+    }
+    const t0 = ctx.currentTime;
+    this.playTone({ freq: 523, durationMs: 44, gain: 0.018, type: 'sine', when: t0 });
+    this.playTone({ freq: 659, durationMs: 38, gain: 0.012, type: 'sine', when: t0 + 0.032 });
+  }
+
+  /** Тик при смене сектора под указателем во время финального спина */
+  playSpinSegmentCrossSound() {
+    this.playTone({ freq: 328, durationMs: 34, gain: 0.015, type: 'sine' });
   }
 
   playClickSound() {
-    this.playTone({ freq: 680, durationMs: 70, gain: 0.03, type: 'triangle' });
+    this.playStakeUiTick();
   }
 
   playTickSound() {
-    this.playTone({ freq: 980, durationMs: 55, gain: 0.02, type: 'square' });
+    this.playTone({ freq: 720, durationMs: 28, gain: 0.011, type: 'sine' });
   }
 
   playResultSound(isWin) {
     if (isWin) {
-      this.playTone({ freq: 740, durationMs: 120, gain: 0.04, type: 'triangle' });
-      setTimeout(() => this.playTone({ freq: 988, durationMs: 140, gain: 0.04, type: 'triangle' }), 110);
+      this.playTone({ freq: 587, durationMs: 95, gain: 0.019, type: 'sine' });
+      this.playTone({ freq: 784, durationMs: 110, gain: 0.014, type: 'sine' });
     } else {
-      this.playTone({ freq: 260, durationMs: 140, gain: 0.03, type: 'sawtooth' });
+      this.playTone({ freq: 330, durationMs: 120, gain: 0.015, type: 'sine' });
     }
   }
 
@@ -479,6 +588,69 @@ class RouletteUI {
 
   stopSpinSound() {
     this.state.spinSoundActive = false;
+  }
+
+  cumulativeSegmentDegreesForRows(rows) {
+    const list = this.sortPlayersForWheel(rows);
+    if (!list.length) return [0, 360];
+    const weights = list.map((p) => Math.max(0.35, Number(p.chance) || 0));
+    const sum = weights.reduce((a, b) => a + b, 0) || 1;
+    const cum = [0];
+    weights.forEach((w) => {
+      cum.push(cum[cum.length - 1] + (w / sum) * 360);
+    });
+    cum[cum.length - 1] = 360;
+    return cum;
+  }
+
+  pointerSectorIndexFromRotation(rotationDeg, cum) {
+    const ang = ((-rotationDeg % 360) + 360) % 360;
+    const eps = 1e-3;
+    for (let i = 0; i < cum.length - 1; i++) {
+      if (ang >= cum[i] - eps && ang < cum[i + 1] - eps) return i;
+    }
+    return Math.max(0, cum.length - 2);
+  }
+
+  stopSpinSegmentTickLoop() {
+    if (this._spinSegmentRaf != null) {
+      cancelAnimationFrame(this._spinSegmentRaf);
+      this._spinSegmentRaf = null;
+    }
+  }
+
+  /**
+   * Звук при пересечении границы сектора игрока под указателем.
+   * Угол берётся из той же easing-кривой, что и CSS `transform` спина.
+   */
+  startSpinSegmentTickLoop({ endDeg, durationMs, rows }) {
+    this.stopSpinSegmentTickLoop();
+    const cum = this.cumulativeSegmentDegreesForRows(rows);
+    if (cum.length < 3) return;
+
+    const t0 = performance.now();
+    let lastIdx = -1;
+    let lastSoundAt = -9999;
+
+    const step = () => {
+      const elapsed = performance.now() - t0;
+      if (elapsed > durationMs + 140) {
+        this._spinSegmentRaf = null;
+        return;
+      }
+      const linear = Math.min(1, elapsed / durationMs);
+      const eased = rouletteSpinEasedProgress(linear);
+      const rot = eased * endDeg;
+      const idx = this.pointerSectorIndexFromRotation(rot, cum);
+
+      if (lastIdx >= 0 && idx !== lastIdx && elapsed - lastSoundAt > 38) {
+        this.playSpinSegmentCrossSound();
+        lastSoundAt = elapsed;
+      }
+      lastIdx = idx;
+      this._spinSegmentRaf = requestAnimationFrame(step);
+    };
+    this._spinSegmentRaf = requestAnimationFrame(step);
   }
 
   // ==================== DATA SYNC MODE ====================
@@ -1257,12 +1429,12 @@ class RouletteUI {
         const cur = this.roundStakeTon(this.elements.betInput?.value || 0);
         if (cur <= 0) return;
         this.adjustMainStake(-ROLLS_STAKE_FINE_STEP);
-        this.playClickSound();
+        this.playStakeUiTick();
         this.hapticImpact('light');
       });
       pl?.addEventListener('click', () => {
         this.adjustMainStake(ROLLS_STAKE_FINE_STEP);
-        this.playClickSound();
+        this.playStakeUiTick();
         this.hapticImpact('light');
       });
       presetRows?.addEventListener('click', (e) => {
@@ -1273,7 +1445,7 @@ class RouletteUI {
         const amt = this.roundStakeTon(pill.getAttribute('data-amount'));
         if (amt <= 0) return;
         this.setMainStake(amt);
-        this.playClickSound();
+        this.playStakeUiTick();
         this.hapticImpact('medium');
       });
     }
@@ -1520,11 +1692,13 @@ class RouletteUI {
     await new Promise((r) => requestAnimationFrame(r));
     spin.style.transition = 'transform 9.6s cubic-bezier(0.06, 0.72, 0.12, 1)';
     spin.style.transform = `rotate(${endDeg}deg)`;
+    this.startSpinSegmentTickLoop({ endDeg, durationMs: 9600, rows });
 
     await new Promise((r) => {
       this._spinFinishTimer = setTimeout(r, 9800);
     });
     this._spinFinishTimer = null;
+    this.stopSpinSegmentTickLoop();
 
     const wuid = String(round?.winner_user_id || '');
     this.elements.wheelAvatars?.querySelectorAll('.rolls-wheel-av').forEach((el) => {
@@ -1662,7 +1836,8 @@ class RouletteUI {
         [paramName]: amount,
         request_id: this.generateRequestId(action),
       });
-      this.playClickSound();
+      if (wasInRound) this.playBetRaiseSoftSound();
+      else this.playBetPlacedSoftSound();
       this.hapticImpact('light');
       
       // Показываем правильное уведомление на основе ПРЕДЫДУЩЕГО состояния
