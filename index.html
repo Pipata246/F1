@@ -679,11 +679,11 @@
     .timer-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
     .timer-display{font-size:28px;font-weight:950;letter-spacing:.02em;line-height:1.1;color:#ff5c5c}
     .timer-unit{font-size:16px;font-weight:800;color:var(--text2);margin-left:4px}
-    /* Rolls-style roulette (donut wheel) — компактная вёрстка под малый экран */
+    /* Rolls-style roulette (donut wheel) */
     .rolls-page{
-      --rolls-vpad: clamp(2px, 0.8vw, 8px);
+      --rolls-vpad: clamp(10px, 2.4vw, 20px);
       --rolls-wheel: min(380px, calc(100vw - 20px), max(112px, calc(100dvh - clamp(255px, 56dvh, 395px))));
-      padding-bottom:clamp(4px,1.5vw,16px);
+      padding-bottom:clamp(12px,2.5vw,22px);
       max-width:100%;
       overflow-x:hidden;
       display:flex;
@@ -692,11 +692,11 @@
       flex:1 1 auto;
       min-height:0;
     }
-    .rolls-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:0}
+    .rolls-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:0;flex-shrink:0}
     .rolls-title{margin:0;font-size:clamp(17px,4.6vw,22px);font-weight:950;letter-spacing:.02em;color:#fff}
     .rolls-iconbtn{width:clamp(34px,9vw,40px);height:clamp(34px,9vw,40px);border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
     .rolls-iconbtn:active{transform:scale(.96)}
-    .rolls-dual{display:grid;grid-template-columns:1fr 1fr;gap:clamp(6px,2vw,10px);margin-bottom:0}
+    .rolls-dual{display:grid;grid-template-columns:1fr 1fr;gap:clamp(6px,2vw,10px);margin-bottom:0;flex-shrink:0}
     .rolls-spot{width:100%;border-radius:clamp(12px,3vw,16px);padding:clamp(6px,2vw,10px) clamp(6px,2vw,10px) clamp(7px,2vw,12px);background:rgba(28,30,38,.95);border:1px solid rgba(255,255,255,.08);min-height:clamp(64px,18vw,96px)}
     .rolls-spot__label{font-size:clamp(8px,2.1vw,9px);font-weight:800;letter-spacing:.08em;color:rgba(255,255,255,.45);text-transform:uppercase;margin-bottom:clamp(3px,1vw,6px)}
     .rolls-spot__row{display:flex;align-items:flex-start;gap:clamp(5px,1.5vw,8px)}
@@ -707,7 +707,7 @@
     .rolls-spot__amt--blue{color:#4fc3f7}
     .rolls-spot__amt--gold{color:#ffd54f}
     .rolls-spot__meta{font-size:clamp(9px,2.4vw,10px);color:rgba(255,255,255,.42);margin-top:2px;line-height:1.25}
-    .rolls-toolbar{display:flex;align-items:center;gap:clamp(6px,2vw,8px);margin-bottom:0}
+    .rolls-toolbar{display:flex;align-items:center;gap:clamp(6px,2vw,8px);margin-bottom:0;flex-shrink:0}
     .rolls-toolbar--two{justify-content:flex-start}
     .rolls-tool-sq{width:clamp(38px,10.5vw,44px);height:clamp(38px,10.5vw,44px);border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(24,26,32,.9);color:#fff;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer}
     .rolls-tool-sq svg{width:clamp(18px,5vw,22px);height:clamp(18px,5vw,22px);display:block;opacity:.9}
@@ -715,7 +715,7 @@
     .rolls-total-pill .rolls-ton-num{color:#7ecbff;font-size:clamp(12px,3.4vw,15px);font-weight:950}
     .rolls-wheel-wrap{
       position:relative;
-      margin:0 auto;
+      margin:clamp(4px,1vw,10px) auto;
       width:var(--rolls-wheel);
       height:var(--rolls-wheel);
       max-width:100%;
@@ -724,8 +724,8 @@
     }
     .rolls-stars{position:absolute;inset:-8%;border-radius:50%;background:radial-gradient(circle at 30% 20%,rgba(255,255,255,.06),transparent 40%),radial-gradient(circle at 70% 80%,rgba(255,255,255,.04),transparent 35%);pointer-events:none}
     .rolls-stars::before,.rolls-stars::after{content:'';position:absolute;inset:0;background-image:radial-gradient(1px 1px at 20% 30%,rgba(255,255,255,.35),transparent),radial-gradient(1px 1px at 80% 20%,rgba(255,255,255,.25),transparent),radial-gradient(1px 1px at 40% 70%,rgba(255,255,255,.2),transparent);opacity:.5;pointer-events:none}
-    .rolls-status-text{margin-bottom:0;font-size:clamp(11px,3.1vw,14px);line-height:1.2}
-    .rolls-bet-actions{display:flex;align-items:stretch;gap:clamp(8px,2.2vw,12px);margin-top:clamp(2px,1vw,6px);margin-bottom:clamp(2px,1vw,6px);flex-shrink:0}
+    .rolls-status-text{margin-bottom:0;font-size:clamp(11px,3.1vw,14px);line-height:1.2;flex-shrink:0}
+    .rolls-bet-actions{display:flex;align-items:stretch;gap:clamp(8px,2.2vw,12px);margin-top:0;margin-bottom:0;flex-shrink:0}
     .rolls-bet-open-btn{flex:1;min-width:0;font-weight:950;font-size:clamp(12px,3.5vw,15px)!important;padding:clamp(10px,3vw,14px) 12px!important;white-space:nowrap}
     .rolls-round-count-pill{
       flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;
@@ -764,8 +764,14 @@
     }
     .rolls-public-history__filter.is-active{border-color:rgba(105,240,174,.55);background:rgba(105,240,174,.12);color:#cfffdf}
     .rolls-public-history__list{flex:1;min-height:120px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:8px}
-    #page-roulette.rolls-page{--rolls-wheel:min(260px,calc(100vw - 24px),max(92px,calc(100dvh - clamp(198px,36dvh,300px))))}
-    #page-roulette .rolls-pcards{max-height:clamp(100px,38dvh,min(300px,52dvh))}
+    #page-roulette.rolls-page{--rolls-wheel:min(260px,calc(100vw - 24px),max(92px,calc(100dvh - clamp(210px,38dvh,320px))))}
+    #page-roulette #rollsMainGameView{
+      display:flex;
+      flex-direction:column;
+      align-items:stretch;
+      gap:clamp(12px,3vw,22px);
+    }
+    #page-roulette .rolls-pcards{max-height:clamp(100px,38dvh,min(300px,52dvh));margin-top:0}
     .rolls-bet-modal-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}
     #rouletteBetModal .rolls-bet-modal-card{margin-bottom:0!important;box-shadow:none}
     #rouletteBetModal .rolls-bet-sheet{max-height:min(92dvh, calc(var(--app-vh, 100vh) - 36px))}
@@ -886,7 +892,7 @@
     }
     @media (max-height: 560px){
       .rolls-page{--rolls-wheel:min(260px,calc(100vw - 14px),max(112px,calc(100dvh - 200px)))}
-      .rolls-dual{gap:5px}
+      .rolls-dual{gap:clamp(6px,1.8vw,10px)}
     }
     @media (max-width: 340px){
       #rouletteBetModal .rolls-preset-pill{min-width:27px;padding-left:6px;padding-right:6px;font-size:11px}
@@ -3577,7 +3583,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_PUBLIC_HISTORY_IDLE_20260513"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_IDLE_NO_RESTART_20260513"></script>
 
 </body>
 </html>

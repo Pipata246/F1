@@ -2,7 +2,7 @@
  * Roulette UI Manager
  * Manages all UI updates and interactions for the roulette game
  * Stage 3: Backend integration with API calls
- * VERSION: ROLLS_PUBLIC_HISTORY_IDLE_20260513
+ * VERSION: ROLLS_IDLE_NO_RESTART_20260513
  */
 
 /** Длина активной фазы раунда (сек); должен совпадать с `TIMER_DURATION` в api/roulette.js */
@@ -208,9 +208,13 @@ class RouletteUI {
   }
 
   syncWheelIdleMotion() {
-    if (this.shouldWheelIdleSpin()) {
-      const wrap = this.elements.wheelSpinWrap;
-      if (!wrap) return;
+    const wrap = this.elements.wheelSpinWrap;
+    if (!wrap) return;
+    const want = this.shouldWheelIdleSpin();
+    const has = wrap.classList.contains('rolls-wheel-spin-wrap--idle');
+    // Не перезапускать анимацию при каждом poll: stop+add класс сбрасывал keyframes → рывки туда‑сюда
+    if (want === has) return;
+    if (want) {
       this.stopWheelIdle();
       wrap.classList.add('rolls-wheel-spin-wrap--idle');
     } else {
