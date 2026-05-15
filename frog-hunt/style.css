@@ -537,7 +537,7 @@ input[type="text"]::placeholder { color: var(--text2); }
 
 .back-link {
   position: absolute;
-  top: 12px;
+  top: calc(var(--header-inset-top, max(env(safe-area-inset-top, 0px), 52px)) + 10px);
   left: 16px;
   color: var(--accent);
   text-decoration: none;
