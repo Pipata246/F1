@@ -3188,9 +3188,9 @@
         gameKey: gameKey || null,
       });
       matchesCache = Array.isArray(data.matches) ? data.matches : [];
-      matchesCounts = data.counts && typeof data.counts === "object"
-        ? { ...matchesCounts, ...data.counts }
-        : matchesCounts;
+      if(data.counts && typeof data.counts === "object"){
+        matchesCounts = { all: 0, frog_hunt: 0, obstacle_race: 0, super_penalty: 0, basketball: 0, roulette: 0, ...data.counts };
+      }
       matchesTotal = Number(data.total) || matchesCounts.all || matchesCache.length;
       updateMatchesFilterUi();
       renderMatches();
@@ -4079,7 +4079,6 @@
       const walletHistKinds = new Set(["deposit", "withdrawal", "usdt_deposit", "usdt_withdrawal"]);
       rows = (Array.isArray(data.operations) ? data.operations : []).filter((r)=>{
         const k = String(r.kind || "");
-        if(r.meta && (r.meta.game_key || r.meta.room_id || r.meta.round_id)) return false;
         if(k === "deposit" && r.is_deposit_intent) return true;
         return walletHistKinds.has(k);
       });

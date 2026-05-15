@@ -839,12 +839,23 @@ async function requestUsdtWithdrawal(initData, amountTonStr) {
   };
 }
 
-function isWalletLedgerKind(kind) {
+const WALLET_LEDGER_KINDS = new Set(["deposit", "withdrawal"]);
+
+function normalizeWalletOpKind(kind) {
   const k = String(kind || "").toLowerCase();
-  return k === "deposit" || k === "withdrawal";
+  if (WALLET_LEDGER_KINDS.has(k)) return k;
+  if (k === "credit" || k === "topup" || k === "top_up" || k === "deposit_in" || k === "in") return "deposit";
+  if (k === "debit" || k === "withdraw" || k === "payout" || k === "out") return "withdrawal";
+  return null;
 }
 
-function isGameRelatedWalletMeta(meta) {
+function isWalletLedgerKind(kind) {
+  return normalizeWalletOpKind(kind) != null;
+}
+
+function isGameRelatedWalletMeta(meta, kind) {
+  const nk = normalizeWalletOpKind(kind);
+  if (nk === "deposit" || nk === "withdrawal") return false;
   const m = asObj(meta) || {};
   return !!(
     m.game_key ||
@@ -854,6 +865,14 @@ function isGameRelatedWalletMeta(meta) {
     m.from_balance_event ||
     m.source === "pvp_balance_event"
   );
+}
+
+function walletOpRowForHistory(row) {
+  const nk = normalizeWalletOpKind(row.kind);
+  if (!nk) return null;
+  const meta = asObj(row.meta) || {};
+  if (meta.skip_wallet_history || isGameRelatedWalletMeta(meta, row.kind)) return null;
+  return { ...row, kind: nk, is_deposit_intent: false };
 }
 
 function isOpenDepositIntentStatus(status) {
@@ -873,9 +892,14 @@ async function getWalletHistory(initData, limit) {
   }
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 100));
   const fetchCap = Math.min(400, Math.max(safeLimit, 200));
+  const ledgerKinds = "deposit,withdrawal,credit,debit,topup,top_up,deposit_in,withdraw,payout";
 
   const rows = await sb(
-    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${fetchCap}`
+    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&kind=in.(${ledgerKinds})&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${fetchCap}`
+  ).catch(() =>
+    sb(
+      `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${fetchCap}`
+    )
   );
 
   let intentsRaw = [];
@@ -897,10 +921,8 @@ async function getWalletHistory(initData, limit) {
 
   const opById = new Map();
   for (const r of rows || []) {
-    const meta = asObj(r.meta) || {};
-    if (meta.skip_wallet_history || isGameRelatedWalletMeta(meta)) continue;
-    if (!isWalletLedgerKind(r.kind)) continue;
-    opById.set(String(r.id), { ...r, is_deposit_intent: false });
+    const hist = walletOpRowForHistory(r);
+    if (hist) opById.set(String(r.id), hist);
   }
 
   const missingOpIds = [];
@@ -916,10 +938,8 @@ async function getWalletHistory(initData, limit) {
         `wallet_operations?id=in.(${chunk.map((id) => encodeURIComponent(id)).join(",")})&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta`
       );
       for (const r of extra || []) {
-        const meta = asObj(r.meta) || {};
-        if (isGameRelatedWalletMeta(meta)) continue;
-        if (!isWalletLedgerKind(r.kind)) continue;
-        opById.set(String(r.id), { ...r, is_deposit_intent: false });
+        const hist = walletOpRowForHistory(r);
+        if (hist) opById.set(String(r.id), hist);
       }
     } catch {
       /* ignore */
@@ -927,7 +947,7 @@ async function getWalletHistory(initData, limit) {
   }
 
   const intentRows = (intentsRaw || [])
-    .filter((r) => !(r.status === "completed" && r.wallet_operation_id))
+    .filter((r) => !r.wallet_operation_id || !opById.has(String(r.wallet_operation_id)))
     .filter((r) => isOpenDepositIntentStatus(r.status))
     .map((r) => ({
       id: r.id,
@@ -4489,10 +4509,22 @@ async function fetchBotGameMatchesForUser(tgId, cap = 500) {
   ).catch(() => []);
 }
 
+const PVP_MATCH_GAME_KEYS = ["frog_hunt", "obstacle_race", "super_penalty", "basketball"];
+
 async function fetchStakeBalanceEventsForUser(tgId, cap = MATCH_HISTORY_EVENT_CAP) {
-  return sb(
-    `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${cap}`
-  ).catch(() => []);
+  const perGameCap = Math.max(80, Math.min(cap, Math.ceil(cap / 5)));
+  const pvpKeys = PVP_MATCH_GAME_KEYS.join(",");
+  const [pvpRows, rouletteRows] = await Promise.all([
+    sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss)&game_key=in.(${pvpKeys})&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${perGameCap * PVP_MATCH_GAME_KEYS.length}`
+    ).catch(() => []),
+    sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss)&game_key=eq.roulette&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${cap}`
+    ).catch(() => []),
+  ]);
+  const merged = [...(pvpRows || []), ...(rouletteRows || [])];
+  merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return merged.slice(0, cap);
 }
 
 function buildMatchesFromStakeEvents(tgId, events, roomsById) {
