@@ -530,12 +530,18 @@
     }
     .profileHeroAvatar{
       width:56px;height:56px;border-radius:18px;flex-shrink:0;
+      position:relative;overflow:hidden;
       display:flex;align-items:center;justify-content:center;
       background:linear-gradient(145deg,rgba(140,255,193,.22),rgba(255,255,255,.06));
       border:1px solid rgba(140,255,193,.28);
       color:var(--accent);
       font-size:22px;font-weight:950;
     }
+    .profileHeroAvatar__img{
+      position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;
+    }
+    .profileHeroAvatar--photo .profileHeroAvatar__img{display:block}
+    .profileHeroAvatar--photo #profileAvatarInitial{display:none}
     .profileHeroMeta{min-width:0;flex:1}
     .profileHeroName{
       font-size:22px;font-weight:950;line-height:1.2;
@@ -561,55 +567,57 @@
     }
     .profileStatsGrid--pvp{
       grid-template-columns: 1fr 1fr;
-      gap:12px;
+      gap:8px;
     }
     @media (max-width:380px){
       .profileStatsGrid--pvp{grid-template-columns:1fr}
     }
     .profileStatTile{
-      padding:16px;
-      border-radius:16px;
+      padding:10px 12px;
+      border-radius:14px;
       background: var(--glass-bg-strong);
       border:1px solid var(--glass-border);
       backdrop-filter: blur(var(--blur));
-      min-height:108px;
+      min-height:0;
       display:flex;
       flex-direction:column;
-      gap:8px;
+      gap:4px;
     }
     .profileStatTile--wide{grid-column:1/-1;min-height:auto}
     .profileStatHead{
-      font-size:13px;
+      font-size:11px;
       font-weight:800;
       color:var(--text2);
-      letter-spacing:.2px;
+      letter-spacing:.15px;
+      line-height:1.25;
     }
     .profileStatBody{
       display:flex;
-      align-items:center;
+      align-items:baseline;
       justify-content:space-between;
-      gap:10px;
+      gap:8px;
       flex:1;
-      min-height:40px;
+      min-height:0;
     }
     .profileStatMain{
-      font-size:20px;
-      font-weight:950;
-      letter-spacing:.2px;
-      line-height:1.15;
+      font-size:15px;
+      font-weight:900;
+      letter-spacing:.1px;
+      line-height:1.2;
     }
     .profileStatPct{
-      font-size:22px;
-      font-weight:950;
+      font-size:15px;
+      font-weight:900;
       line-height:1;
       color:#7ee0a8;
       letter-spacing:.02em;
       flex-shrink:0;
     }
     .profileStatSub{
-      font-size:12px;
-      line-height:1.4;
-      margin-top:auto;
+      font-size:11px;
+      line-height:1.35;
+      margin-top:0;
+      color:var(--muted);
     }
     .profileSettingRow{
       display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -1447,7 +1455,6 @@
       <section id="page-wallet" class="hidden tabPage">
         <header class="tabPageHead">
           <h1 class="tabPageTitle">Баланс</h1>
-          <p class="tabPageSub">Пополнение, вывод и история операций в TON. Средства используются для ставок в PvP и рулетке.</p>
         </header>
         <div class="uiBlock">
           <div class="uiBlockHead">
@@ -1503,7 +1510,6 @@
           <div class="uiBlockHead"><h2>Полезно знать</h2></div>
           <ul class="walletInfoList">
             <li>Баланс общий для PvP-игр и рулетки Rolls.</li>
-            <li>После пополнения сумма обновляется при открытии вкладки «Баланс».</li>
             <li>В истории операций — статусы депозитов и выводов.</li>
             <li>Ставки списываются с баланса до начала матча.</li>
           </ul>
@@ -1562,7 +1568,10 @@
         </header>
         <div class="uiBlock profileHero">
           <div class="profileHeroTop">
-            <div class="profileHeroAvatar" id="profileAvatarInitial" aria-hidden="true">?</div>
+            <div class="profileHeroAvatar" id="profileAvatarWrap">
+              <img class="profileHeroAvatar__img" id="profileAvatarImg" alt="" width="56" height="56" decoding="async">
+              <span id="profileAvatarInitial" aria-hidden="true">?</span>
+            </div>
             <div class="profileHeroMeta">
               <div class="profileHeroName" id="profNick">—</div>
               <p class="profileHeroSub">Игрок F1 Duel</p>
@@ -3217,9 +3226,26 @@
     const nick = displayNick();
     profNick.textContent = nick;
     const av = document.getElementById("profileAvatarInitial");
+    const avWrap = document.getElementById("profileAvatarWrap");
+    const avImg = document.getElementById("profileAvatarImg");
+    const photoUrl = String(tg?.initDataUnsafe?.user?.photo_url || "").trim();
     if(av){
       const ch = String(nick || "").trim().charAt(0);
       av.textContent = ch ? ch.toUpperCase() : "?";
+    }
+    if(avWrap && avImg){
+      if(photoUrl){
+        avImg.onload = ()=> avWrap.classList.add("profileHeroAvatar--photo");
+        avImg.onerror = ()=>{
+          avWrap.classList.remove("profileHeroAvatar--photo");
+          avImg.removeAttribute("src");
+        };
+        if(avImg.src !== photoUrl) avImg.src = photoUrl;
+        else if(avImg.complete && avImg.naturalWidth) avWrap.classList.add("profileHeroAvatar--photo");
+      }else{
+        avWrap.classList.remove("profileHeroAvatar--photo");
+        avImg.removeAttribute("src");
+      }
     }
     if(profileBalanceTon){
       if(hasTgAuth && state.profile.serverBalanceTon != null){

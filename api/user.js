@@ -4225,14 +4225,18 @@ async function getMatchHistory(initData, limit = 50) {
     `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${safeLimit}`
   );
   
-  // Получаем матчи рулетки из pvp_balance_events
+  // Рулетка: отдельный лимит, чтобы не вытеснять PvP/бот-матчи из game_matches
+  const rouletteFetchLimit = Math.min(80, Math.max(20, Math.floor(safeLimit * 0.5)));
+  const rouletteResultCap = Math.min(35, Math.max(12, Math.floor(safeLimit * 0.3)));
+
   let rouletteMatches = [];
   try {
     const rouletteEvents = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${safeLimit}`
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${rouletteFetchLimit}`
     );
     
     // Преобразуем события рулетки в формат матчей
+    const seenRouletteRounds = new Set();
     rouletteMatches = (rouletteEvents || []).map(event => {
       const meta = event.meta || {};
       const isWinner = event.event_type === 'win';
@@ -4264,17 +4268,24 @@ async function getMatchHistory(initData, limit = 50) {
         },
         finished_at: event.created_at
       };
-    });
+    }).filter((m) => {
+      const roundId = m.details_json?.round_id;
+      if (roundId == null || roundId === "") return true;
+      const key = String(roundId);
+      if (seenRouletteRounds.has(key)) return false;
+      seenRouletteRounds.add(key);
+      return true;
+    }).slice(0, rouletteResultCap);
   } catch (e) {
     // Игнорируем ошибки получения рулетки
   }
   
-  // Объединяем и сортируем по дате
-  const allMatches = [...(rows || []), ...rouletteMatches].sort((a, b) => {
+  const gameRows = rows || [];
+  const merged = [...gameRows, ...rouletteMatches].sort((a, b) => {
     return new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime();
   });
   
-  return allMatches.slice(0, safeLimit);
+  return merged.slice(0, safeLimit);
 }
 
 /**
