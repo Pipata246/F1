@@ -476,24 +476,110 @@
       backdrop-filter: blur(var(--blur));
     }
 
+    .tabPage{
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+      padding-bottom:8px;
+    }
+    .tabPageHead{margin-bottom:2px}
+    .tabPageTitle{
+      margin:0;
+      font-size:26px;
+      font-weight:950;
+      letter-spacing:.02em;
+      line-height:1.15;
+    }
+    .tabPageSub{
+      margin:6px 0 0;
+      font-size:14px;
+      line-height:1.45;
+      color:var(--text2);
+    }
+    .uiBlock{
+      padding:18px 16px;
+      border-radius:20px;
+      background:var(--glass-bg);
+      border:1px solid var(--glass-border);
+      backdrop-filter:blur(var(--blur));
+      box-shadow:var(--shadow);
+    }
+    .uiBlockHead{margin-bottom:14px}
+    .uiBlockHead h2{
+      margin:0 0 4px;
+      font-size:17px;
+      font-weight:900;
+      letter-spacing:.02em;
+    }
+    .uiBlockHead p{
+      margin:0;
+      font-size:13px;
+      line-height:1.4;
+      color:var(--text2);
+    }
+
+    .profileHero{
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .profileHeroTop{
+      display:flex;
+      align-items:center;
+      gap:14px;
+    }
+    .profileHeroAvatar{
+      width:56px;height:56px;border-radius:18px;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(145deg,rgba(140,255,193,.22),rgba(255,255,255,.06));
+      border:1px solid rgba(140,255,193,.28);
+      color:var(--accent);
+      font-size:22px;font-weight:950;
+    }
+    .profileHeroMeta{min-width:0;flex:1}
+    .profileHeroName{
+      font-size:22px;font-weight:950;line-height:1.2;
+      word-break:break-word;
+    }
+    .profileHeroSub{
+      margin:4px 0 0;font-size:13px;color:var(--text2);line-height:1.35;
+    }
+    .profileBalanceCard{
+      padding:16px;
+      border-radius:16px;
+      background:rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.08);
+      display:flex;flex-direction:column;gap:6px;
+    }
+    .profileBalanceCard .text2{font-size:12px;text-transform:uppercase;letter-spacing:.1em}
+    .profileBalanceCard strong{font-size:24px;font-weight:950}
+
     .profileStatsGrid{
       display:grid;
+      grid-template-columns: 1fr;
+      gap:12px;
+    }
+    .profileStatsGrid--pvp{
       grid-template-columns: 1fr 1fr;
-      gap:10px;
+      gap:12px;
+    }
+    @media (max-width:380px){
+      .profileStatsGrid--pvp{grid-template-columns:1fr}
     }
     .profileStatTile{
-      padding:12px;
+      padding:16px;
       border-radius:16px;
       background: var(--glass-bg-strong);
       border:1px solid var(--glass-border);
       backdrop-filter: blur(var(--blur));
-      min-height:92px;
+      min-height:108px;
       display:flex;
       flex-direction:column;
-      gap:4px;
+      gap:8px;
     }
+    .profileStatTile--wide{grid-column:1/-1;min-height:auto}
     .profileStatHead{
-      font-size:12px;
+      font-size:13px;
       font-weight:800;
       color:var(--text2);
       letter-spacing:.2px;
@@ -521,9 +607,23 @@
       flex-shrink:0;
     }
     .profileStatSub{
-      font-size:11px;
-      line-height:1.3;
+      font-size:12px;
+      line-height:1.4;
       margin-top:auto;
+    }
+    .profileSettingRow{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:14px 0;
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    .profileSettingRow:last-child{border-bottom:none;padding-bottom:0}
+    .profileSettingRow:first-of-type{padding-top:0}
+    .profileSettingRow__label{font-size:15px;font-weight:700}
+    .profileSettingRow__hint{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.35}
+    .profileRulesRow{
+      padding:14px 16px;border-radius:14px;
+      background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+      display:flex;justify-content:space-between;align-items:center;gap:12px;
     }
 
     .gameCardTitle{
@@ -617,33 +717,79 @@
     .matchFilterTab .gameIcon{align-self:center}
 
     .matchFilterRow{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      margin-top:12px;
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+    }
+    .matchFilterRow .matchFilterTab--all{grid-column:1/-1}
+    @media (min-width:420px){
+      .matchFilterRow{grid-template-columns:repeat(3,minmax(0,1fr))}
+      .matchFilterRow .matchFilterTab--all{grid-column:span 3}
     }
     .matchFilterTab{
       border:none;
       cursor:pointer;
-      font-size:12px;
+      font-size:13px;
       font-weight:800;
-      padding:8px 12px;
-      border-radius:999px;
+      padding:12px 14px;
+      border-radius:16px;
       background: var(--glass-bg-strong);
       border:1px solid var(--glass-border);
       color: var(--text2);
       backdrop-filter: blur(var(--blur));
-      transition: border-color .12s ease, background .12s ease, color .12s ease;
-      display:inline-flex;
+      transition: border-color .12s ease, background .12s ease, color .12s ease, transform .12s ease;
+      display:flex;
       align-items:center;
-      gap:5px;
+      gap:8px;
+      text-align:left;
+      min-height:52px;
     }
+    .matchFilterTab__text{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .matchFilterTab__name{line-height:1.2}
+    .matchFilterTab__count{font-size:11px;font-weight:700;color:var(--muted)}
+    .matchFilterTab.active .matchFilterTab__count{color:rgba(140,255,193,.85)}
     .matchFilterTab:active{ transform: scale(.98); }
     .matchFilterTab.active{
       background: rgba(140,255,193,.12);
       border-color: rgba(140,255,193,.30);
       color: var(--text);
     }
+    .matchesList{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .matchCard{
+      padding:16px;
+      border-radius:16px;
+      background:var(--glass-bg-strong);
+      border:1px solid var(--glass-border);
+      backdrop-filter:blur(var(--blur));
+    }
+    .matchCard__top{
+      display:flex;justify-content:space-between;align-items:flex-start;gap:10px;
+    }
+    .matchCard__game{font-size:16px;font-weight:900;line-height:1.2}
+    .matchCard__chip{
+      font-size:11px;font-weight:800;padding:5px 10px;border-radius:999px;
+      background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+      color:var(--text2);flex-shrink:0;
+    }
+    .matchCard__date{font-size:12px;color:var(--muted);margin-top:6px}
+    .matchCard__vs{
+      margin-top:12px;padding-top:12px;
+      border-top:1px solid rgba(255,255,255,.06);
+      display:flex;justify-content:space-between;align-items:center;gap:10px;
+    }
+    .matchCard__players{font-size:14px;font-weight:700;color:var(--text2);line-height:1.35}
+    .matchCard__score{font-size:18px;font-weight:950;font-variant-numeric:tabular-nums}
+    .matchCard__result{margin-top:10px;font-size:15px;font-weight:900}
+    .matchCard__ton{margin-top:6px;font-size:13px;font-weight:800;line-height:1.4}
+    .matchesEmptyBox{
+      padding:28px 16px;text-align:center;border-radius:16px;
+      background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.12);
+    }
+    .matchesEmptyBox p{margin:0;font-size:14px;line-height:1.45;color:var(--text2)}
 
     .topbarBalance{
       font-variant-numeric: tabular-nums;
@@ -678,8 +824,37 @@
     .tonBalanceLabel{ font-size:12px; font-weight:700; color: var(--text2); letter-spacing:.12em; text-transform: uppercase; }
     .tonBalanceAmount{ margin-top:4px; font-size:28px; font-weight:950; letter-spacing:.02em; line-height:1.1; font-variant-numeric: tabular-nums; }
     .tonBalanceCurrency{ font-size:18px; font-weight:800; color: var(--text2); margin-left:6px; vertical-align:middle; }
-    .walletActions{ display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+    .walletActions{ display:flex; flex-direction:column; gap:10px; }
     .walletActions .btn{ width:100%; }
+    .walletInfoList{
+      display:flex;flex-direction:column;gap:12px;margin:0;padding:0;list-style:none;
+    }
+    .walletInfoList li{
+      display:flex;gap:12px;align-items:flex-start;
+      font-size:13px;line-height:1.45;color:var(--text2);
+    }
+    .walletInfoList li::before{
+      content:"";width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;
+      background:var(--accent);box-shadow:0 0 10px var(--accent-glow);
+    }
+    .walletFeature{
+      display:flex;gap:14px;align-items:flex-start;
+      padding:14px;border-radius:14px;
+      background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+    }
+    .walletFeature__icon{
+      width:40px;height:40px;border-radius:12px;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(140,255,193,.1);color:var(--accent);
+    }
+    .walletFeature__icon svg{width:20px;height:20px}
+    .walletFeature__title{font-size:14px;font-weight:800;margin-bottom:4px}
+    .walletFeature__text{font-size:12px;line-height:1.4;color:var(--text2);margin:0}
+    .tonBalanceCard--hero{
+      margin-top:4px;
+      background:linear-gradient(145deg,rgba(0,152,234,.12),rgba(255,255,255,.04));
+      border-color:rgba(0,152,234,.22);
+    }
 
     /* Game surface blocks */
     .gameSurface{
@@ -1269,11 +1444,17 @@
       </section>
 
       <!-- WALLET -->
-      <section id="page-wallet" class="hidden">
-        <div class="glass card">
-          <h2 class="titleXL" style="margin:0">Баланс</h2>
-          <div class="divider"></div>
-          <div class="tonBalanceCard">
+      <section id="page-wallet" class="hidden tabPage">
+        <header class="tabPageHead">
+          <h1 class="tabPageTitle">Баланс</h1>
+          <p class="tabPageSub">Пополнение, вывод и история операций в TON. Средства используются для ставок в PvP и рулетке.</p>
+        </header>
+        <div class="uiBlock">
+          <div class="uiBlockHead">
+            <h2>Текущий баланс</h2>
+            <p>Доступная сумма для игр и вывода</p>
+          </div>
+          <div class="tonBalanceCard tonBalanceCard--hero">
             <div class="tonLogo" aria-hidden="true">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="56" height="56"><path fill="currentColor" d="m20.661 7.22l-7.846 12.494a1.06 1.06 0 0 1-1.794-.006L3.328 7.214A2.2 2.2 0 0 1 3 6.05a2.29 2.29 0 0 1 2.324-2.255h13.362C19.963 3.794 21 4.8 21 6.044c0 .413-.116.82-.339 1.175M5.218 6.8l5.723 8.826V5.912H5.816c-.592 0-.857.392-.598.89m7.84 8.826L18.783 6.8c.265-.497-.006-.89-.599-.89H13.06z"/></svg>
             </div>
@@ -1284,47 +1465,120 @@
               </div>
             </div>
           </div>
-          <div class="divider"></div>
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead">
+            <h2>Операции</h2>
+            <p>Пополнение, вывод и просмотр истории</p>
+          </div>
           <div class="walletActions">
             <button type="button" class="btn primary" id="walletBtnTopup">Пополнить</button>
             <button type="button" class="btn ghost" id="walletBtnWithdraw">Вывести</button>
             <button type="button" class="btn ghost" id="walletBtnHistory">История операций</button>
           </div>
         </div>
-      </section>
-
-      <!-- MATCHES -->
-      <section id="page-matches" class="hidden">
-        <div class="glass card">
-          <div>
-            <div class="titleXL" style="margin:0">Матчи</div>
-          <div class="divider"></div>
-
-          <div id="matchesEmpty" class="muted">
-            Пока матчей нет.
+        <div class="uiBlock">
+          <div class="uiBlockHead"><h2>Способы пополнения</h2></div>
+          <div class="walletFeature" style="margin-bottom:10px">
+            <div class="walletFeature__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+            <div><div class="walletFeature__title">TON (Ton Connect)</div><p class="walletFeature__text">Перевод с кошелька на адрес сервиса. Зачисление после подтверждения в сети TON.</p></div>
           </div>
-
-          <div id="matchesList" style="display:none; flex-direction:column; gap:10px"></div>
+          <div class="walletFeature">
+            <div class="walletFeature__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div>
+            <div><div class="walletFeature__title">USDT (@CryptoBot)</div><p class="walletFeature__text">Оплата счёта в CryptoBot — зачисление в TON по курсу.</p></div>
+          </div>
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead"><h2>Вывод средств</h2></div>
+          <div class="walletFeature" style="margin-bottom:10px">
+            <div class="walletFeature__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div>
+            <div><div class="walletFeature__title">На TON-кошелёк</div><p class="walletFeature__text">Комиссия сервиса отображается в форме перед подтверждением.</p></div>
+          </div>
+          <div class="walletFeature">
+            <div class="walletFeature__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+            <div><div class="walletFeature__title">USDT через CryptoBot</div><p class="walletFeature__text">Конвертация в USDT с комиссией (обычно ~20%).</p></div>
+          </div>
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead"><h2>Полезно знать</h2></div>
+          <ul class="walletInfoList">
+            <li>Баланс общий для PvP-игр и рулетки Rolls.</li>
+            <li>После пополнения сумма обновляется при открытии вкладки «Баланс».</li>
+            <li>В истории операций — статусы депозитов и выводов.</li>
+            <li>Ставки списываются с баланса до начала матча.</li>
+          </ul>
         </div>
       </section>
 
-      <!-- PROFILE -->
-      <section id="page-profile" class="hidden">
-        <div class="glass card">
-          <div>
-            <div class="titleXL" id="profNick">—</div>
+      <!-- MATCHES -->
+      <section id="page-matches" class="hidden tabPage">
+        <header class="tabPageHead">
+          <h1 class="tabPageTitle">Матчи</h1>
+          <p class="tabPageSub">История завершённых игр. Выберите режим — список не смешивает разные игры.</p>
+        </header>
+        <div class="uiBlock">
+          <div class="uiBlockHead">
+            <h2>Фильтр по игре</h2>
+            <p id="matchesFilterHint">Показаны все матчи</p>
           </div>
-          <div class="row" style="margin-top:12px">
-            <div class="pill" style="flex:1">
-              <span class="text2">Баланс TON</span>
-              <strong id="profileBalanceTon">—</strong>
+          <div id="matchesFilterRow" class="matchFilterRow" role="tablist" aria-label="Фильтр матчей">
+            <button type="button" class="matchFilterTab matchFilterTab--all active" data-game="all" role="tab" aria-selected="true">
+              <span class="matchFilterTab__text"><span class="matchFilterTab__name">Все игры</span><span class="matchFilterTab__count" data-count-for="all">0</span></span>
+            </button>
+            <button type="button" class="matchFilterTab" data-game="frog_hunt" role="tab" aria-selected="false">
+              <span class="gameIcon gameIcon--frog gameIcon--sm" aria-hidden="true"><img class="gameSvg" src="https://img.icons8.com/fluency/64/frog-face.png" width="17" height="17" alt=""></span>
+              <span class="matchFilterTab__text"><span class="matchFilterTab__name">Жаба</span><span class="matchFilterTab__count" data-count-for="frog_hunt">0</span></span>
+            </button>
+            <button type="button" class="matchFilterTab" data-game="obstacle_race" role="tab" aria-selected="false">
+              <span class="gameIcon gameIcon--race gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="8" fill="#fbbf24"/></svg></span>
+              <span class="matchFilterTab__text"><span class="matchFilterTab__name">Полоса</span><span class="matchFilterTab__count" data-count-for="obstacle_race">0</span></span>
+            </button>
+            <button type="button" class="matchFilterTab" data-game="super_penalty" role="tab" aria-selected="false">
+              <span class="gameIcon gameIcon--penalty gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 64 64"><circle cx="32" cy="32" fill="#fff" r="20"/></svg></span>
+              <span class="matchFilterTab__text"><span class="matchFilterTab__name">Пенальти</span><span class="matchFilterTab__count" data-count-for="super_penalty">0</span></span>
+            </button>
+            <button type="button" class="matchFilterTab" data-game="basketball" role="tab" aria-selected="false">
+              <span class="gameIcon gameIcon--basket gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 64 64"><circle cx="22" cy="22" r="18" fill="#ff8736"/></svg></span>
+              <span class="matchFilterTab__text"><span class="matchFilterTab__name">Баскетбол</span><span class="matchFilterTab__count" data-count-for="basketball">0</span></span>
+            </button>
+            <button type="button" class="matchFilterTab" data-game="roulette" role="tab" aria-selected="false">
+              <span class="gameIcon gameIcon--roulette gameIcon--sm" aria-hidden="true"><svg class="gameSvg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#8CFFC1" stroke-width="2"/></svg></span>
+              <span class="matchFilterTab__text"><span class="matchFilterTab__name">Рулетка</span><span class="matchFilterTab__count" data-count-for="roulette">0</span></span>
+            </button>
+          </div>
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead"><h2>История</h2><p>Результаты, соперники и итог в TON</p></div>
+          <div id="matchesEmpty" class="matchesEmptyBox"><p>Пока матчей нет.</p></div>
+          <div id="matchesList" class="matchesList" style="display:none"></div>
+        </div>
+      </section>
+
+            <!-- PROFILE -->
+      <section id="page-profile" class="hidden tabPage">
+        <header class="tabPageHead">
+          <h1 class="tabPageTitle">Профиль</h1>
+          <p class="tabPageSub">Аккаунт, статистика по играм, рефералы и настройки</p>
+        </header>
+        <div class="uiBlock profileHero">
+          <div class="profileHeroTop">
+            <div class="profileHeroAvatar" id="profileAvatarInitial" aria-hidden="true">?</div>
+            <div class="profileHeroMeta">
+              <div class="profileHeroName" id="profNick">—</div>
+              <p class="profileHeroSub">Игрок F1 Duel</p>
             </div>
           </div>
-
-          <div class="divider"></div>
-
-          <h2 style="margin:0 0 10px 0; font-size:16px">Статистика</h2>
-          <div class="profileStatsGrid">
+          <div class="profileBalanceCard">
+            <span class="text2">Баланс</span>
+            <strong id="profileBalanceTon">—</strong>
+          </div>
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead">
+            <h2>Статистика PvP</h2>
+            <p>Победы, поражения и винрейт по режимам</p>
+          </div>
+          <div class="profileStatsGrid profileStatsGrid--pvp">
             <div class="profileStatTile">
               <div class="profileStatHead profileStatHead--withIcon"><span class="gameIcon gameIcon--frog gameIcon--sm" aria-hidden="true"><img class="gameSvg" src="https://img.icons8.com/fluency/64/frog-face.png" width="17" height="17" alt=""></span><span>Охота на жабу</span></div>
               <div class="profileStatBody">
@@ -1358,8 +1612,14 @@
               <div class="profileStatSub muted" id="profStatBasketSub">Нет матчей</div>
             </div>
             
-            <!-- Рулетка - двойная ширина -->
-            <div class="profileStatTile" style="grid-column: span 2;">
+          </div>
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead">
+            <h2>Рулетка Rolls</h2>
+            <p>Ставки и выигрыши в режиме рулетки</p>
+          </div>
+          <div class="profileStatTile profileStatTile--wide">
               <div class="profileStatHead profileStatHead--withIcon">
                 <span class="gameIcon gameIcon--roulette gameIcon--sm" aria-hidden="true">
                   <svg class="gameSvg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -1382,10 +1642,9 @@
               </div>
               <div class="profileStatSub muted" id="profStatRouletteSub" style="text-align:center;">Нет игр</div>
             </div>
-          </div>
-
-          <div class="divider"></div>
-
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead"><h2>Рефералы</h2><p>5% с пополнений приглашённых друзей</p></div>
           <button type="button" class="profileRefNavBtn" id="openReferralsBtn" style="margin-bottom:12px">
             <span class="profileRefNavBtn__left">
               <span class="profileRefNavBtn__icon" aria-hidden="true">
@@ -1401,26 +1660,24 @@
             </span>
             <span class="profileRefNavBtn__chev" aria-hidden="true">›</span>
           </button>
+        </div>
 
-          <div class="row" style="margin-top:12px">
-            <div class="pill" style="flex:1">
-              <span class="text2">Правила</span>
-              <strong id="rulesAcceptedLine">—</strong>
-            </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead"><h2>Аккаунт</h2><p>Принятие правил платформы</p></div>
+          <div class="profileRulesRow">
+            <span class="text2">Правила</span>
+            <strong id="rulesAcceptedLine">—</strong>
           </div>
-
-          <div class="divider"></div>
-
-          <h2 style="margin:0 0 8px 0; font-size:16px">Настройки</h2>
-          <div class="row">
-            <div class="pill" style="flex:1">
-              <span class="text2">Звук</span>
-              <input type="checkbox" id="setSound" />
-            </div>
-            <div class="pill" style="flex:1">
-              <span class="text2">Вибрация</span>
-              <input type="checkbox" id="setHaptic" />
-            </div>
+        </div>
+        <div class="uiBlock">
+          <div class="uiBlockHead"><h2>Настройки</h2><p>Звук и вибрация</p></div>
+          <div class="profileSettingRow">
+            <div><div class="profileSettingRow__label">Звук</div><div class="profileSettingRow__hint">Эффекты в играх</div></div>
+            <input type="checkbox" id="setSound" />
+          </div>
+          <div class="profileSettingRow">
+            <div><div class="profileSettingRow__label">Вибрация</div><div class="profileSettingRow__hint">Тактильный отклик</div></div>
+            <input type="checkbox" id="setHaptic" />
           </div>
         </div>
       </section>
@@ -2233,6 +2490,7 @@
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "referrals" && hasTgAuth) loadReferralStats();
+    if(page === "matches" && hasTgAuth) loadMatchHistory();
     if(page === "wallet" && hasTgAuth){
       maybeSyncDepositsOnForeground().catch(()=>{});
       hydrateUserFromServer().then(()=>{
@@ -2762,11 +3020,40 @@
     return matchesCache.filter((m)=> String(m.game_key || "") === matchesGameFilter);
   }
 
+  function matchCountLabel(n){
+    const x = Number(n) || 0;
+    const m10 = x % 10;
+    const m100 = x % 100;
+    if(m100 >= 11 && m100 <= 14) return `${x} матчей`;
+    if(m10 === 1) return `${x} матч`;
+    if(m10 >= 2 && m10 <= 4) return `${x} матча`;
+    return `${x} матчей`;
+  }
+
+  function updateMatchesFilterUi(){
+    const total = matchesCache.length;
+    document.querySelectorAll("[data-count-for]").forEach((el)=>{
+      const key = el.getAttribute("data-count-for") || "all";
+      const n = key === "all" ? total : matchesCache.filter((m)=> String(m.game_key || "") === key).length;
+      el.textContent = key === "all" ? matchCountLabel(n) : String(n);
+    });
+    const hint = document.getElementById("matchesFilterHint");
+    if(hint){
+      if(matchesGameFilter === "all"){
+        hint.textContent = total ? `Показаны все матчи (${matchCountLabel(total)})` : "Пока нет завершённых матчей";
+      } else {
+        const n = getFilteredMatches().length;
+        hint.textContent = `${gameName(matchesGameFilter)} — ${matchCountLabel(n)}`;
+      }
+    }
+  }
+
   async function loadMatchHistory(){
     if(!hasTgAuth) return;
     try{
       const data = await apiJson("/api/user", { action:"getMatchHistory", initData: tgInitData, limit: 100 });
       matchesCache = Array.isArray(data.matches) ? data.matches : [];
+      updateMatchesFilterUi();
       renderMatches();
     }catch(e){}
   }
@@ -2927,7 +3214,13 @@
   };
 
   function renderProfile(){
-    profNick.textContent = displayNick();
+    const nick = displayNick();
+    profNick.textContent = nick;
+    const av = document.getElementById("profileAvatarInitial");
+    if(av){
+      const ch = String(nick || "").trim().charAt(0);
+      av.textContent = ch ? ch.toUpperCase() : "?";
+    }
     if(profileBalanceTon){
       if(hasTgAuth && state.profile.serverBalanceTon != null){
         profileBalanceTon.textContent = formatBalanceDisplay(state.profile.serverBalanceTon);
@@ -2949,8 +3242,11 @@
 
     const filtered = getFilteredMatches();
 
+    updateMatchesFilterUi();
+
     if(!matchesCache.length){
-      empty.textContent = "Пока матчей нет.";
+      const p = empty.querySelector("p");
+      if(p) p.textContent = "Пока матчей нет. Сыграйте PvP или рулетку — история появится здесь.";
       empty.style.display = "";
       list.style.display = "none";
       list.innerHTML = "";
@@ -2958,7 +3254,8 @@
     }
 
     if(!filtered.length){
-      empty.textContent = matchesGameFilter === "all" ? "Пока матчей нет." : "В этой игре пока нет матчей.";
+      const p = empty.querySelector("p");
+      if(p) p.textContent = matchesGameFilter === "all" ? "Пока матчей нет." : `В «${gameName(matchesGameFilter)}» пока нет матчей.`;
       empty.style.display = "";
       list.style.display = "none";
       list.innerHTML = "";
@@ -2966,7 +3263,7 @@
     }
 
     empty.style.display = "none";
-    list.style.display = "flex";
+    list.style.display = "";
 
     const myTgId = String(state.profile.tgUserId || tg?.initDataUnsafe?.user?.id || "");
     list.innerHTML = "";
@@ -3050,20 +3347,19 @@
         tonLine = "Матч без ставки";
       }
       const card = document.createElement("div");
-      card.className = "pill";
-      card.style.display = "block";
+      card.className = "matchCard";
       card.innerHTML = `
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <div style="font-weight:900">${gameName(m.game_key)}</div>
-          <div class="chip">${modeLabel}</div>
+        <div class="matchCard__top">
+          <div class="matchCard__game">${escapeHtml(gameName(m.game_key))}</div>
+          <span class="matchCard__chip">${modeLabel}</span>
         </div>
-        <div class="small" style="margin-top:4px">${formatDateTime(m.finished_at)}</div>
-        <div class="row" style="margin-top:8px; justify-content:space-between; align-items:center;">
-          <div class="muted" style="font-weight:700">${myName} vs ${oppName || "Бот"}</div>
-          <div style="font-weight:900">${isRoulette ? myScore + '%' : myScore + ' : ' + oppScore}</div>
+        <div class="matchCard__date">${formatDateTime(m.finished_at)}</div>
+        <div class="matchCard__vs">
+          <div class="matchCard__players">${escapeHtml(myName)} vs ${escapeHtml(oppName || "Бот")}</div>
+          <div class="matchCard__score">${isRoulette ? myScore + "%" : myScore + " : " + oppScore}</div>
         </div>
-        <div style="margin-top:6px; font-weight:900; color:${resultColor}">${result}</div>
-        <div style="margin-top:6px; font-weight:800; color:${tonColor}">${escapeHtml(tonLine)}</div>
+        <div class="matchCard__result" style="color:${resultColor}">${result}</div>
+        <div class="matchCard__ton" style="color:${tonColor}">${escapeHtml(tonLine)}</div>
       `;
       list.appendChild(card);
     });
