@@ -841,10 +841,19 @@ async function requestUsdtWithdrawal(initData, amountTonStr) {
 
 function isWalletLedgerKind(kind) {
   const k = String(kind || "").toLowerCase();
-  if (!k) return false;
-  if (k === "deposit" || k === "withdrawal" || k === "credit" || k === "debit") return true;
-  if (k.includes("deposit") || k.includes("withdraw") || k === "topup" || k === "top_up") return true;
-  return false;
+  return k === "deposit" || k === "withdrawal";
+}
+
+function isGameRelatedWalletMeta(meta) {
+  const m = asObj(meta) || {};
+  return !!(
+    m.game_key ||
+    m.room_id ||
+    m.roomId ||
+    m.round_id ||
+    m.from_balance_event ||
+    m.source === "pvp_balance_event"
+  );
 }
 
 function isOpenDepositIntentStatus(status) {
@@ -889,9 +898,8 @@ async function getWalletHistory(initData, limit) {
   const opById = new Map();
   for (const r of rows || []) {
     const meta = asObj(r.meta) || {};
-    if (meta.skip_wallet_history || meta.source === "pvp_balance_event") continue;
-    const hasTx = !!(r.ton_tx_hash && String(r.ton_tx_hash).length > 4);
-    if (!isWalletLedgerKind(r.kind) && !hasTx) continue;
+    if (meta.skip_wallet_history || isGameRelatedWalletMeta(meta)) continue;
+    if (!isWalletLedgerKind(r.kind)) continue;
     opById.set(String(r.id), { ...r, is_deposit_intent: false });
   }
 
@@ -908,6 +916,8 @@ async function getWalletHistory(initData, limit) {
         `wallet_operations?id=in.(${chunk.map((id) => encodeURIComponent(id)).join(",")})&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta`
       );
       for (const r of extra || []) {
+        const meta = asObj(r.meta) || {};
+        if (isGameRelatedWalletMeta(meta)) continue;
         if (!isWalletLedgerKind(r.kind)) continue;
         opById.set(String(r.id), { ...r, is_deposit_intent: false });
       }
@@ -977,50 +987,6 @@ async function getWalletHistory(initData, limit) {
   for (const r of opById.values()) pushRow(r);
   for (const r of usdtRows) pushRow(r);
   for (const r of intentRows) pushRow(r);
-
-  let pvpBalanceRows = [];
-  try {
-    pvpBalanceRows = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss,refund)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${Math.max(fetchCap, 200)}`
-    );
-  } catch {
-    /* ignore */
-  }
-  const gameLabels = {
-    frog_hunt: "Frog Hunt",
-    obstacle_race: "Obstacle Race",
-    super_penalty: "Пенальти",
-    basketball: "Баскетбол",
-    roulette: "Рулетка",
-  };
-  for (const ev of pvpBalanceRows || []) {
-    const gk = String(ev.game_key || "");
-    const meta = asObj(ev.meta) || {};
-    const label = gameLabels[gk] || gk || "Игра";
-    const kind =
-      ev.event_type === "win"
-        ? "balance_win"
-        : ev.event_type === "loss"
-          ? "balance_loss"
-          : "balance_refund";
-    pushRow({
-      id: `pvp_bal_${ev.id}`,
-      kind,
-      amount: String(ev.amount ?? ""),
-      status: "completed",
-      ton_tx_hash: null,
-      to_address: null,
-      created_at: ev.created_at,
-      is_deposit_intent: false,
-      meta: {
-        game_key: gk,
-        stake_ton: ev.stake_ton,
-        room_id: ev.room_id,
-        text: meta.text || `${label}: ${ev.event_type === "win" ? "+" : ""}${ev.amount} TON`,
-        ...meta,
-      },
-    });
-  }
 
   combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   return combined.slice(0, safeLimit);

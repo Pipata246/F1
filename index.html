@@ -4076,12 +4076,10 @@
     try{
       await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData }).catch(()=>{});
       const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 150 });
-      const walletHistKinds = new Set([
-        "deposit", "withdrawal", "usdt_deposit", "usdt_withdrawal",
-        "balance_win", "balance_loss", "balance_refund",
-      ]);
+      const walletHistKinds = new Set(["deposit", "withdrawal", "usdt_deposit", "usdt_withdrawal"]);
       rows = (Array.isArray(data.operations) ? data.operations : []).filter((r)=>{
         const k = String(r.kind || "");
+        if(r.meta && (r.meta.game_key || r.meta.room_id || r.meta.round_id)) return false;
         if(k === "deposit" && r.is_deposit_intent) return true;
         return walletHistKinds.has(k);
       });
@@ -4098,13 +4096,6 @@
     }
     const lines = rows.map((r)=>{
       const isIntent = r.kind === "deposit" && r.is_deposit_intent;
-      const gameLabel = {
-        frog_hunt: "Frog Hunt",
-        obstacle_race: "Obstacle Race",
-        super_penalty: "Пенальти",
-        basketball: "Баскетбол",
-        roulette: "Рулетка",
-      }[String(r.meta?.game_key || "")] || "";
       const kind = isIntent
         ? "Пополнение (заявка)"
         : r.kind === "deposit"
@@ -4115,13 +4106,7 @@
               ? "Вывод USDT"
           : r.kind === "withdrawal"
             ? "Вывод"
-            : r.kind === "balance_win"
-              ? (gameLabel ? `Выигрыш · ${gameLabel}` : "Выигрыш в игре")
-              : r.kind === "balance_loss"
-                ? (gameLabel ? `Проигрыш · ${gameLabel}` : "Проигрыш в игре")
-                : r.kind === "balance_refund"
-                  ? (gameLabel ? `Возврат · ${gameLabel}` : "Возврат ставки")
-                  : "Операция";
+            : "Операция";
       const st = {
         pending:"В обработке",
         confirming:"Подтверждение",
