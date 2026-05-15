@@ -1,36 +1,32 @@
 /**
- * Telegram Bot webhook — вход в F1 Duel Mini App (TMA).
- * GET  /api/bot?action=setWebhook  — webhook + меню + кнопка «Играть»
- * GET  /api/bot?action=setup       — то же + описание бота
- * POST /api/bot                    — апдейты Telegram
+ * Telegram Bot — ознакомление с F1 Duel (запуск TMA через кнопки Telegram, не в чате).
+ * GET  /api/bot?action=setup — webhook, команды, Menu Button «Играть»
+ * POST /api/bot             — апдейты
  */
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const APP_URL = (process.env.WEBAPP_URL || process.env.TELEGRAM_MINIAPP_URL || "https://f1-three-iota.vercel.app").replace(/\/+$/, "");
 const SECRET_TOKEN = process.env.TELEGRAM_WEBHOOK_SECRET || "";
-const SUPPORT_URL = (process.env.SUPPORT_TG_URL || process.env.SUPPORT_URL || "").trim();
 
 const BOT_COMMANDS = [
-  { command: "start", description: "Открыть F1 Duel" },
-  { command: "play", description: "Запустить мини-приложение" },
+  { command: "start", description: "О F1 Duel" },
   { command: "help", description: "Как играть" },
-  { command: "games", description: "Список режимов" },
-  { command: "support", description: "Поддержка" },
+  { command: "games", description: "Режимы и игры" },
 ];
 
 const GAMES = [
-  "🎡 Rolls — рулетка на TON",
-  "🎲 Случайная PvP-игра",
-  "🐸 Охота на жабу",
-  "🏁 Полоса препятствий",
-  "⚽ Супер-пенальти",
-  "🏀 Баскетбол",
+  { icon: "🎡", name: "Rolls", desc: "рулетка на TON — общий банк, шанс от ставки" },
+  { icon: "🎲", name: "Случайная игра", desc: "быстрый PvP в любой из игр по ставке" },
+  { icon: "🐸", name: "Охота на жабу", desc: "прятки и выстрелы, BO2 + тайбрейк" },
+  { icon: "🏁", name: "Полоса препятствий", desc: "гонка на выживание 1 на 1" },
+  { icon: "⚽", name: "Супер-пенальти", desc: "серия пенальти PvP" },
+  { icon: "🏀", name: "Баскетбол", desc: "броски на очки против соперника" },
 ];
 
 const CB = {
-  PLAY: "nav:play",
   HELP: "nav:help",
   GAMES: "nav:games",
+  ABOUT: "nav:about",
 };
 
 function escapeHtml(s) {
@@ -40,81 +36,72 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
-/** /start refCODE или /start@BotName refCODE */
-function parseStartPayload(text) {
-  const t = String(text || "").trim();
-  const m = t.match(/^\/start(?:@[\w_]+)?(?:\s+(.+))?$/i);
-  const raw = (m?.[1] || "").trim();
-  if (!raw) return "";
-  return raw.slice(0, 64);
-}
-
-/** URL мини-приложения; ref — из deep link /start */
-function webAppUrl(startPayload) {
-  if (!startPayload) return APP_URL;
-  const sep = APP_URL.includes("?") ? "&" : "?";
-  return `${APP_URL}${sep}ref=${encodeURIComponent(startPayload)}`;
-}
-
-function buildPlayKeyboard(startPayload) {
-  const url = webAppUrl(startPayload);
+/** Единая inline-клавиатура: только навигация по информации */
+function buildNavKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "🎮 Играть в F1 Duel", web_app: { url } }],
       [
         { text: "📖 Как играть", callback_data: CB.HELP },
         { text: "🎯 Режимы", callback_data: CB.GAMES },
       ],
+      [{ text: "ℹ️ О F1 Duel", callback_data: CB.ABOUT }],
     ],
   };
 }
 
-function buildWelcomeText(firstName, startPayload) {
+function buildLaunchHint() {
+  return (
+    `\n\n🎮 <b>Запуск игры</b> — кнопка <b>«Играть»</b> слева от поля ввода ` +
+    `(меню бота) или иконка мини-приложения рядом со скрепкой.`
+  );
+}
+
+function buildWelcomeText(firstName) {
   const name = firstName ? `${escapeHtml(firstName)}, ` : "";
-  const refHint = startPayload
-    ? "\n\n🔗 Реферальная ссылка учтена — код подставится при регистрации в приложении."
-    : "";
   return (
     `<b>F1 Duel</b>\n\n` +
-    `Привет, ${name}это мини-приложение с PvP-играми и рулеткой Rolls на TON.\n\n` +
-    `Нажми <b>«Играть в F1 Duel»</b> — откроется приложение в Telegram.${refHint}`
+    `Привет, ${name}здесь PvP-игры и рулетка <b>Rolls</b> на TON — всё в одном мини-приложении.\n\n` +
+    `Сначала ознакомься с режимами кнопками ниже, затем открой игру через Telegram.` +
+    buildLaunchHint()
+  );
+}
+
+function buildAboutText() {
+  return (
+    `<b>F1 Duel</b>\n\n` +
+    `Мини-приложение в Telegram: ставки в TON, честные PvP-матчи и рулетка Rolls.\n\n` +
+    `<b>В приложении</b>\n` +
+    `• вкладка <b>Игры</b> — PvP и случайный подбор\n` +
+    `• вкладка <b>Рулетка</b> — Rolls\n` +
+    `• <b>Баланс</b> — пополнение и вывод TON\n` +
+    `• <b>Матчи</b> — история\n` +
+    `• <b>Профиль</b> — настройки и статистика` +
+    buildLaunchHint()
   );
 }
 
 function buildHelpText() {
   return (
-    `<b>Как играть</b>\n\n` +
-    `1️⃣ Нажми <b>«Играть в F1 Duel»</b> под этим сообщением.\n` +
-    `2️⃣ Примите правила при первом входе.\n` +
-    `3️⃣ Пополните баланс TON во вкладке <b>Баланс</b>.\n` +
-    `4️⃣ Выберите игру или вкладку <b>Рулетка</b> (Rolls).\n\n` +
-    `<b>PvP</b> — ставка блокируется до конца матча, победитель забирает банк.\n` +
-    `<b>Rolls</b> — общий банк, шанс пропорционален ставке; таймер и честный розыгрыш.\n\n` +
-    `Команды: /play — открыть приложение · /games — режимы · /support — помощь`
+    `<b>Как начать</b>\n\n` +
+    `1️⃣ Открой мини-приложение кнопкой <b>«Играть»</b> у поля ввода.\n` +
+    `2️⃣ Прими правила (один раз).\n` +
+    `3️⃣ Пополни баланс TON во вкладке <b>Баланс</b>.\n` +
+    `4️⃣ Выбери игру или вкладку <b>Рулетка</b>.\n\n` +
+    `<b>Правила ставок</b>\n` +
+    `• PvP: ставка блокируется до конца матча, победитель забирает банк.\n` +
+    `• Rolls: общий банк, шанс пропорционален ставке; таймер и розыгрыш колеса.\n\n` +
+    `Команды: /games — подробнее о режимах` +
+    buildLaunchHint()
   );
 }
 
 function buildGamesText() {
+  const lines = GAMES.map((g) => `• ${g.icon} <b>${escapeHtml(g.name)}</b> — ${g.desc}`);
   return (
-    `<b>Режимы в приложении</b>\n\n` +
-    `${GAMES.map((g) => `• ${g}`).join("\n")}\n\n` +
-    `Всё в одном мини-приложении — нижнее меню: игры, рулетка, баланс, матчи, профиль.`
-  );
-}
-
-function buildSupportText() {
-  if (SUPPORT_URL) {
-    return (
-      `<b>Поддержка</b>\n\n` +
-      `Если что-то не работает — напишите нам:\n` +
-      `<a href="${escapeHtml(SUPPORT_URL)}">открыть чат поддержки</a>\n\n` +
-      `Перед обращением убедитесь, что открываете игру кнопкой <b>«Играть»</b>, а не во внешнем браузере.`
-    );
-  }
-  return (
-    `<b>Поддержка</b>\n\n` +
-    `Опишите проблему в ответ на это сообщение (скриншот + что нажимали).\n\n` +
-    `Важно: играйте только через кнопку <b>«Играть в F1 Duel»</b> внутри Telegram.`
+    `<b>Режимы</b>\n\n` +
+    `${lines.join("\n")}\n\n` +
+    `Все режимы в одном приложении — переключайся через нижнее меню после запуска.` +
+    buildLaunchHint()
   );
 }
 
@@ -133,38 +120,31 @@ async function tg(method, payload) {
   return data;
 }
 
-async function answerCallback(callbackQueryId, text) {
+async function answerCallback(callbackQueryId) {
   try {
-    await tg("answerCallbackQuery", {
-      callback_query_id: callbackQueryId,
-      text: text || "",
-      show_alert: false,
-    });
+    await tg("answerCallbackQuery", { callback_query_id: callbackQueryId });
   } catch {
     /* ignore */
   }
 }
 
-async function sendNavMessage(chatId, text, startPayload, extra = {}) {
+async function sendNavMessage(chatId, text) {
   await tg("sendMessage", {
     chat_id: chatId,
     text,
     parse_mode: "HTML",
     disable_web_page_preview: true,
-    reply_markup: buildPlayKeyboard(startPayload),
-    ...extra,
+    reply_markup: buildNavKeyboard(),
   });
 }
 
 async function configureBotProfile() {
-  const short =
-    "PvP-игры и рулетка Rolls на TON. Нажми «Играть» — откроется мини-приложение.";
+  const short = "PvP и Rolls на TON. Кнопка «Играть» у поля ввода — мини-приложение.";
   const full =
-    "F1 Duel — мульти-игровое мини-приложение в Telegram.\n\n" +
-    "• PvP: жаба, гонки, пенальти, баскетбол\n" +
-    "• Rolls — рулетка с общим банком\n" +
-    "• Баланс TON, матчи, реферальная программа\n\n" +
-    "Команда /play — запуск приложения.";
+    "F1 Duel — игры в Telegram.\n\n" +
+    "Rolls, PvP (жаба, гонки, пенальти, баскетбол), баланс TON.\n\n" +
+    "Откройте бота → «Играть» слева от поля ввода.\n" +
+    "В чате: /help и /games — подсказки перед игрой.";
   const results = {};
   try {
     results.setMyShortDescription = await tg("setMyShortDescription", { short_description: short });
@@ -179,20 +159,21 @@ async function configureBotProfile() {
   return results;
 }
 
+/** Кнопка меню у поля ввода — единственная точка запуска TMA из API */
 async function configureBotMenu() {
-  const results = {};
-  results.setMyCommands = await tg("setMyCommands", {
-    commands: BOT_COMMANDS,
-    scope: { type: "default" },
-  });
-  results.setChatMenuButton = await tg("setChatMenuButton", {
-    menu_button: {
-      type: "web_app",
-      text: "🎮 Играть",
-      web_app: { url: APP_URL },
-    },
-  });
-  return results;
+  return {
+    setMyCommands: await tg("setMyCommands", {
+      commands: BOT_COMMANDS,
+      scope: { type: "default" },
+    }),
+    setChatMenuButton: await tg("setChatMenuButton", {
+      menu_button: {
+        type: "web_app",
+        text: "🎮 Играть",
+        web_app: { url: APP_URL },
+      },
+    }),
+  };
 }
 
 async function registerWebhook() {
@@ -210,55 +191,28 @@ async function handleMessage(message) {
   const chatId = message.chat.id;
   const text = typeof message.text === "string" ? message.text.trim() : "";
   const firstName = message.from?.first_name || "";
-
-  if (text.startsWith("/start")) {
-    const payload = parseStartPayload(text);
-    await sendNavMessage(chatId, buildWelcomeText(firstName, payload), payload);
-    return;
-  }
-
   const cmd = text.split(/\s+/)[0]?.split("@")[0]?.toLowerCase() || "";
 
-  if (cmd === "/play") {
-    await sendNavMessage(
-      chatId,
-      "🚀 <b>Запуск F1 Duel</b>\n\nНажми кнопку ниже — мини-приложение откроется прямо в Telegram.",
-      ""
-    );
+  if (text.startsWith("/start") || cmd === "/start") {
+    await sendNavMessage(chatId, buildWelcomeText(firstName));
     return;
   }
 
   if (cmd === "/help") {
-    await sendNavMessage(chatId, buildHelpText(), "");
+    await sendNavMessage(chatId, buildHelpText());
     return;
   }
 
   if (cmd === "/games") {
-    await sendNavMessage(chatId, buildGamesText(), "");
+    await sendNavMessage(chatId, buildGamesText());
     return;
   }
 
-  if (cmd === "/support") {
-    const kb = buildPlayKeyboard("");
-    if (SUPPORT_URL) {
-      kb.inline_keyboard.push([{ text: "💬 Написать в поддержку", url: SUPPORT_URL }]);
-    }
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: buildSupportText(),
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-      reply_markup: kb,
-    });
-    return;
-  }
-
-  // Любой другой текст — одна точка входа
   if (text) {
     await sendNavMessage(
       chatId,
-      "Я помогу открыть <b>F1 Duel</b>.\n\nИспользуй кнопку ниже или команды:\n/play · /help · /games · /support",
-      ""
+      "Выбери раздел кнопками ниже или команды:\n/help — как играть · /games — режимы\n\n" +
+        "Чтобы играть — кнопка <b>«Играть»</b> у поля ввода в Telegram."
     );
   }
 }
@@ -273,29 +227,22 @@ async function handleCallbackQuery(cb) {
     return;
   }
 
-  if (data === CB.PLAY) {
-    await answerCallback(cqId, "Откройте мини-приложение кнопкой выше");
-    await sendNavMessage(
-      chatId,
-      "🎮 <b>F1 Duel</b>\n\nНажмите <b>«Играть в F1 Duel»</b> — это официальный запуск TMA в Telegram.",
-      ""
-    );
-    return;
-  }
+  await answerCallback(cqId);
 
   if (data === CB.HELP) {
-    await answerCallback(cqId);
-    await sendNavMessage(chatId, buildHelpText(), "");
+    await sendNavMessage(chatId, buildHelpText());
     return;
   }
-
   if (data === CB.GAMES) {
-    await answerCallback(cqId);
-    await sendNavMessage(chatId, buildGamesText(), "");
+    await sendNavMessage(chatId, buildGamesText());
+    return;
+  }
+  if (data === CB.ABOUT) {
+    await sendNavMessage(chatId, buildAboutText());
     return;
   }
 
-  await answerCallback(cqId);
+  await sendNavMessage(chatId, buildWelcomeText(cb.from?.first_name || ""));
 }
 
 async function runFullSetup() {
@@ -329,8 +276,7 @@ module.exports = async (req, res) => {
       const action = req.query?.action || "info";
 
       if (action === "setWebhook" || action === "setup") {
-        const result = await runFullSetup();
-        return res.status(200).json(result);
+        return res.status(200).json(await runFullSetup());
       }
 
       if (action === "getWebhookInfo") {
@@ -341,7 +287,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({
         ok: true,
         appUrl: APP_URL,
-        hint: "GET ?action=setup — webhook, команды, кнопка «Играть», описание бота",
+        hint: "GET ?action=setup — webhook, команды, Menu Button «Играть»",
       });
     }
 
@@ -363,9 +309,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
-    const message = update.message;
-    if (message) {
-      await handleMessage(message);
+    if (update.message) {
+      await handleMessage(update.message);
     }
 
     return res.status(200).json({ ok: true });
