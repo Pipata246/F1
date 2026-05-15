@@ -1,36 +1,44 @@
 /**
- * Telegram Bot — премиальная навигация F1 Duel (один актуальный экран в чате).
- * GET  /api/bot?action=setup — webhook, команды, Menu Button (список команд)
- * POST /api/bot             — апдейты
+ * F1 Duel — бот-навигация (одно сообщение в чате).
+ * Кнопка меню у поля ввода: type "commands" → 4 команды (не Web App).
+ * GET /api/bot?action=setup
  */
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const APP_URL = (process.env.WEBAPP_URL || process.env.TELEGRAM_MINIAPP_URL || "https://f1-three-iota.vercel.app").replace(/\/+$/, "");
 const SECRET_TOKEN = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
-/** Последнее навигационное сообщение бота по chat_id (best-effort на serverless) */
 const lastNavMessageByChat = new Map();
 
+/** Совпадают с кнопками в чате и пунктами меню у поля ввода */
 const BOT_COMMANDS = [
-  { command: "start", description: "О F1 Duel" },
+  { command: "start", description: "Главная" },
   { command: "help", description: "Как играть" },
-  { command: "games", description: "Режимы и игры" },
+  { command: "games", description: "Режимы" },
+  { command: "about", description: "О платформе" },
 ];
 
 const GAMES = [
-  { icon: "🎡", name: "Rolls", desc: "рулетка с общим банком и честным розыгрышем" },
-  { icon: "🎲", name: "Случайная дуэль", desc: "мгновенный PvP в одной из игр" },
-  { icon: "🐸", name: "Охота на жабу", desc: "тактика, блеф и точный выстрел" },
-  { icon: "🏁", name: "Полоса препятствий", desc: "скорость и контроль в 1v1" },
-  { icon: "⚽", name: "Супер-пенальти", desc: "серия пенальти на реакцию" },
-  { icon: "🏀", name: "Баскетбол", desc: "точные броски против соперника" },
+  { icon: "🎡", name: "Rolls", desc: "рулетка: общий банк, шанс от размера ставки" },
+  { icon: "🎲", name: "Случайная дуэль", desc: "быстрый матч в одной из PvP-игр" },
+  { icon: "🐸", name: "Охота на жабу", desc: "прятки и выстрел по кувшинкам" },
+  { icon: "🏁", name: "Полоса препятствий", desc: "гонка 1 на 1" },
+  { icon: "⚽", name: "Супер-пенальти", desc: "серия пенальти" },
+  { icon: "🏀", name: "Баскетбол", desc: "броски на очки" },
 ];
 
 const CB = {
+  HOME: "nav:home",
   HELP: "nav:help",
   GAMES: "nav:games",
   ABOUT: "nav:about",
-  HOME: "nav:home",
+};
+
+const SCREEN = {
+  home: "home",
+  help: "help",
+  games: "games",
+  about: "about",
 };
 
 function escapeHtml(s) {
@@ -40,17 +48,7 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
-const DIVIDER = "────────────────";
-
-function buildLaunchHint() {
-  return (
-    `\n${DIVIDER}\n` +
-    `<i>Команды бота:</i> кнопка меню слева от поля ввода — <b>/start</b> · <b>/help</b> · <b>/games</b>\n` +
-    `<i>Мини-приложение:</i> иконка F1 Duel у скрепки (запуск игры)`
-  );
-}
-
-function buildNavKeyboard(active = "home") {
+function buildNavKeyboard(active) {
   const mark = (key, label) => (active === key ? `▸ ${label}` : label);
   return {
     inline_keyboard: [
@@ -66,72 +64,76 @@ function buildNavKeyboard(active = "home") {
   };
 }
 
-function buildWelcomeText(firstName) {
+function buildHomeText(firstName) {
   const name = firstName ? `${escapeHtml(firstName)}, ` : "";
   return (
     `<b>✦ F1 Duel</b>\n\n` +
-    `${name}добро пожаловать.\n\n` +
-    `Платформа PvP-дуэлей и рулетки <b>Rolls</b> на TON — внутри Telegram, без лишних шагов.\n\n` +
-    `Выберите раздел ниже, чтобы ознакомиться с режимами. Когда будете готовы — откройте мини-приложение.` +
-    buildLaunchHint()
-  );
-}
-
-function buildAboutText() {
-  return (
-    `<b>✦ О платформе</b>\n\n` +
-    `<b>F1 Duel</b> — единое мини-приложение для ставок в TON и соревнований 1 на 1.\n\n` +
-    `<b>Разделы приложения</b>\n` +
-    `▸ <b>Игры</b> — PvP и быстрый случайный матч\n` +
-    `▸ <b>Рулетка</b> — Rolls с общим банком\n` +
-    `▸ <b>Баланс</b> — пополнение и вывод TON\n` +
-    `▸ <b>Матчи</b> — история и результаты\n` +
-    `▸ <b>Профиль</b> — статистика и настройки` +
-    buildLaunchHint()
+    `${name}PvP-дуэли и рулетка <b>Rolls</b> на балансе в <b>TON</b>.\n\n` +
+    `Игра — в мини-приложении (иконка у скрепки). Здесь — справка: правила, режимы, баланс и рефералка.\n\n` +
+    `<i>Меню у поля ввода или кнопки ниже — те же 4 раздела.</i>`
   );
 }
 
 function buildHelpText() {
   return (
-    `<b>✦ Как начать</b>\n\n` +
-    `<b>1.</b> Откройте мини-приложение — иконка F1 Duel рядом со скрепкой.\n` +
-    `<b>2.</b> Примите правила при первом входе.\n` +
-    `<b>3.</b> Пополните баланс TON во вкладке <b>Баланс</b>.\n` +
-    `<b>4.</b> Выберите PvP-игру или вкладку <b>Рулетка</b>.\n\n` +
-    `${DIVIDER}\n` +
-    `<b>PvP</b> — ставка фиксируется до конца матча; победитель получает банк.\n` +
-    `<b>Rolls</b> — шанс зависит от доли ставки; после таймера — розыгрыш колеса.` +
-    buildLaunchHint()
+    `<b>✦ Как играть</b>\n\n` +
+    `<b>PvP</b>\n` +
+    `1. Вкладка <b>Игры</b> → выберите режим или «Случайная игра».\n` +
+    `2. Укажите ставку и дождитесь соперника.\n` +
+    `3. Ставка блокируется до конца матча — победитель забирает банк.\n\n` +
+    `<b>Rolls (рулетка)</b>\n` +
+    `1. Вкладка <b>Рулетка</b> → «Войти в игру».\n` +
+    `2. Минимальная ставка 0.1 TON; можно повышать на 0.1 TON.\n` +
+    `3. После таймера — розыгрыш; шанс выигрыша = доля вашей ставки в банке.`
   );
 }
 
 function buildGamesText() {
-  const lines = GAMES.map(
-    (g) => `${g.icon} <b>${escapeHtml(g.name)}</b>\n<i>${escapeHtml(g.desc)}</i>`
-  );
+  const lines = GAMES.map((g) => `${g.icon} <b>${escapeHtml(g.name)}</b> — ${g.desc}`);
+  return `<b>✦ Режимы</b>\n\n${lines.join("\n")}`;
+}
+
+function buildAboutText() {
   return (
-    `<b>✦ Режимы</b>\n\n` +
-    `${lines.join("\n\n")}\n\n` +
-    `${DIVIDER}\n` +
-    `Все режимы доступны в одном приложении — переключение через нижнее меню после запуска.` +
-    buildLaunchHint()
+    `<b>✦ О платформе</b>\n\n` +
+    `<b>Пополнение</b> (вкладка <b>Баланс</b> → Пополнить)\n` +
+    `▸ <b>TON</b> — кошелёк Ton Connect, перевод на адрес сервиса.\n` +
+    `▸ <b>USDT</b> — оплата счёта в @CryptoBot, зачисление в TON по курсу.\n\n` +
+    `<b>Вывод</b> (вкладка <b>Баланс</b> → Вывести)\n` +
+    `▸ <b>TON</b> — на ваш TON-кошелёк (комиссия сервиса, см. форму вывода).\n` +
+    `▸ <b>USDT</b> — на @CryptoBot (конвертация + комиссия, обычно 20%).\n\n` +
+    `<b>Рефералка</b>\n` +
+    `▸ Ваш код — в <b>Профиле</b>, можно поделиться с другом.\n` +
+    `▸ После первой дуэли приглашённого вы получаете <b>+100 coins</b>.\n` +
+    `▸ Код друга — один раз при регистрации в приложении.`
   );
 }
 
-function buildHintText() {
-  return (
-    `<b>✦ F1 Duel</b>\n\n` +
-    `Используйте кнопки ниже или команды:\n` +
-    `<b>/help</b> — инструкция · <b>/games</b> — режимы\n\n` +
-    `<i>Слева от поля ввода — меню команд бота. Игра — через иконку мини-приложения у скрепки.</i>`
-  );
+function textForScreen(screen, firstName) {
+  switch (screen) {
+    case SCREEN.help:
+      return { text: buildHelpText(), active: SCREEN.help };
+    case SCREEN.games:
+      return { text: buildGamesText(), active: SCREEN.games };
+    case SCREEN.about:
+      return { text: buildAboutText(), active: SCREEN.about };
+    default:
+      return { text: buildHomeText(firstName), active: SCREEN.home };
+  }
 }
 
-function screenTextByCallback(data, firstName) {
-  if (data === CB.HELP) return { text: buildHelpText(), active: "help" };
-  if (data === CB.GAMES) return { text: buildGamesText(), active: "games" };
-  if (data === CB.ABOUT) return { text: buildAboutText(), active: "about" };
-  return { text: buildWelcomeText(firstName), active: "home" };
+function screenFromCommand(cmd) {
+  if (cmd === "/help") return SCREEN.help;
+  if (cmd === "/games") return SCREEN.games;
+  if (cmd === "/about") return SCREEN.about;
+  return SCREEN.home;
+}
+
+function screenFromCallback(data) {
+  if (data === CB.HELP) return SCREEN.help;
+  if (data === CB.GAMES) return SCREEN.games;
+  if (data === CB.ABOUT) return SCREEN.about;
+  return SCREEN.home;
 }
 
 async function tg(method, payload) {
@@ -154,7 +156,7 @@ async function deleteMessageSafe(chatId, messageId) {
   try {
     await tg("deleteMessage", { chat_id: chatId, message_id: messageId });
   } catch {
-    /* уже удалено или нельзя удалить */
+    /* ignore */
   }
 }
 
@@ -167,36 +169,37 @@ async function answerCallback(callbackQueryId) {
 }
 
 /**
- * Показать один «экран» навигации: редактирование или замена с удалением прошлого.
+ * Один экран в чате: правим то же сообщение (плавная смена в клиенте TG).
+ * Команды пользователя удаляются; лишние сообщения бота — тоже.
  */
 async function showNavScreen(chatId, text, opts = {}) {
-  const { editMessageId, deleteUserMessageId, active = "home" } = opts;
+  const { editMessageId, deleteUserMessageId, active = SCREEN.home } = opts;
   const keyboard = buildNavKeyboard(active);
+  const chatKey = String(chatId);
 
   if (deleteUserMessageId) {
     await deleteMessageSafe(chatId, deleteUserMessageId);
   }
 
-  if (editMessageId) {
+  const storedId = lastNavMessageByChat.get(chatKey);
+  const targetEditId = editMessageId || storedId;
+
+  if (targetEditId) {
     try {
       await tg("editMessageText", {
         chat_id: chatId,
-        message_id: editMessageId,
+        message_id: targetEditId,
         text,
         parse_mode: "HTML",
         disable_web_page_preview: true,
         reply_markup: keyboard,
       });
-      lastNavMessageByChat.set(String(chatId), editMessageId);
+      lastNavMessageByChat.set(chatKey, targetEditId);
       return;
     } catch {
-      /* слишком старое / тот же текст — отправим заново */
+      await deleteMessageSafe(chatId, targetEditId);
+      if (storedId === targetEditId) lastNavMessageByChat.delete(chatKey);
     }
-  }
-
-  const prevId = lastNavMessageByChat.get(String(chatId));
-  if (prevId && prevId !== editMessageId) {
-    await deleteMessageSafe(chatId, prevId);
   }
 
   const sent = await tg("sendMessage", {
@@ -207,18 +210,20 @@ async function showNavScreen(chatId, text, opts = {}) {
     reply_markup: keyboard,
   });
   const newId = sent.result?.message_id;
-  if (newId) lastNavMessageByChat.set(String(chatId), newId);
+  if (newId) lastNavMessageByChat.set(chatKey, newId);
+}
+
+async function navigateTo(chatId, screen, firstName, opts = {}) {
+  const { text, active } = textForScreen(screen, firstName);
+  await showNavScreen(chatId, text, { ...opts, active });
 }
 
 async function configureBotProfile() {
-  const short =
-    "PvP-дуэли и Rolls на TON. Меню команд слева от ввода · игра — мини-приложение у скрепки.";
+  const short = "PvP и Rolls на TON. Меню у поля ввода: Главная, Как играть, Режимы, О платформе.";
   const full =
-    "✦ F1 Duel\n\n" +
-    "Мини-приложение для честных PvP-матчей и рулетки Rolls на TON.\n\n" +
-    "Жаба · гонки · пенальти · баскетбол · случайный матч · Rolls\n\n" +
-    "Слева от поля ввода — меню команд (/start, /help, /games).\n" +
-    "Иконка мини-приложения у скрепки — запуск игры.";
+    "F1 Duel — PvP и рулетка Rolls в Telegram.\n\n" +
+    "Меню слева от ввода: /start /help /games /about\n" +
+    "Игра — мини-приложение (иконка у скрепки).";
   const results = {};
   try {
     results.setMyShortDescription = await tg("setMyShortDescription", { short_description: short });
@@ -233,17 +238,16 @@ async function configureBotProfile() {
   return results;
 }
 
-/** Кнопка слева от поля ввода — выпадающий список команд (не Web App) */
+/** Меню у поля ввода = список команд (не «Играть» / Web App) */
 async function configureBotMenu() {
-  return {
-    setMyCommands: await tg("setMyCommands", {
-      commands: BOT_COMMANDS,
-      scope: { type: "default" },
-    }),
-    setChatMenuButton: await tg("setChatMenuButton", {
-      menu_button: { type: "commands" },
-    }),
-  };
+  const commands = await tg("setMyCommands", {
+    commands: BOT_COMMANDS,
+    scope: { type: "default" },
+  });
+  const menuButton = await tg("setChatMenuButton", {
+    menu_button: { type: "commands" },
+  });
+  return { setMyCommands: commands, setChatMenuButton: menuButton };
 }
 
 async function registerWebhook() {
@@ -264,42 +268,23 @@ async function handleMessage(message) {
   const cmd = text.split(/\s+/)[0]?.split("@")[0]?.toLowerCase() || "";
   const userMsgId = message.message_id;
 
-  if (text.startsWith("/start") || cmd === "/start") {
-    await showNavScreen(chatId, buildWelcomeText(firstName), {
-      deleteUserMessageId: userMsgId,
-      active: "home",
-    });
+  if (!text.startsWith("/")) {
+    if (text) {
+      await deleteMessageSafe(chatId, userMsgId);
+      await navigateTo(chatId, SCREEN.home, firstName, {});
+    }
     return;
   }
 
-  if (cmd === "/help") {
-    await showNavScreen(chatId, buildHelpText(), {
-      deleteUserMessageId: userMsgId,
-      active: "help",
-    });
-    return;
-  }
-
-  if (cmd === "/games") {
-    await showNavScreen(chatId, buildGamesText(), {
-      deleteUserMessageId: userMsgId,
-      active: "games",
-    });
-    return;
-  }
-
-  if (text) {
-    await showNavScreen(chatId, buildHintText(), {
-      deleteUserMessageId: userMsgId,
-      active: "home",
-    });
-  }
+  const screen = screenFromCommand(cmd);
+  await navigateTo(chatId, screen, firstName, {
+    deleteUserMessageId: userMsgId,
+  });
 }
 
 async function handleCallbackQuery(cb) {
   const chatId = cb.message?.chat?.id;
   const editMessageId = cb.message?.message_id;
-  const data = cb.data || "";
   const cqId = cb.id;
   const firstName = cb.from?.first_name || "";
 
@@ -309,9 +294,8 @@ async function handleCallbackQuery(cb) {
   }
 
   await answerCallback(cqId);
-
-  const { text, active } = screenTextByCallback(data, firstName);
-  await showNavScreen(chatId, text, { editMessageId, active });
+  const screen = screenFromCallback(cb.data || "");
+  await navigateTo(chatId, screen, firstName, { editMessageId });
 }
 
 async function runFullSetup() {
@@ -328,10 +312,15 @@ async function runFullSetup() {
     ok: true,
     appUrl: APP_URL,
     webhookUrl: `${APP_URL}/api/bot`,
+    menuType: "commands",
+    commands: BOT_COMMANDS.map((c) => c.command),
     webhook,
     menu,
     profile,
     webhookInfo,
+    botFatherNote:
+      "Если у поля ввода всё ещё «Играть» с Web App: @BotFather → Bot Settings → Menu Button → Commands. " +
+      "Иконка мини-приложения у скрепки настраивается отдельно в Mini Apps.",
   };
 }
 
@@ -356,7 +345,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({
         ok: true,
         appUrl: APP_URL,
-        hint: "GET ?action=setup — webhook, команды, Menu Button (commands)",
+        commands: BOT_COMMANDS,
+        hint: "GET ?action=setup — webhook + menu type commands (4 пункта)",
       });
     }
 
