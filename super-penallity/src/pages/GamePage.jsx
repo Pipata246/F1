@@ -348,6 +348,7 @@ const GamePage = () => {
   const pvpLastTurnKeyRef = useRef('');
   const selectedZoneRef = useRef(null);
   const matchEndedRef = useRef(false);
+  const lastSubmittedZoneRef = useRef(null);
   const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
   const PVP_POLL_FAST_MS = 300; // Быстрый polling в критические моменты
   const pvpPollFastModeRef = useRef(false); // Флаг быстрого режима
@@ -386,40 +387,52 @@ const GamePage = () => {
 
   useEffect(() => () => stopBackground(), []);
 
-  // Отслеживание долгого ожидания соперника
+  // Отслеживание долгого ожидания соперника — многоступенчатый recovery.
   useEffect(() => {
-    if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
-      if (waitingOpponentTimerRef.current) clearTimeout(waitingOpponentTimerRef.current);
-      waitingOpponentTimerRef.current = setTimeout(() => {
-        if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
-          // Принудительный poll-recovery: возможно предыдущий запрос завис без abort
-          pvpPollInFlightRef.current = false;
-          pvpPollState();
-          // Через ещё 8 сек если всё ещё висим — даём пользователю выход через connection error
-          setTimeout(() => {
-            if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
-              setShowConnectionError(true);
-            }
-          }, 8000);
-        }
-      }, 7000);
-    } else {
+    if (!(waitingOpponent && playModeRef.current === 'pvp' && screen === 'game')) {
       if (waitingOpponentTimerRef.current) {
         clearTimeout(waitingOpponentTimerRef.current);
         waitingOpponentTimerRef.current = null;
       }
-      if (!waitingOpponent) {
-        setShowConnectionError(false);
-      }
+      if (!waitingOpponent) setShowConnectionError(false);
+      return undefined;
     }
 
-    return () => {
-      if (waitingOpponentTimerRef.current) {
-        clearTimeout(waitingOpponentTimerRef.current);
-        waitingOpponentTimerRef.current = null;
-      }
-    };
-  }, [waitingOpponent, screen]);
+    const timers = [];
+
+    // 5 сек: force poll (тикнет pvpAdvanceByTime на сервере, бот сходит)
+    timers.push(setTimeout(() => {
+      if (!waitingOpponent || matchEndedRef.current) return;
+      pvpPollInFlightRef.current = false;
+      pvpPollState();
+    }, 5000));
+
+    // 10 сек: повторная отправка того же хода (server идемпотентен — это форс прокручивает state машину)
+    timers.push(setTimeout(() => {
+      if (!waitingOpponent || matchEndedRef.current) return;
+      const zone = lastSubmittedZoneRef.current;
+      if (zone == null || !pvpRoomIdRef.current || !tgInitDataRef.current) return;
+      pvpMoveCommittedRef.current = false;
+      apiPost({
+        action: 'pvpSubmitMove',
+        initData: tgInitDataRef.current,
+        roomId: pvpRoomIdRef.current,
+        move: { zone: Number(zone) },
+      }).then((data) => {
+        if (data?.room && !matchEndedRef.current) applyPvpRoomState(data.room);
+      }).catch(() => {});
+      pvpPollInFlightRef.current = false;
+      pvpPollState();
+    }, 10000));
+
+    // 16 сек: показываем пользователю модалку с выходом
+    timers.push(setTimeout(() => {
+      if (!waitingOpponent || matchEndedRef.current) return;
+      setShowConnectionError(true);
+    }, 16000));
+
+    return () => { timers.forEach(clearTimeout); };
+  }, [waitingOpponent, screen, applyPvpRoomState, apiPost]);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -1213,7 +1226,8 @@ const GamePage = () => {
         
         // Prevent duplicate submissions
         if (zoneLocked) return;
-        
+
+        lastSubmittedZoneRef.current = zone;
         setZoneLocked(true);
         setWaitingOpponent(true);
         stopTimer();

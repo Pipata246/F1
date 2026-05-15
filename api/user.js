@@ -3604,13 +3604,17 @@ async function pvpGetRoomState(initData, roomId) {
 
   let roomForTick = await pvpMaybeFallbackToBot(room, tgId);
   if (!roomForTick) roomForTick = room;
-  const advanced = pvpAdvanceByTime(roomForTick);
   let nextRoom = roomForTick;
-  const hb = pvpHeartbeat(advanced.state, tgId);
 
-  if (advanced.changed || hb.changed) {
+  // Retry advance + heartbeat under optimistic lock up to 3 attempts.
+  // Если кто-то другой обновил state между нашим read и write, перечитываем свежий и повторяем
+  // advance на нём, чтобы ход бота не "потерялся" в гонке между параллельными Lambda-инстансами.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const advanced = pvpAdvanceByTime(nextRoom);
+    const hb = pvpHeartbeat(advanced.state, tgId);
+    if (!advanced.changed && !hb.changed) break;
     const patched = await sb(
-      `pvp_rooms?id=eq.${id}&updated_at=eq.${encodeURIComponent(roomForTick.updated_at)}`,
+      `pvp_rooms?id=eq.${id}&updated_at=eq.${encodeURIComponent(nextRoom.updated_at)}`,
       {
         method: "PATCH",
         body: { state_json: hb.state, updated_at: new Date().toISOString() },
@@ -3619,10 +3623,13 @@ async function pvpGetRoomState(initData, roomId) {
     );
     if (patched?.length) {
       nextRoom = patched[0];
-    } else {
-      const fresh = await sb(`pvp_rooms?id=eq.${id}&select=id,status,state_json,game_key,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,stake_ton,stake_options_ton,stake_settled_at,created_at,updated_at`);
-      if (fresh?.[0]) nextRoom = fresh[0];
+      break;
     }
+    const fresh = await sb(`pvp_rooms?id=eq.${id}&select=id,status,state_json,game_key,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,stake_ton,stake_options_ton,stake_settled_at,created_at,updated_at`);
+    if (!fresh?.[0]) break;
+    nextRoom = fresh[0];
+    // если status уже finished/cancelled — выходим без повторного advance
+    if (String(nextRoom.status || "") !== "active") break;
   }
   const nextState = asObj(nextRoom?.state_json);
   if (String(nextRoom?.status || "") === "active" && String(nextState.phase || "") === "accept_match") {
