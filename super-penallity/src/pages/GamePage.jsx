@@ -28,6 +28,10 @@ const SOUND_VOLUMES = {
   whistle_end: 0.55,
   tick: 0.3,
 };
+const SOUND_MAX_DURATION = {
+  goal: 2.4,
+  whistle_end: 2.5,
+};
 const SOUND_BUFFERS = {};
 let _audioCtx = null;
 function _getAudioCtx() {
@@ -63,9 +67,19 @@ function playSound(name) {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     const gain = ctx.createGain();
-    gain.gain.value = SOUND_VOLUMES[name] != null ? SOUND_VOLUMES[name] : 0.5;
+    const volume = SOUND_VOLUMES[name] != null ? SOUND_VOLUMES[name] : 0.5;
+    gain.gain.value = volume;
     source.connect(gain).connect(ctx.destination);
     source.start(0);
+    const maxDur = SOUND_MAX_DURATION[name];
+    if (maxDur != null) {
+      const fadeStart = Math.max(0, maxDur - 0.4);
+      try {
+        gain.gain.setValueAtTime(volume, ctx.currentTime + fadeStart);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + maxDur);
+      } catch (e) {}
+      try { source.stop(ctx.currentTime + maxDur); } catch (e) {}
+    }
   } catch (e) {}
 }
 
@@ -333,6 +347,7 @@ const GamePage = () => {
   const pvpMoveCommittedRef = useRef(false);
   const pvpLastTurnKeyRef = useRef('');
   const selectedZoneRef = useRef(null);
+  const matchEndedRef = useRef(false);
   const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
   const PVP_POLL_FAST_MS = 300; // Быстрый polling в критические моменты
   const pvpPollFastModeRef = useRef(false); // Флаг быстрого режима
@@ -374,15 +389,21 @@ const GamePage = () => {
   // Отслеживание долгого ожидания соперника
   useEffect(() => {
     if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
-      // Если ждём соперника больше 5 секунд - показываем модалку
       if (waitingOpponentTimerRef.current) clearTimeout(waitingOpponentTimerRef.current);
       waitingOpponentTimerRef.current = setTimeout(() => {
         if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
-          setShowConnectionError(true);
+          // Принудительный poll-recovery: возможно предыдущий запрос завис без abort
+          pvpPollInFlightRef.current = false;
+          pvpPollState();
+          // Через ещё 8 сек если всё ещё висим — даём пользователю выход через connection error
+          setTimeout(() => {
+            if (waitingOpponent && playModeRef.current === 'pvp' && screen === 'game') {
+              setShowConnectionError(true);
+            }
+          }, 8000);
         }
-      }, 5000);
+      }, 7000);
     } else {
-      // Ожидание закончилось - скрываем модалку и очищаем таймер
       if (waitingOpponentTimerRef.current) {
         clearTimeout(waitingOpponentTimerRef.current);
         waitingOpponentTimerRef.current = null;
@@ -391,7 +412,7 @@ const GamePage = () => {
         setShowConnectionError(false);
       }
     }
-    
+
     return () => {
       if (waitingOpponentTimerRef.current) {
         clearTimeout(waitingOpponentTimerRef.current);
@@ -973,33 +994,36 @@ const GamePage = () => {
 
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
+    if (matchEndedRef.current) return; // не реагируем на запоздалые ответы после окончания
     const s = room.state_json || {};
-    
-    // ЗАЩИТА ОТ ЗАВИСАНИЯ: Если игра завершена на сервере - принудительно показываем результат
-    if (String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+
+    const matchOver = String(room.status) === 'finished'
+      || String(room.status) === 'cancelled'
+      || String(s.phase || '') === 'match_over';
+
+    if (matchOver) {
+      matchEndedRef.current = true;
       stopPvpPolling();
       stopRealtimeSubscription();
       pvpRoomIdRef.current = null;
-      
+
       const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
       const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
       const mySide = meIsP1 ? 'p1' : 'p2';
       const myIdx = meIsP1 ? 0 : 1;
-      
+
       const scoresObj = s.scores || { p1: 0, p2: 0 };
       const arr = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
       let youWon = false;
       if (s.winnerSide) youWon = s.winnerSide === mySide;
       else if (arr[0] !== arr[1]) youWon = myIdx === 0 ? arr[0] > arr[1] : arr[1] > arr[0];
-      
-      // Проверяем если соперник вышел
+
       if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg && String(s.leaveKind || '') === 'explicit') {
         setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
         setScreen('result');
         return;
       }
-      
-      // Обычный результат матча
+
       handleServerMessage({ type: 'match_result', youWon, scores: arr });
       return;
     }
@@ -1414,8 +1438,10 @@ const GamePage = () => {
     setSelectedStakeOptions(stakes);
     setCurrentStakeTon(null);
     matchSavedRef.current = false;
+    matchEndedRef.current = false;
     pvpLastRoundMarkerRef.current = 0;
     pvpLastStartKeyRef.current = '';
+    pvpMoveCommittedRef.current = false;
     pvpRoomIdRef.current = null;
     stopPvpPolling();
     if (pvpFindRetryTimerRef.current) {
@@ -1462,6 +1488,8 @@ const GamePage = () => {
   const startSearchBot = () => {
     // Локальная игра с демо-ботом (без ставок, без бэкенда)
     playModeRef.current = 'demo-bot';
+    matchEndedRef.current = false;
+    matchSavedRef.current = false;
     setOpponent('Бот 🤖');
     setPlayerIndex(0); // Игрок всегда первый
     playerIndexRef.current = 0;
@@ -1869,12 +1897,13 @@ const GamePage = () => {
           </div>
 
           {/* Timer */}
-          <div className="flex justify-center items-center mt-2 gap-2">
-            {!zoneLocked && !showingResult && (
-              <span className={`text-sm font-mono font-bold ${timer <= 3 ? 'text-red-400 animate-pulse' : 'text-white/40'}`}>
-                {timer}с
-              </span>
-            )}
+          <div className="flex justify-center items-center mt-2 gap-2 h-5">
+            <span
+              className={`text-sm font-mono font-bold ${timer <= 3 ? 'text-red-400 animate-pulse' : 'text-white/40'}`}
+              style={{ visibility: (!zoneLocked && !showingResult) ? 'visible' : 'hidden' }}
+            >
+              {timer}с
+            </span>
           </div>
         </div>
       </div>
@@ -2074,21 +2103,20 @@ const GamePage = () => {
         </motion.div>
       </div>
 
-      {/* Status text — below ball */}
-      <div className="mt-14 z-10">
-        {waitingOpponent && !showingResult && (
+      {/* Status text — below ball (fixed height to prevent layout jump) */}
+      <div className="mt-14 z-10 h-6 flex items-center justify-center">
+        {waitingOpponent && !showingResult ? (
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full animate-spin" />
             <p className="text-white/40 text-sm font-bold">Ожидание соперника...</p>
           </div>
-        )}
-        {!zoneLocked && !showingResult && (
+        ) : (!zoneLocked && !showingResult) ? (
           <p className={`text-sm font-bold tracking-[0.2em] ${
             role === 'kicker' ? 'text-yellow-400/80' : 'text-blue-300/80'
           }`}>
             {role === 'kicker' ? '⚽ Выбери куда бить' : '🧤 Выбери куда прыгать'}
           </p>
-        )}
+        ) : null}
       </div>
       
       {/* Connection Error Modal */}
@@ -2115,22 +2143,41 @@ const GamePage = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
                 </svg>
               </div>
-              
-              {/* Title */}
+
               <div className="text-2xl font-black tracking-wide uppercase text-red-400 mb-3">
-                ПРОБЛЕМА С ИНТЕРНЕТОМ
+                ПРОБЛЕМА С СОЕДИНЕНИЕМ
               </div>
-              
-              {/* Loading Spinner */}
-              <div className="flex justify-center items-center gap-2 mb-2">
+
+              <div className="flex justify-center items-center gap-2 mb-4">
                 <div className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                 <div className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                 <div className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
               </div>
-              
-              {/* Subtitle */}
-              <div className="text-sm text-white/70 font-medium">
-                Переподключение...
+
+              <div className="text-sm text-white/70 font-medium mb-5">
+                Пытаемся восстановить связь...
+              </div>
+
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => {
+                    setShowConnectionError(false);
+                    pvpPollInFlightRef.current = false;
+                    pvpPollState();
+                  }}
+                  className="bg-white/5 border border-white/20 text-white text-sm font-bold py-2 px-4 rounded-xl active:scale-95"
+                >
+                  Повторить
+                </button>
+                <button
+                  onClick={() => {
+                    setShowConnectionError(false);
+                    handleExitToMenu();
+                  }}
+                  className="bg-red-600/80 border border-red-400 text-white text-sm font-bold py-2 px-4 rounded-xl active:scale-95"
+                >
+                  Выйти
+                </button>
               </div>
             </motion.div>
           </motion.div>
