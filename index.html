@@ -3089,6 +3089,8 @@
   }
 
   let matchesCache = [];
+  let matchesCounts = { all: 0, frog_hunt: 0, obstacle_race: 0, super_penalty: 0, basketball: 0, roulette: 0 };
+  let matchesTotal = 0;
   let matchesGameFilter = "all";
 
   function getFilteredMatches(){
@@ -3107,19 +3109,25 @@
   }
 
   function updateMatchesFilterUi(){
-    const total = matchesCache.length;
+    const total = matchesTotal || matchesCounts.all || matchesCache.length;
     document.querySelectorAll("[data-count-for]").forEach((el)=>{
       const key = el.getAttribute("data-count-for") || "all";
-      const n = key === "all" ? total : matchesCache.filter((m)=> String(m.game_key || "") === key).length;
+      const n = Number(matchesCounts[key]) || 0;
       el.textContent = key === "all" ? matchCountLabel(n) : String(n);
     });
     const hint = document.getElementById("matchesFilterHint");
     if(hint){
       if(matchesGameFilter === "all"){
-        hint.textContent = total ? `Показаны все матчи (${matchCountLabel(total)})` : "Пока нет завершённых матчей";
+        const shown = matchesCache.length;
+        hint.textContent = total
+          ? (shown < total ? `Показаны последние ${shown} из ${matchCountLabel(total)}` : `Показаны все матчи (${matchCountLabel(total)})`)
+          : "Пока нет завершённых матчей";
       } else {
-        const n = getFilteredMatches().length;
-        hint.textContent = `${gameName(matchesGameFilter)} — ${matchCountLabel(n)}`;
+        const totalGame = Number(matchesCounts[matchesGameFilter]) || 0;
+        const shown = getFilteredMatches().length;
+        hint.textContent = totalGame
+          ? (shown < totalGame ? `${gameName(matchesGameFilter)} — показано ${shown} из ${totalGame}` : `${gameName(matchesGameFilter)} — ${matchCountLabel(totalGame)}`)
+          : `В «${gameName(matchesGameFilter)}» пока нет матчей`;
       }
     }
   }
@@ -3128,8 +3136,12 @@
     if(!hasTgAuth) return;
     const silent = !!(opts && opts.silent);
     try{
-      const data = await apiJson("/api/user", { action:"getMatchHistory", initData: tgInitData, limit: 150 });
+      const data = await apiJson("/api/user", { action:"getMatchHistory", initData: tgInitData, limit: 200 });
       matchesCache = Array.isArray(data.matches) ? data.matches : [];
+      matchesCounts = data.counts && typeof data.counts === "object"
+        ? { ...matchesCounts, ...data.counts }
+        : matchesCounts;
+      matchesTotal = Number(data.total) || matchesCounts.all || matchesCache.length;
       updateMatchesFilterUi();
       renderMatches();
     }catch(e){

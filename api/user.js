@@ -841,7 +841,15 @@ async function requestUsdtWithdrawal(initData, amountTonStr) {
 
 function isWalletLedgerKind(kind) {
   const k = String(kind || "").toLowerCase();
-  return k === "deposit" || k === "withdrawal";
+  if (!k) return false;
+  if (k === "deposit" || k === "withdrawal") return true;
+  if (k.includes("deposit") || k.includes("withdraw") || k === "topup" || k === "top_up") return true;
+  return false;
+}
+
+function isOpenDepositIntentStatus(status) {
+  const st = String(status || "").toLowerCase();
+  return st === "pending" || st === "submitted";
 }
 
 async function getWalletHistory(initData, limit) {
@@ -880,7 +888,10 @@ async function getWalletHistory(initData, limit) {
 
   const opById = new Map();
   for (const r of rows || []) {
-    if (!isWalletLedgerKind(r.kind)) continue;
+    const meta = asObj(r.meta) || {};
+    if (meta.game_key || meta.room_id || meta.roomId) continue;
+    const hasTx = !!(r.ton_tx_hash && String(r.ton_tx_hash).length > 4);
+    if (!isWalletLedgerKind(r.kind) && !hasTx) continue;
     opById.set(String(r.id), { ...r, is_deposit_intent: false });
   }
 
@@ -907,6 +918,7 @@ async function getWalletHistory(initData, limit) {
 
   const intentRows = (intentsRaw || [])
     .filter((r) => !(r.status === "completed" && r.wallet_operation_id))
+    .filter((r) => isOpenDepositIntentStatus(r.status))
     .map((r) => ({
       id: r.id,
       kind: "deposit",
@@ -926,7 +938,12 @@ async function getWalletHistory(initData, limit) {
     }));
 
   const usdtRows = (usdtRowsRaw || [])
-    .filter((r) => !(r.status === "completed" && r.wallet_operation_id))
+    .filter((r) => {
+      if (r.status === "completed" && r.wallet_operation_id && opById.has(String(r.wallet_operation_id))) {
+        return false;
+      }
+      return true;
+    })
     .map((r) => ({
       id: `usdt_${r.id}`,
       kind: r.direction === "deposit" ? "usdt_deposit" : "usdt_withdrawal",
@@ -957,9 +974,9 @@ async function getWalletHistory(initData, limit) {
     combined.push(row);
   };
 
-  for (const r of intentRows) pushRow(r);
   for (const r of opById.values()) pushRow(r);
   for (const r of usdtRows) pushRow(r);
+  for (const r of intentRows) pushRow(r);
 
   combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   return combined.slice(0, safeLimit);
@@ -4303,17 +4320,46 @@ function rouletteEventsToMatches(tgId, events, cap) {
   return out;
 }
 
+function countMatchesByGame(matches) {
+  const counts = {
+    all: 0,
+    frog_hunt: 0,
+    obstacle_race: 0,
+    super_penalty: 0,
+    basketball: 0,
+    roulette: 0,
+  };
+  for (const m of matches || []) {
+    counts.all += 1;
+    const k = String(m.game_key || "");
+    if (Object.prototype.hasOwnProperty.call(counts, k)) counts[k] += 1;
+  }
+  return counts;
+}
+
+async function fetchGameMatchesForUser(tgId, perGameLimit = 120) {
+  const p1 = encodeURIComponent(tgId);
+  const keys = ["frog_hunt", "obstacle_race", "super_penalty", "basketball"];
+  const chunks = await Promise.all(
+    keys.map((gk) =>
+      sb(
+        `game_matches?or=(player1_tg_user_id.eq.${p1},player2_tg_user_id.eq.${p1})&game_key=eq.${encodeURIComponent(gk)}&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${perGameLimit}`
+      ).catch(() => [])
+    )
+  );
+  return chunks.flat();
+}
+
 async function getMatchHistory(initData, limit = 50) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
-  const fetchCap = Math.min(200, Math.max(safeLimit, 100));
+  const perGameCap = 120;
+  const pvpEventCap = 400;
 
-  const gameRows = await sb(
-    `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${fetchCap}`
-  );
+  const gameRows = await fetchGameMatchesForUser(tgId, perGameCap);
 
   const knownRoomIds = new Set();
   for (const m of gameRows || []) {
@@ -4324,9 +4370,10 @@ async function getMatchHistory(initData, limit = 50) {
   let pvpFallbackRows = [];
   try {
     const pvpEvents = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=neq.roulette&event_type=in.(win,loss,refund)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${fetchCap}`
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss,refund)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${pvpEventCap}`
     );
-    pvpFallbackRows = pvpBalanceEventsToMatches(tgId, pvpEvents).filter((m) => {
+    const pvpOnly = (pvpEvents || []).filter((e) => String(e.game_key || "") !== "roulette");
+    pvpFallbackRows = pvpBalanceEventsToMatches(tgId, pvpOnly).filter((m) => {
       const rk = matchHistoryRoomKey(m);
       return !rk || !knownRoomIds.has(rk);
     });
@@ -4334,13 +4381,12 @@ async function getMatchHistory(initData, limit = 50) {
     /* ignore */
   }
 
-  const rouletteCap = Math.min(50, Math.max(15, Math.floor(safeLimit * 0.35)));
   let rouletteMatches = [];
   try {
     const rouletteEvents = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${fetchCap}`
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${pvpEventCap}`
     );
-    rouletteMatches = rouletteEventsToMatches(tgId, rouletteEvents, rouletteCap);
+    rouletteMatches = rouletteEventsToMatches(tgId, rouletteEvents, pvpEventCap);
   } catch {
     /* ignore */
   }
@@ -4351,7 +4397,7 @@ async function getMatchHistory(initData, limit = 50) {
     if (!m) return;
     const idKey = m.id != null ? String(m.id) : null;
     const roomKey = matchHistoryRoomKey(m);
-    const dedupeKey = idKey || roomKey || `${m.game_key}_${m.finished_at}`;
+    const dedupeKey = roomKey || idKey || `${m.game_key}_${m.finished_at}`;
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
     merged.push(m);
@@ -4362,7 +4408,12 @@ async function getMatchHistory(initData, limit = 50) {
   for (const m of rouletteMatches) pushMatch(m);
 
   merged.sort((a, b) => new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime());
-  return merged.slice(0, safeLimit);
+  const counts = countMatchesByGame(merged);
+  return {
+    matches: merged.slice(0, safeLimit),
+    counts,
+    total: merged.length,
+  };
 }
 
 /**
@@ -4494,8 +4545,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, stats });
     }
     if (action === "getMatchHistory") {
-      const matches = await getMatchHistory(req.body?.initData || "", req.body?.limit || 50);
-      return res.status(200).json({ ok: true, matches });
+      const hist = await getMatchHistory(req.body?.initData || "", req.body?.limit || 50);
+      return res.status(200).json({ ok: true, ...hist });
     }
     if (action === "presenceHeartbeat") {
       await presenceHeartbeat(req.body?.initData || "");
