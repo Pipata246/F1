@@ -839,6 +839,11 @@ async function requestUsdtWithdrawal(initData, amountTonStr) {
   };
 }
 
+function isWalletLedgerKind(kind) {
+  const k = String(kind || "").toLowerCase();
+  return k === "deposit" || k === "withdrawal";
+}
+
 async function getWalletHistory(initData, limit) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -849,30 +854,57 @@ async function getWalletHistory(initData, limit) {
   } catch {
     /* ignore */
   }
-  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
-  const walletHistKinds = new Set(["deposit", "withdrawal"]);
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const fetchCap = Math.min(200, Math.max(safeLimit, 80));
+
   const rows = await sb(
-    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&kind=in.(deposit,withdrawal)&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${safeLimit}`
+    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${fetchCap}`
   );
+
   let intentsRaw = [];
   let usdtRowsRaw = [];
   try {
     intentsRaw = await sb(
-      `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,declared_amount_ton,status,wallet_operation_id,ton_tx_hash,created_at,expires_at,submitted_at&order=created_at.desc&limit=${safeLimit}`
+      `deposit_intents?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,declared_amount_ton,status,wallet_operation_id,ton_tx_hash,created_at,expires_at,submitted_at&order=created_at.desc&limit=${fetchCap}`
     );
   } catch {
     /* таблица deposit_intents ещё не создана — только ledger */
   }
   try {
     usdtRowsRaw = await sb(
-      `usdt_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,direction,status,amount_usdt,ton_rate,ton_amount,fee_bps,fee_ton,net_ton,created_at,completed_at,to_details,meta&order=created_at.desc&limit=${safeLimit}`
+      `usdt_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,direction,status,amount_usdt,ton_rate,ton_amount,fee_bps,fee_ton,net_ton,wallet_operation_id,created_at,completed_at,to_details,meta&order=created_at.desc&limit=${fetchCap}`
     );
   } catch {
     /* таблица может отсутствовать до миграции */
   }
-  const opRows = (rows || [])
-    .filter((r) => walletHistKinds.has(String(r.kind || "").toLowerCase()))
-    .map((r) => ({ ...r, is_deposit_intent: false }));
+
+  const opById = new Map();
+  for (const r of rows || []) {
+    if (!isWalletLedgerKind(r.kind)) continue;
+    opById.set(String(r.id), { ...r, is_deposit_intent: false });
+  }
+
+  const missingOpIds = [];
+  for (const intent of intentsRaw || []) {
+    const opId = intent.wallet_operation_id;
+    if (!opId || opById.has(String(opId))) continue;
+    missingOpIds.push(String(opId));
+  }
+  if (missingOpIds.length) {
+    const chunk = missingOpIds.slice(0, 80);
+    try {
+      const extra = await sb(
+        `wallet_operations?id=in.(${chunk.map((id) => encodeURIComponent(id)).join(",")})&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta`
+      );
+      for (const r of extra || []) {
+        if (!isWalletLedgerKind(r.kind)) continue;
+        opById.set(String(r.id), { ...r, is_deposit_intent: false });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const intentRows = (intentsRaw || [])
     .filter((r) => !(r.status === "completed" && r.wallet_operation_id))
     .map((r) => ({
@@ -892,28 +924,44 @@ async function getWalletHistory(initData, limit) {
       intent_status: r.status,
       expires_at: r.expires_at,
     }));
-  const usdtRows = (usdtRowsRaw || []).map((r) => ({
-    id: `usdt_${r.id}`,
-    kind: r.direction === "deposit" ? "usdt_deposit" : "usdt_withdrawal",
-    amount: String(r.direction === "deposit" ? r.net_ton : -Math.abs(Number(r.ton_amount || 0))),
-    status: r.status,
-    ton_tx_hash: null,
-    to_address: r.to_details || null,
-    created_at: r.created_at,
-    is_deposit_intent: false,
-    meta: {
-      usdt_amount: String(r.amount_usdt ?? ""),
-      usdt_rate: String(r.ton_rate ?? ""),
-      ton_amount: String(r.ton_amount ?? ""),
-      net_ton: String(r.net_ton ?? ""),
-      fee_ton: String(r.fee_ton ?? ""),
-      fee_bps: r.fee_bps,
-      ...(asObj(r.meta) || {}),
-    },
-  }));
-  const combined = [...intentRows, ...opRows, ...usdtRows].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+
+  const usdtRows = (usdtRowsRaw || [])
+    .filter((r) => !(r.status === "completed" && r.wallet_operation_id))
+    .map((r) => ({
+      id: `usdt_${r.id}`,
+      kind: r.direction === "deposit" ? "usdt_deposit" : "usdt_withdrawal",
+      amount: String(r.direction === "deposit" ? r.net_ton : -Math.abs(Number(r.ton_amount || 0))),
+      status: r.status,
+      ton_tx_hash: null,
+      to_address: r.to_details || null,
+      created_at: r.created_at,
+      is_deposit_intent: false,
+      meta: {
+        usdt_amount: String(r.amount_usdt ?? ""),
+        usdt_rate: String(r.ton_rate ?? ""),
+        ton_amount: String(r.ton_amount ?? ""),
+        net_ton: String(r.net_ton ?? ""),
+        fee_ton: String(r.fee_ton ?? ""),
+        fee_bps: r.fee_bps,
+        ...(asObj(r.meta) || {}),
+      },
+    }));
+
+  const seenKeys = new Set();
+  const combined = [];
+  const pushRow = (row) => {
+    const hashKey = row.ton_tx_hash ? `tx:${row.ton_tx_hash}` : null;
+    const key = hashKey || `${row.kind}:${row.id}`;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    combined.push(row);
+  };
+
+  for (const r of intentRows) pushRow(r);
+  for (const r of opById.values()) pushRow(r);
+  for (const r of usdtRows) pushRow(r);
+
+  combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   return combined.slice(0, safeLimit);
 }
 
@@ -4175,78 +4223,145 @@ async function getGameStats(initData) {
   return byGame;
 }
 
+function matchHistoryRoomKey(m) {
+  const d = asObj(m?.details_json);
+  if (d.roomId != null) return `room:${d.roomId}`;
+  if (d.room_id != null) return `room:${d.room_id}`;
+  return null;
+}
+
+function pvpBalanceEventsToMatches(tgId, events) {
+  return (events || []).map((event) => {
+    const meta = asObj(event.meta) || {};
+    const isWinner = event.event_type === "win";
+    const stake = Number(event.stake_ton || 0);
+    return {
+      id: `pvp_evt_${event.id}`,
+      game_key: String(event.game_key || "frog_hunt"),
+      mode: "pvp",
+      player1_tg_user_id: tgId,
+      player1_name: "Вы",
+      player2_tg_user_id: null,
+      player2_name: "Соперник",
+      winner_tg_user_id: isWinner ? tgId : null,
+      score_json: { left: isWinner ? 1 : 0, right: isWinner ? 0 : 1 },
+      details_json: {
+        roomId: event.room_id,
+        stakeTon: stake > 0 ? stake : null,
+        from_balance_event: true,
+        note: meta.text || null,
+        ...meta,
+      },
+      finished_at: event.created_at,
+    };
+  });
+}
+
+function rouletteEventsToMatches(tgId, events, cap) {
+  const seenRouletteRounds = new Set();
+  const out = [];
+  for (const event of events || []) {
+    const meta = asObj(event.meta) || {};
+    const isWinner = event.event_type === "win";
+    const roundId = meta.round_id;
+    if (roundId != null && roundId !== "") {
+      const key = String(roundId);
+      if (seenRouletteRounds.has(key)) continue;
+      seenRouletteRounds.add(key);
+    }
+    out.push({
+      id: `roulette_${event.id}`,
+      game_key: "roulette",
+      mode: "multiplayer",
+      player1_tg_user_id: tgId,
+      player1_name: "Вы",
+      player2_tg_user_id: meta.winner_user_id || null,
+      player2_name: `${(meta.players_count || 2) - 1 || 1} игроков`,
+      winner_tg_user_id: meta.winner_user_id || null,
+      score_json: {
+        winner_amount: meta.winner_amount || 0,
+        total_pot: meta.total_pot || 0,
+        platform_fee: 0,
+      },
+      details_json: {
+        round_id: meta.round_id,
+        players_count: meta.players_count || 2,
+        players: [
+          {
+            user_id: tgId,
+            name: "Вы",
+            bet: meta.my_bet || parseFloat(event.stake_ton || 0),
+            chance: meta.my_chance || 0,
+            is_winner: isWinner,
+          },
+        ],
+      },
+      finished_at: event.created_at,
+    });
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
 async function getMatchHistory(initData, limit = 50) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
-  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
-  
-  // Получаем обычные матчи из game_matches
-  const rows = await sb(
-    `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${safeLimit}`
-  );
-  
-  // Рулетка: отдельный лимит, чтобы не вытеснять PvP/бот-матчи из game_matches
-  const rouletteFetchLimit = Math.min(80, Math.max(20, Math.floor(safeLimit * 0.5)));
-  const rouletteResultCap = Math.min(35, Math.max(12, Math.floor(safeLimit * 0.3)));
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const fetchCap = Math.min(200, Math.max(safeLimit, 100));
 
+  const gameRows = await sb(
+    `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${fetchCap}`
+  );
+
+  const knownRoomIds = new Set();
+  for (const m of gameRows || []) {
+    const rk = matchHistoryRoomKey(m);
+    if (rk) knownRoomIds.add(rk);
+  }
+
+  let pvpFallbackRows = [];
+  try {
+    const pvpEvents = await sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=neq.roulette&event_type=in.(win,loss,refund)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${fetchCap}`
+    );
+    pvpFallbackRows = pvpBalanceEventsToMatches(tgId, pvpEvents).filter((m) => {
+      const rk = matchHistoryRoomKey(m);
+      return !rk || !knownRoomIds.has(rk);
+    });
+  } catch {
+    /* ignore */
+  }
+
+  const rouletteCap = Math.min(50, Math.max(15, Math.floor(safeLimit * 0.35)));
   let rouletteMatches = [];
   try {
     const rouletteEvents = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${rouletteFetchLimit}`
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${fetchCap}`
     );
-    
-    // Преобразуем события рулетки в формат матчей
-    const seenRouletteRounds = new Set();
-    rouletteMatches = (rouletteEvents || []).map(event => {
-      const meta = event.meta || {};
-      const isWinner = event.event_type === 'win';
-      
-      return {
-        id: `roulette_${event.id}`,
-        game_key: 'roulette',
-        mode: 'multiplayer',
-        player1_tg_user_id: tgId,
-        player1_name: 'Вы',
-        player2_tg_user_id: meta.winner_user_id || null,
-        player2_name: `${meta.players_count - 1 || 1} игроков`,
-        winner_tg_user_id: meta.winner_user_id || null,
-        score_json: {
-          winner_amount: meta.winner_amount || 0,
-          total_pot: meta.total_pot || 0,
-          platform_fee: 0
-        },
-        details_json: {
-          round_id: meta.round_id,
-          players_count: meta.players_count || 2,
-          players: [{
-            user_id: tgId,
-            name: 'Вы',
-            bet: meta.my_bet || parseFloat(event.stake_ton || 0),
-            chance: meta.my_chance || 0,
-            is_winner: isWinner
-          }]
-        },
-        finished_at: event.created_at
-      };
-    }).filter((m) => {
-      const roundId = m.details_json?.round_id;
-      if (roundId == null || roundId === "") return true;
-      const key = String(roundId);
-      if (seenRouletteRounds.has(key)) return false;
-      seenRouletteRounds.add(key);
-      return true;
-    }).slice(0, rouletteResultCap);
-  } catch (e) {
-    // Игнорируем ошибки получения рулетки
+    rouletteMatches = rouletteEventsToMatches(tgId, rouletteEvents, rouletteCap);
+  } catch {
+    /* ignore */
   }
-  
-  const gameRows = rows || [];
-  const merged = [...gameRows, ...rouletteMatches].sort((a, b) => {
-    return new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime();
-  });
-  
+
+  const seen = new Set();
+  const merged = [];
+  const pushMatch = (m) => {
+    if (!m) return;
+    const idKey = m.id != null ? String(m.id) : null;
+    const roomKey = matchHistoryRoomKey(m);
+    const dedupeKey = idKey || roomKey || `${m.game_key}_${m.finished_at}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    merged.push(m);
+  };
+
+  for (const m of gameRows || []) pushMatch(m);
+  for (const m of pvpFallbackRows) pushMatch(m);
+  for (const m of rouletteMatches) pushMatch(m);
+
+  merged.sort((a, b) => new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime());
   return merged.slice(0, safeLimit);
 }
 

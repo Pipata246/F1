@@ -2566,7 +2566,7 @@
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "referrals" && hasTgAuth) loadReferralStats();
-    if(page === "matches" && hasTgAuth) loadMatchHistory();
+    if(page === "matches" && hasTgAuth) loadMatchHistory({ silent: true });
     if(page === "wallet" && hasTgAuth){
       maybeSyncDepositsOnForeground().catch(()=>{});
       hydrateUserFromServer().then(()=>{
@@ -3124,14 +3124,17 @@
     }
   }
 
-  async function loadMatchHistory(){
+  async function loadMatchHistory(opts){
     if(!hasTgAuth) return;
+    const silent = !!(opts && opts.silent);
     try{
-      const data = await apiJson("/api/user", { action:"getMatchHistory", initData: tgInitData, limit: 100 });
+      const data = await apiJson("/api/user", { action:"getMatchHistory", initData: tgInitData, limit: 150 });
       matchesCache = Array.isArray(data.matches) ? data.matches : [];
       updateMatchesFilterUi();
       renderMatches();
-    }catch(e){}
+    }catch(e){
+      if(!silent) toast(e.message || "Не удалось загрузить историю матчей");
+    }
   }
 
   openReferralsBtn?.addEventListener("click", ()=>{
@@ -4006,7 +4009,8 @@
     openWalletModal("История операций", loadingHtml);
     let rows;
     try{
-      const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 50 });
+      await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData }).catch(()=>{});
+      const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 100 });
       const walletHistKinds = new Set(["deposit", "withdrawal", "usdt_deposit", "usdt_withdrawal"]);
       rows = (Array.isArray(data.operations) ? data.operations : []).filter((r)=>{
         const k = String(r.kind || "");
@@ -4125,6 +4129,7 @@
         if(!hasTgAuth) return;
         const tab = (location.hash||"").slice(1);
         if(tab === "profile") loadExternalStats();
+        if(tab === "matches") loadMatchHistory({ silent: true });
       }, 12000);
     }
   })();
@@ -4153,6 +4158,7 @@
       refreshOnlineCount();
       const tab = (location.hash||"").slice(1);
       if(tab === "profile") loadExternalStats();
+      if(tab === "matches") loadMatchHistory({ silent: true });
     }
   });
   window.addEventListener("pageshow", ()=>{
