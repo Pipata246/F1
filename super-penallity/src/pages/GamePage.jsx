@@ -1469,10 +1469,14 @@ const GamePage = () => {
   };
 
   const handlePlayAgain = () => {
-    // Always use PvP mode (bot fallback handled by backend)
+    const wasDemo = playModeRef.current === 'demo-bot';
     setMatchResult(null);
     setHistory([]);
-    startSearchOnline();
+    if (wasDemo) {
+      startSearchBot();
+    } else {
+      startSearchOnline();
+    }
   };
   const handleExitToMenu = () => {
     if (pvpFindRetryTimerRef.current) {
@@ -1888,8 +1892,8 @@ const GamePage = () => {
               }}
               style={{
                 height: keeperState === 'save'
-                  ? (role !== 'keeper' ? '110px' : '100px')
-                  : (role !== 'keeper' ? '152px' : '140px'),
+                  ? (role === 'kicker' ? '125px' : '100px')
+                  : (role === 'kicker' ? '170px' : '140px'),
                 transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
                 transition: 'transform 0.15s ease-out, height 0.2s ease-out',
               }}
@@ -1905,25 +1909,24 @@ const GamePage = () => {
 
           {/* Target overlays (only for kicker during turn input) */}
           {role === 'kicker' && !inputBlocked && !roleAnnounce && !showingResult && (
-            <div className="absolute top-0 left-4 w-[calc(100%-2rem)] h-[85%] grid grid-cols-2 grid-rows-2 z-20 pointer-events-none">
+            <div className="absolute top-0 left-4 w-[calc(100%-2rem)] h-[85%] grid grid-cols-2 grid-rows-2 z-40 pointer-events-none">
               {[0, 1, 2, 3].map((zone) => {
                 const isSelected = selectedZone === zone;
                 return (
                   <div
                     key={zone}
-                    className="flex items-center justify-center transition-opacity duration-200"
-                    style={{ opacity: isSelected ? 1 : 0.55 }}
+                    className="flex items-center justify-center transition-all duration-200"
                   >
                     <div
-                      className={`w-16 h-16 border-2 rounded-lg flex items-center justify-center ${
+                      className={`relative flex items-center justify-center rounded-full ${
                         isSelected
-                          ? 'border-yellow-300 bg-yellow-300/20 animate-pulse'
-                          : 'border-dashed border-white/50'
+                          ? 'w-11 h-11 border-[3px] border-yellow-300 bg-yellow-300/25 animate-pulse shadow-[0_0_18px_rgba(253,224,71,0.85)]'
+                          : 'w-9 h-9 border-2 border-dashed border-white/70 bg-black/10'
                       }`}
                     >
                       <div
-                        className={`w-3 h-3 rounded-full ${
-                          isSelected ? 'bg-yellow-300' : 'bg-white/60'
+                        className={`rounded-full ${
+                          isSelected ? 'w-2.5 h-2.5 bg-yellow-300' : 'w-1.5 h-1.5 bg-white/80'
                         }`}
                       />
                     </div>
