@@ -4179,62 +4179,152 @@ async function recordMatchClient(initData, payload) {
   return persistMatchFromPayload(safePayload);
 }
 
+const MATCH_HISTORY_EVENT_CAP = Math.max(
+  200,
+  Math.min(5000, Number(process.env.MATCH_HISTORY_EVENT_CAP) || 2500)
+);
+
 async function getGameStats(initData) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
-  const rows = await sb(
-    `game_player_stats?tg_user_id=eq.${encodeURIComponent(tgId)}&select=game_key,games_played,wins,losses,points_for,points_against,last_result,last_match_at`
-  );
+  const PVP_STAT_KEYS = ["frog_hunt", "obstacle_race", "super_penalty", "basketball", "roulette"];
   const byGame = {};
-  for (const r of rows || []) {
-    const g = Number(r.games_played || 0);
-    const w = Number(r.wins || 0);
-    const win_rate_pct = g > 0 ? Math.round((w / g) * 1000) / 10 : null;
-    byGame[r.game_key] = { ...r, win_rate_pct };
-  }
-  
-  // Добавляем статистику рулетки из pvp_balance_events
-  try {
-    const rouletteEvents = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=event_type,amount,stake_ton`
-    );
-    
-    if (rouletteEvents && rouletteEvents.length > 0) {
-      let totalBet = 0;      // Сумма ВСЕХ ставок
-      let totalWin = 0;      // Сумма ТОЛЬКО выигрышей
-      let wins = 0;
-      let losses = 0;
-      
-      for (const event of rouletteEvents) {
-        const amount = Number(event.amount || 0);
-        const stake = Number(event.stake_ton || 0);
-        
-        // Ставка учитывается всегда
-        totalBet += stake;
-        
-        if (event.event_type === 'win') {
-          wins++;
-          totalWin += amount; // Добавляем выигрыш
-        } else if (event.event_type === 'loss') {
-          losses++;
-          // НЕ вычитаем проигрыш из totalWin
-        }
+
+  const botRows = await sb(
+    `game_matches?or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&mode=eq.bot&select=game_key,player1_tg_user_id,player2_tg_user_id,winner_tg_user_id,score_json,finished_at&order=finished_at.desc&limit=1000`
+  ).catch(() => []);
+
+  for (const gk of ["frog_hunt", "obstacle_race", "super_penalty", "basketball"]) {
+    const rowsForGame = (botRows || []).filter((m) => String(m.game_key) === gk);
+    if (!rowsForGame.length) continue;
+    let wins = 0;
+    let losses = 0;
+    let pointsFor = 0;
+    let pointsAgainst = 0;
+    let lastMatchAt = null;
+    for (const m of rowsForGame) {
+      const score = asObj(m.score_json);
+      const left = Number(score.left ?? 0);
+      const right = Number(score.right ?? 0);
+      const isP1 = String(m.player1_tg_user_id || "") === tgId;
+      const myScore = isP1 ? left : right;
+      const oppScore = isP1 ? right : left;
+      const isWin = String(m.winner_tg_user_id || "") === tgId;
+      if (isWin) wins++;
+      else losses++;
+      pointsFor += myScore;
+      pointsAgainst += oppScore;
+      if (!lastMatchAt || new Date(m.finished_at) > new Date(lastMatchAt)) {
+        lastMatchAt = m.finished_at;
       }
-      
+    }
+    const games = wins + losses;
+    byGame[gk] = {
+      game_key: gk,
+      games_played: games,
+      wins,
+      losses,
+      points_for: pointsFor,
+      points_against: pointsAgainst,
+      last_result: wins >= losses ? "win" : "loss",
+      last_match_at: lastMatchAt,
+      win_rate_pct: games > 0 ? Math.round((wins / games) * 1000) / 10 : null,
+    };
+  }
+
+  try {
+    const stakeEvents = await sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss)&game_key=in.(${PVP_STAT_KEYS.join(",")})&select=game_key,event_type,amount,stake_ton,room_id,meta,created_at&order=created_at.desc&limit=${MATCH_HISTORY_EVENT_CAP}`
+    );
+
+    const pvpByGame = {};
+    const rouletteSeenRounds = new Set();
+    let rouletteTotalBet = 0;
+    let rouletteTotalWin = 0;
+    let rouletteWins = 0;
+    let rouletteLosses = 0;
+    let rouletteLastAt = null;
+
+    for (const event of stakeEvents || []) {
+      const gk = String(event.game_key || "");
+      if (gk === "roulette") {
+        const meta = asObj(event.meta);
+        const roundId = meta.round_id;
+        if (roundId != null && roundId !== "") {
+          const key = String(roundId);
+          if (rouletteSeenRounds.has(key)) continue;
+          rouletteSeenRounds.add(key);
+        }
+        const stake = Number(event.stake_ton || 0);
+        rouletteTotalBet += stake;
+        if (event.event_type === "win") {
+          rouletteWins++;
+          rouletteTotalWin += Number(event.amount || 0);
+        } else {
+          rouletteLosses++;
+        }
+        if (!rouletteLastAt || new Date(event.created_at) > new Date(rouletteLastAt)) {
+          rouletteLastAt = event.created_at;
+        }
+        continue;
+      }
+
+      const rid = event.room_id != null ? Number(event.room_id) : 0;
+      const dedupeKey = rid > 0 ? `room:${rid}` : `evt:${event.id}`;
+      if (!pvpByGame[gk]) pvpByGame[gk] = { seen: new Set(), wins: 0, losses: 0, last_at: null };
+      const bucket = pvpByGame[gk];
+      if (bucket.seen.has(dedupeKey)) continue;
+      bucket.seen.add(dedupeKey);
+      if (event.event_type === "win") bucket.wins++;
+      else bucket.losses++;
+      if (!bucket.last_at || new Date(event.created_at) > new Date(bucket.last_at)) {
+        bucket.last_at = event.created_at;
+      }
+    }
+
+    for (const gk of ["frog_hunt", "obstacle_race", "super_penalty", "basketball"]) {
+      const bucket = pvpByGame[gk];
+      if (!bucket) continue;
+      const bot = byGame[gk] || { wins: 0, losses: 0, games_played: 0, points_for: 0, points_against: 0 };
+      const wins = bucket.wins + Number(bot.wins || 0);
+      const losses = bucket.losses + Number(bot.losses || 0);
+      const games = wins + losses;
+      const lastAt =
+        bot.last_match_at && bucket.last_at
+          ? new Date(bot.last_match_at) > new Date(bucket.last_at)
+            ? bot.last_match_at
+            : bucket.last_at
+          : bucket.last_at || bot.last_match_at;
+      byGame[gk] = {
+        game_key: gk,
+        games_played: games,
+        wins,
+        losses,
+        points_for: Number(bot.points_for || 0),
+        points_against: Number(bot.points_against || 0),
+        last_result: wins >= losses ? "win" : "loss",
+        last_match_at: lastAt,
+        win_rate_pct: games > 0 ? Math.round((wins / games) * 1000) / 10 : null,
+      };
+    }
+
+    const rouletteGames = rouletteWins + rouletteLosses;
+    if (rouletteGames > 0) {
       byGame.roulette = {
-        game_key: 'roulette',
-        games_played: wins + losses,
-        wins: wins,
-        losses: losses,
-        total_bet: totalBet,      // Сумма всех ставок
-        total_win: totalWin,      // Сумма только выигрышей
-        win_rate_pct: (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 1000) / 10 : null
+        game_key: "roulette",
+        games_played: rouletteGames,
+        wins: rouletteWins,
+        losses: rouletteLosses,
+        total_bet: rouletteTotalBet,
+        total_win: rouletteTotalWin,
+        last_match_at: rouletteLastAt,
+        win_rate_pct: rouletteGames > 0 ? Math.round((rouletteWins / rouletteGames) * 1000) / 10 : null,
       };
     }
   } catch (e) {
-    // Игнорируем ошибки статистики рулетки
+    console.error("getGameStats stake events:", e?.message || e);
   }
   
   return byGame;
@@ -4247,31 +4337,61 @@ function matchHistoryRoomKey(m) {
   return null;
 }
 
-function pvpBalanceEventsToMatches(tgId, events) {
-  return (events || []).map((event) => {
-    const meta = asObj(event.meta) || {};
-    const isWinner = event.event_type === "win";
-    const stake = Number(event.stake_ton || 0);
-    return {
-      id: `pvp_evt_${event.id}`,
-      game_key: String(event.game_key || "frog_hunt"),
-      mode: "pvp",
-      player1_tg_user_id: tgId,
-      player1_name: "Вы",
-      player2_tg_user_id: null,
-      player2_name: "Соперник",
-      winner_tg_user_id: isWinner ? tgId : null,
-      score_json: { left: isWinner ? 1 : 0, right: isWinner ? 0 : 1 },
-      details_json: {
-        roomId: event.room_id,
-        stakeTon: stake > 0 ? stake : null,
-        from_balance_event: true,
-        note: meta.text || null,
-        ...meta,
-      },
-      finished_at: event.created_at,
-    };
-  });
+function pvpBalanceEventToMatch(tgId, event, room) {
+  const meta = asObj(event.meta) || {};
+  const isWinner = event.event_type === "win";
+  const stake = Number(event.stake_ton || 0);
+  const gameKey = String(event.game_key || "frog_hunt");
+  const roomObj = room && typeof room === "object" ? room : null;
+  const isP1 = roomObj && String(roomObj.player1_tg_user_id) === String(tgId);
+  const myName = isP1
+    ? String(roomObj.player1_name || "Вы")
+    : roomObj
+      ? String(roomObj.player2_name || "Вы")
+      : "Вы";
+  const oppId = roomObj
+    ? (isP1 ? roomObj.player2_tg_user_id : roomObj.player1_tg_user_id)
+    : null;
+  const oppName = roomObj
+    ? (isP1 ? roomObj.player2_name : roomObj.player1_name) || "Соперник"
+    : "Соперник";
+  const winnerId = isWinner ? tgId : (oppId ? String(oppId) : null);
+  let left = isWinner ? 1 : 0;
+  let right = isWinner ? 0 : 1;
+  if (roomObj?.state_json) {
+    const s = asObj(roomObj.state_json);
+    const scores = asObj(s.scores);
+    const matchScores = asObj(s.matchScores);
+    const src =
+      gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball"
+        ? scores
+        : matchScores;
+    const p1 = Number(src.p1 ?? 0);
+    const p2 = Number(src.p2 ?? 0);
+    if (p1 || p2) {
+      left = isP1 ? p1 : p2;
+      right = isP1 ? p2 : p1;
+    }
+  }
+  return {
+    id: `pvp_evt_${event.id}`,
+    game_key: gameKey,
+    mode: "pvp",
+    player1_tg_user_id: tgId,
+    player1_name: myName,
+    player2_tg_user_id: oppId ? String(oppId) : null,
+    player2_name: String(oppName || "Соперник"),
+    winner_tg_user_id: winnerId,
+    score_json: { left, right },
+    details_json: {
+      roomId: event.room_id,
+      stakeTon: stake > 0 ? stake : null,
+      from_balance_event: true,
+      note: meta.text || null,
+      ...meta,
+    },
+    finished_at: event.created_at,
+  };
 }
 
 function rouletteEventsToMatches(tgId, events, cap) {
@@ -4337,17 +4457,50 @@ function countMatchesByGame(matches) {
   return counts;
 }
 
-async function fetchGameMatchesForUser(tgId, perGameLimit = 120) {
+async function fetchPvpRoomsByIds(roomIds) {
+  const ids = [...new Set((roomIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0))];
+  if (!ids.length) return new Map();
+  const map = new Map();
+  const chunkSize = 80;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const slice = ids.slice(i, i + chunkSize);
+    const rows = await sb(
+      `pvp_rooms?id=in.(${slice.join(",")})&select=id,game_key,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,state_json,updated_at`
+    ).catch(() => []);
+    for (const r of rows || []) map.set(Number(r.id), r);
+  }
+  return map;
+}
+
+async function fetchBotGameMatchesForUser(tgId, cap = 500) {
   const p1 = encodeURIComponent(tgId);
-  const keys = ["frog_hunt", "obstacle_race", "super_penalty", "basketball"];
-  const chunks = await Promise.all(
-    keys.map((gk) =>
-      sb(
-        `game_matches?or=(player1_tg_user_id.eq.${p1},player2_tg_user_id.eq.${p1})&game_key=eq.${encodeURIComponent(gk)}&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${perGameLimit}`
-      ).catch(() => [])
-    )
-  );
-  return chunks.flat();
+  return sb(
+    `game_matches?or=(player1_tg_user_id.eq.${p1},player2_tg_user_id.eq.${p1})&mode=eq.bot&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${cap}`
+  ).catch(() => []);
+}
+
+async function fetchStakeBalanceEventsForUser(tgId, cap = MATCH_HISTORY_EVENT_CAP) {
+  return sb(
+    `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${cap}`
+  ).catch(() => []);
+}
+
+function buildMatchesFromStakeEvents(tgId, events, roomsById) {
+  const seenRooms = new Set();
+  const out = [];
+  for (const event of events || []) {
+    const gk = String(event.game_key || "");
+    if (gk === "roulette") continue;
+    const rid = event.room_id != null ? Number(event.room_id) : 0;
+    if (rid > 0) {
+      const roomKey = `room:${rid}`;
+      if (seenRooms.has(roomKey)) continue;
+      seenRooms.add(roomKey);
+    }
+    const room = rid > 0 ? roomsById.get(rid) : null;
+    out.push(pvpBalanceEventToMatch(tgId, event, room));
+  }
+  return out;
 }
 
 async function getMatchHistory(initData, limit = 50) {
@@ -4356,56 +4509,35 @@ async function getMatchHistory(initData, limit = 50) {
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
-  const perGameCap = 120;
-  const pvpEventCap = 400;
 
-  const gameRows = await fetchGameMatchesForUser(tgId, perGameCap);
+  const [allEvents, botRows] = await Promise.all([
+    fetchStakeBalanceEventsForUser(tgId),
+    fetchBotGameMatchesForUser(tgId),
+  ]);
 
-  const knownRoomIds = new Set();
-  for (const m of gameRows || []) {
-    const rk = matchHistoryRoomKey(m);
-    if (rk) knownRoomIds.add(rk);
-  }
+  const rouletteEvents = (allEvents || []).filter((e) => String(e.game_key || "") === "roulette");
+  const pvpEvents = (allEvents || []).filter((e) => String(e.game_key || "") !== "roulette");
+  const roomIds = pvpEvents.map((e) => e.room_id).filter((id) => id != null);
+  const roomsById = await fetchPvpRoomsByIds(roomIds);
 
-  let pvpFallbackRows = [];
-  try {
-    const pvpEvents = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss,refund)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${pvpEventCap}`
-    );
-    const pvpOnly = (pvpEvents || []).filter((e) => String(e.game_key || "") !== "roulette");
-    pvpFallbackRows = pvpBalanceEventsToMatches(tgId, pvpOnly).filter((m) => {
-      const rk = matchHistoryRoomKey(m);
-      return !rk || !knownRoomIds.has(rk);
-    });
-  } catch {
-    /* ignore */
-  }
-
-  let rouletteMatches = [];
-  try {
-    const rouletteEvents = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&game_key=eq.roulette&select=id,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${pvpEventCap}`
-    );
-    rouletteMatches = rouletteEventsToMatches(tgId, rouletteEvents, pvpEventCap);
-  } catch {
-    /* ignore */
-  }
+  const pvpFromEvents = buildMatchesFromStakeEvents(tgId, pvpEvents, roomsById);
+  const rouletteMatches = rouletteEventsToMatches(tgId, rouletteEvents, MATCH_HISTORY_EVENT_CAP);
 
   const seen = new Set();
   const merged = [];
   const pushMatch = (m) => {
     if (!m) return;
-    const idKey = m.id != null ? String(m.id) : null;
     const roomKey = matchHistoryRoomKey(m);
-    const dedupeKey = roomKey || idKey || `${m.game_key}_${m.finished_at}`;
-    if (seen.has(dedupeKey)) return;
+    const roundId = asObj(m.details_json).round_id;
+    const dedupeKey = roomKey || (roundId != null ? `roulette:${roundId}` : null) || String(m.id || "");
+    if (!dedupeKey || seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
     merged.push(m);
   };
 
-  for (const m of gameRows || []) pushMatch(m);
-  for (const m of pvpFallbackRows) pushMatch(m);
+  for (const m of pvpFromEvents) pushMatch(m);
   for (const m of rouletteMatches) pushMatch(m);
+  for (const m of botRows || []) pushMatch(m);
 
   merged.sort((a, b) => new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime());
   const counts = countMatchesByGame(merged);

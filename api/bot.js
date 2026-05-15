@@ -74,6 +74,31 @@ function buildHomeText(firstName) {
   );
 }
 
+/** Приветствие по /start — только актуальные режимы (4 PvP + Rolls). */
+function buildStartWelcomeText(firstName) {
+  const name = firstName ? escapeHtml(firstName) : "";
+  const hello = name ? `Привет, ${name}, добро пожаловать в <b>F1 Duel</b>!` : `Привет, добро пожаловать в <b>F1 Duel</b>!`;
+  return (
+    `${hello}\n\n` +
+    `Это мульти-игровой Telegram WebApp с PvP-дуэлями и рулеткой <b>Rolls</b>.\n\n` +
+    `<b>Доступные режимы:</b>\n` +
+    `• 🎡 Rolls (рулетка)\n` +
+    `• 🐸 Frog Hunt (PvP)\n` +
+    `• 🏁 Obstacle Race (PvP)\n` +
+    `• ⚽ Super Penalty (PvP)\n` +
+    `• 🏀 Basketball (PvP)\n\n` +
+    `Нажми кнопку ниже, чтобы открыть приложение.`
+  );
+}
+
+function buildStartWelcomeKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🎮 Открыть F1 Duel", web_app: { url: APP_URL } }],
+    ],
+  };
+}
+
 function buildHelpText() {
   return (
     `<b>✦ Как играть</b>\n\n` +
@@ -220,9 +245,10 @@ async function navigateTo(chatId, screen, firstName, opts = {}) {
 }
 
 async function configureBotProfile() {
-  const short = "PvP и Rolls на TON. Меню у поля ввода: Главная, Как играть, Режимы, О платформе.";
+  const short = "PvP и Rolls на TON. Frog Hunt, Obstacle Race, Penalty, Basketball.";
   const full =
-    "F1 Duel — PvP и рулетка Rolls в Telegram.\n\n" +
+    "F1 Duel — PvP-дуэли и рулетка Rolls в Telegram.\n\n" +
+    "Режимы: Rolls, Frog Hunt, Obstacle Race, Super Penalty, Basketball.\n\n" +
     "Меню слева от ввода: /start /help /games /about\n" +
     "Игра — мини-приложение (иконка у скрепки).";
   const results = {};
@@ -262,6 +288,28 @@ async function registerWebhook() {
   return tg("setWebhook", payload);
 }
 
+async function showStartWelcome(chatId, firstName, opts = {}) {
+  const { deleteUserMessageId } = opts;
+  if (deleteUserMessageId) {
+    await deleteMessageSafe(chatId, deleteUserMessageId);
+  }
+  const chatKey = String(chatId);
+  const storedId = lastNavMessageByChat.get(chatKey);
+  if (storedId) {
+    await deleteMessageSafe(chatId, storedId);
+    lastNavMessageByChat.delete(chatKey);
+  }
+  const sent = await tg("sendMessage", {
+    chat_id: chatId,
+    text: buildStartWelcomeText(firstName),
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    reply_markup: buildStartWelcomeKeyboard(),
+  });
+  const newId = sent.result?.message_id;
+  if (newId) lastNavMessageByChat.set(chatKey, newId);
+}
+
 async function handleMessage(message) {
   const chatId = message.chat.id;
   const text = typeof message.text === "string" ? message.text.trim() : "";
@@ -274,6 +322,11 @@ async function handleMessage(message) {
       await deleteMessageSafe(chatId, userMsgId);
       await navigateTo(chatId, SCREEN.home, firstName, {});
     }
+    return;
+  }
+
+  if (cmd === "/start") {
+    await showStartWelcome(chatId, firstName, { deleteUserMessageId: userMsgId });
     return;
   }
 
