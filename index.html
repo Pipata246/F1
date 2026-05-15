@@ -1747,7 +1747,11 @@
   const SETTINGS_KEY="f1duel_global_settings_v1";
   const tgInitData = tg?.initData || "";
   const hasTgAuth = !!tgInitData;
+  const PENDING_REF_KEY = "f1duel_pending_ref";
   const now = ()=>Date.now();
+  function normalizeRefCode(code){
+    return String(code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
+  }
   function readGlobalSettings(){
     try{
       const raw = localStorage.getItem(SETTINGS_KEY);
@@ -1827,6 +1831,32 @@
     };
     localStorage.setItem(KEY, JSON.stringify(persist));
     renderAll();
+  }
+
+  /** Реферал из /start в боте (?ref=) или start_param Mini App */
+  function consumePendingReferralFromLaunch(){
+    let raw = "";
+    try{
+      raw = tg?.initDataUnsafe?.start_param || "";
+      if(!raw) raw = new URLSearchParams(location.search).get("ref") || "";
+      if(!raw){
+        try{ raw = sessionStorage.getItem(PENDING_REF_KEY) || ""; }catch(e){}
+      }
+    }catch(e){}
+    const code = normalizeRefCode(raw);
+    if(!code) return "";
+    try{ sessionStorage.setItem(PENDING_REF_KEY, code); }catch(e){}
+    if(!state.profile.referredBy){
+      state.profile.referredBy = code;
+      state.profile.refStatus = "pending";
+    }
+    return code;
+  }
+  function applyPendingRefToInput(){
+    const el = document.getElementById("refInput");
+    if(!el) return;
+    const code = normalizeRefCode(state.profile.referredBy || "");
+    if(code) el.value = code;
   }
 
   async function apiJson(url, payload, opts){
@@ -2234,7 +2264,9 @@
     state.onboarding.rulesAccepted = true;
     state.profile.rulesAcceptedAt = now();
     save();
+    consumePendingReferralFromLaunch();
     go("onb-ref");
+    applyPendingRefToInput();
   };
 
   const refInput = document.getElementById("refInput");
@@ -2242,7 +2274,7 @@
   const refSkip = document.getElementById("refSkip");
   const refError = document.getElementById("refError");
 
-  function normalizeRef(code){ return (code||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,""); }
+  function normalizeRef(code){ return normalizeRefCode(code); }
 
   refApply.onclick = async ()=>{
     refError.style.display="none";
@@ -2888,6 +2920,8 @@
   }
 
   function initNav(){
+    consumePendingReferralFromLaunch();
+    applyPendingRefToInput();
     const required = needsOnboarding();
     if(required){ go(required); return; }
     const hash = (location.hash||"#games").slice(1);
