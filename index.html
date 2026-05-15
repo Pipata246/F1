@@ -3940,7 +3940,12 @@
     let rows;
     try{
       const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 50 });
-      rows = Array.isArray(data.operations) ? data.operations : [];
+      const walletHistKinds = new Set(["deposit", "withdrawal", "usdt_deposit", "usdt_withdrawal"]);
+      rows = (Array.isArray(data.operations) ? data.operations : []).filter((r)=>{
+        const k = String(r.kind || "");
+        if(k === "deposit" && r.is_deposit_intent) return true;
+        return walletHistKinds.has(k);
+      });
     }catch(e){
       if(walletModalBody){
         walletModalBody.innerHTML = `<div class="walletHistLoading"><p class="small" style="text-align:center;color:var(--text2);padding:0 8px">${escapeHtml(e.message || "Не удалось загрузить историю")}</p></div>`;
@@ -3964,13 +3969,7 @@
               ? "Вывод USDT"
           : r.kind === "withdrawal"
             ? "Вывод"
-            : r.kind === "pvp_win"
-              ? "Победа в матче"
-              : r.kind === "pvp_loss"
-                ? "Поражение в матче"
-                : r.kind === "pvp_refund"
-                  ? "Возврат ставки"
-                  : "Операция";
+            : "Операция";
       const st = {
         pending:"В обработке",
         confirming:"Подтверждение",

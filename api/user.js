@@ -850,11 +850,11 @@ async function getWalletHistory(initData, limit) {
     /* ignore */
   }
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const walletHistKinds = new Set(["deposit", "withdrawal"]);
   const rows = await sb(
-    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${safeLimit}`
+    `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&kind=in.(deposit,withdrawal)&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${safeLimit}`
   );
   let intentsRaw = [];
-  let stakeEventsRaw = [];
   let usdtRowsRaw = [];
   try {
     intentsRaw = await sb(
@@ -864,20 +864,15 @@ async function getWalletHistory(initData, limit) {
     /* таблица deposit_intents ещё не создана — только ledger */
   }
   try {
-    stakeEventsRaw = await sb(
-      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,event_type,amount,stake_ton,game_key,room_id,meta,created_at&order=created_at.desc&limit=${safeLimit}`
-    );
-  } catch {
-    /* таблица может отсутствовать до миграции */
-  }
-  try {
     usdtRowsRaw = await sb(
       `usdt_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,direction,status,amount_usdt,ton_rate,ton_amount,fee_bps,fee_ton,net_ton,created_at,completed_at,to_details,meta&order=created_at.desc&limit=${safeLimit}`
     );
   } catch {
     /* таблица может отсутствовать до миграции */
   }
-  const opRows = (rows || []).map((r) => ({ ...r, is_deposit_intent: false }));
+  const opRows = (rows || [])
+    .filter((r) => walletHistKinds.has(String(r.kind || "").toLowerCase()))
+    .map((r) => ({ ...r, is_deposit_intent: false }));
   const intentRows = (intentsRaw || [])
     .filter((r) => !(r.status === "completed" && r.wallet_operation_id))
     .map((r) => ({
@@ -897,39 +892,6 @@ async function getWalletHistory(initData, limit) {
       intent_status: r.status,
       expires_at: r.expires_at,
     }));
-  const stakeRows = (stakeEventsRaw || []).map((r) => {
-    // Используем текст из meta если он есть, иначе формируем стандартный
-    let noteText = '';
-    const metaObj = asObj(r.meta) || {};
-    
-    if (metaObj.text) {
-      noteText = metaObj.text;
-    } else if (r.event_type === "win") {
-      noteText = `Победа в матче +${r.amount} TON`;
-    } else if (r.event_type === "loss") {
-      noteText = `Поражение в матче ${r.amount} TON`;
-    } else {
-      noteText = `Возврат ставки ${r.amount} TON`;
-    }
-    
-    return {
-      id: `pvp_${r.id}`,
-      kind: r.event_type === "win" ? "pvp_win" : r.event_type === "loss" ? "pvp_loss" : "pvp_refund",
-      amount: String(r.amount ?? ""),
-      status: "completed",
-      ton_tx_hash: null,
-      to_address: null,
-      created_at: r.created_at,
-      is_deposit_intent: false,
-      meta: {
-        game_key: r.game_key || null,
-        stake_ton: r.stake_ton != null ? String(r.stake_ton) : null,
-        room_id: r.room_id || null,
-        note: noteText,
-        ...metaObj,
-      },
-    };
-  });
   const usdtRows = (usdtRowsRaw || []).map((r) => ({
     id: `usdt_${r.id}`,
     kind: r.direction === "deposit" ? "usdt_deposit" : "usdt_withdrawal",
@@ -949,7 +911,7 @@ async function getWalletHistory(initData, limit) {
       ...(asObj(r.meta) || {}),
     },
   }));
-  const combined = [...intentRows, ...opRows, ...stakeRows, ...usdtRows].sort(
+  const combined = [...intentRows, ...opRows, ...usdtRows].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
   return combined.slice(0, safeLimit);
