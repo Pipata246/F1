@@ -3609,6 +3609,7 @@ async function pvpGetRoomState(initData, roomId) {
   // Retry advance + heartbeat under optimistic lock up to 3 attempts.
   // Если кто-то другой обновил state между нашим read и write, перечитываем свежий и повторяем
   // advance на нём, чтобы ход бота не "потерялся" в гонке между параллельными Lambda-инстансами.
+  let stateChanged = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     const advanced = pvpAdvanceByTime(nextRoom);
     const hb = pvpHeartbeat(advanced.state, tgId);
@@ -3623,6 +3624,7 @@ async function pvpGetRoomState(initData, roomId) {
     );
     if (patched?.length) {
       nextRoom = patched[0];
+      stateChanged = true;
       break;
     }
     const fresh = await sb(`pvp_rooms?id=eq.${id}&select=id,status,state_json,game_key,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,stake_ton,stake_options_ton,stake_settled_at,created_at,updated_at`);
@@ -3640,12 +3642,15 @@ async function pvpGetRoomState(initData, roomId) {
         body: { state_json: forced, updated_at: new Date().toISOString() },
         prefer: "return=representation",
       });
-      if (patched?.length) nextRoom = patched[0];
+      if (patched?.length) {
+        nextRoom = patched[0];
+        stateChanged = true;
+      }
     }
   }
-  
+
   // Broadcast update if state changed
-  if (advanced.changed || hb.changed) {
+  if (stateChanged) {
     await pvpBroadcastRoomUpdate(nextRoom);
   }
   
