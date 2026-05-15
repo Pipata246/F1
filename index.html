@@ -704,19 +704,42 @@
     .profileRefNavBtn__title{font-weight:600;font-size:15px}
     .profileRefNavBtn__sub{font-size:12px;color:var(--muted);margin-top:2px}
     .profileRefNavBtn__chev{color:var(--muted);flex-shrink:0}
-    .referralsHero{
-      display:flex;flex-direction:column;gap:10px;
-      padding:14px;border-radius:14px;
-      border:1px solid rgba(140,255,193,.2);
-      background:linear-gradient(145deg,rgba(140,255,193,.08),rgba(24,26,32,.6));
+    .referralsPage{padding-bottom:8px}
+    .referralsBack{
+      margin:0 0 10px;width:auto;padding:6px 10px;font-size:13px;min-height:36px;
     }
-    .referralsHero strong{font-size:22px;letter-spacing:.04em}
-    .referralsList{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-    .referralsListItem{
-      display:flex;justify-content:space-between;align-items:center;gap:10px;
+    .referralsCodeCard{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
       padding:10px 12px;border-radius:12px;
+      border:1px solid rgba(140,255,193,.18);
+      background:rgba(140,255,193,.06);
+    }
+    .referralsCodeCard__label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+    .referralsCodeCard__code{font-size:17px;font-weight:950;letter-spacing:.06em;line-height:1.2}
+    .referralsCodeCard__bal{font-size:12px;color:var(--text2);text-align:right;line-height:1.35;white-space:nowrap}
+    .referralsRules{
+      margin:8px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.4;color:var(--muted);
+    }
+    .referralsRules li{margin:0 0 4px}
+    .referralsRules li:last-child{margin:0}
+    .referralsActions{
+      display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;
+    }
+    .referralsActions .btn{min-height:40px;padding:8px 10px;font-size:13px}
+    .referralsClaimRow{margin-top:8px}
+    .referralsClaimRow .btn{width:100%;min-height:40px;padding:8px 12px;font-size:13px}
+    .referralsClaimHint{margin-top:4px;font-size:11px;line-height:1.35;color:var(--muted);text-align:center}
+    .referralsSectionHead{
+      margin:12px 0 6px;font-size:13px;font-weight:800;color:var(--text2);
+    }
+    .referralsEmpty{font-size:12px;color:var(--muted);margin:0 0 6px}
+    .referralsList{display:flex;flex-direction:column;gap:4px;margin:0}
+    .referralsListItem{
+      display:flex;justify-content:space-between;align-items:center;gap:8px;
+      padding:7px 10px;border-radius:10px;font-size:13px;
       background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);
     }
+    .referralsListItem .small{font-size:11px}
     .profileStatHead--withIcon{
       display:flex;
       align-items:center;
@@ -1692,40 +1715,39 @@
       </section>
 
       <!-- REFERRALS -->
-      <section id="page-referrals" class="hidden">
-        <div class="glass card">
-          <button type="button" class="btn ghost" id="referralsBackBtn" style="margin-bottom:12px;width:auto;padding:8px 12px">← Профиль</button>
-          <h2 class="titleXL" style="margin:0 0 6px 0">Рефералы</h2>
-          <p class="subtitle" style="margin:0">Приглашайте друзей и получайте 5% с их пополнений</p>
-          <div class="divider"></div>
-
-          <div class="referralsHero">
-            <span class="text2">Ваш код</span>
-            <strong id="refPageCode">—</strong>
-            <span class="small muted" id="refPageEarned">Доступно к выводу: —</span>
+      <section id="page-referrals" class="hidden tabPage referralsPage">
+        <button type="button" class="btn ghost referralsBack" id="referralsBackBtn">← Профиль</button>
+        <header class="tabPageHead">
+          <h1 class="tabPageTitle">Рефералы</h1>
+          <p class="tabPageSub">5% с пополнений приглашённых · вывод от 50 TON</p>
+        </header>
+        <div class="uiBlock">
+          <div class="referralsCodeCard">
+            <div>
+              <div class="referralsCodeCard__label">Ваш код</div>
+              <div class="referralsCodeCard__code" id="refPageCode">—</div>
+            </div>
+            <div class="referralsCodeCard__bal" id="refPageEarned">К выводу: —</div>
           </div>
-
-          <div class="small muted" style="margin-top:12px;line-height:1.45">
-            Друг получает <b>0.5 TON</b> при первом входе с вашим кодом.
-            Вы получаете <b>5%</b> с каждого его пополнения.
-            Вывести на баланс можно от <b>50 TON</b>.
+          <ul class="referralsRules">
+            <li>Другу — <b>0.5 TON</b> при первом входе по коду</li>
+            <li>Вам — <b>5%</b> с каждого его пополнения</li>
+          </ul>
+          <div class="referralsActions">
+            <button type="button" class="btn ghost" id="copyRefBtn">Скопировать</button>
+            <button type="button" class="btn primary" id="shareRefBtn">Поделиться</button>
           </div>
-
-          <div class="row" style="margin-top:14px">
-            <button class="btn ghost" id="copyRefBtn" style="flex:1">Скопировать код</button>
-            <button class="btn primary" id="shareRefBtn" style="flex:1">Поделиться</button>
+          <div class="referralsClaimRow">
+            <button type="button" class="btn primary" id="claimRefBtn" disabled>Вывести на баланс</button>
+            <div class="referralsClaimHint" id="claimRefHint">Минимум 50 TON</div>
           </div>
-
-          <button class="btn primary" id="claimRefBtn" style="margin-top:12px;width:100%" disabled>Вывести на баланс</button>
-          <div class="small muted" id="claimRefHint" style="margin-top:8px;text-align:center">Минимум 50 TON для вывода</div>
-
-          <div class="divider"></div>
-          <h3 style="margin:0 0 8px 0;font-size:15px">Приглашённые (<span id="refInviteCount">0</span>)</h3>
-          <div id="refInviteEmpty" class="small muted">Пока никого нет — поделитесь кодом</div>
-          <div id="refInviteList" class="referralsList"></div>
-
-          <span id="myRefCode" class="hidden" aria-hidden="true">—</span>
         </div>
+        <div class="uiBlock">
+          <h2 class="referralsSectionHead">Приглашённые (<span id="refInviteCount">0</span>)</h2>
+          <p class="referralsEmpty" id="refInviteEmpty">Пока никого нет — поделитесь кодом</p>
+          <div id="refInviteList" class="referralsList"></div>
+        </div>
+        <span id="myRefCode" class="hidden" aria-hidden="true">—</span>
       </section>
 
       <!-- ROULETTE (Rolls-style) -->
@@ -3096,7 +3118,7 @@
     const bal = Number(s?.referralBalance ?? state.profile.referralBalanceTon ?? 0);
     state.profile.referralBalanceTon = String(bal);
     if(refPageEarned){
-      refPageEarned.textContent = `Доступно к выводу: ${formatBalanceAmountOnly(String(bal))} TON`;
+      refPageEarned.textContent = `К выводу: ${formatBalanceAmountOnly(String(bal))} TON`;
     }
     if(profileRefNavSub){
       const n = Number.isFinite(bal) ? bal : 0;
