@@ -19,30 +19,88 @@ function appSettings() {
   }
 }
 
-const SOUND_CACHE = {};
 const SOUND_VOLUMES = {
   kick: 0.6,
   save: 0.5,
-  goal: 0.7,
+  goal: 0.75,
+  background: 0.18,
   whistle_start: 0.5,
   whistle_end: 0.55,
   tick: 0.3,
-  select: 0.35,
 };
+const SOUND_BUFFERS = {};
+let _audioCtx = null;
+function _getAudioCtx() {
+  if (_audioCtx) return _audioCtx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try { _audioCtx = new Ctx(); } catch (e) { _audioCtx = null; }
+  return _audioCtx;
+}
+function _loadSound(name) {
+  const ctx = _getAudioCtx();
+  if (!ctx) return Promise.resolve(null);
+  if (SOUND_BUFFERS[name]) return Promise.resolve(SOUND_BUFFERS[name]);
+  return fetch(`${ASSET_BASE}sounds/${name}.mp3`)
+    .then((r) => r.arrayBuffer())
+    .then((buf) => new Promise((resolve, reject) => {
+      ctx.decodeAudioData(buf, resolve, reject);
+    }))
+    .then((decoded) => { SOUND_BUFFERS[name] = decoded; return decoded; })
+    .catch(() => null);
+}
+function preloadSounds() {
+  Object.keys(SOUND_VOLUMES).forEach((name) => { _loadSound(name); });
+}
 function playSound(name) {
   if (!appSettings().sound) return;
   try {
-    let audio = SOUND_CACHE[name];
-    if (!audio) {
-      audio = new Audio(`${ASSET_BASE}sounds/${name}.mp3`);
-      audio.preload = 'auto';
-      SOUND_CACHE[name] = audio;
-    }
-    audio.currentTime = 0;
-    audio.volume = SOUND_VOLUMES[name] != null ? SOUND_VOLUMES[name] : 0.5;
-    const p = audio.play();
-    if (p && typeof p.catch === 'function') p.catch(() => {});
+    const ctx = _getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const buffer = SOUND_BUFFERS[name];
+    if (!buffer) { _loadSound(name); return; }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = SOUND_VOLUMES[name] != null ? SOUND_VOLUMES[name] : 0.5;
+    source.connect(gain).connect(ctx.destination);
+    source.start(0);
   } catch (e) {}
+}
+
+let _bgSource = null;
+let _bgGain = null;
+function startBackground() {
+  if (!appSettings().sound) return;
+  if (_bgSource) return;
+  const ctx = _getAudioCtx();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  const start = () => {
+    const buffer = SOUND_BUFFERS['background'];
+    if (!buffer) return;
+    try {
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const gain = ctx.createGain();
+      gain.gain.value = SOUND_VOLUMES.background;
+      source.connect(gain).connect(ctx.destination);
+      source.start(0);
+      _bgSource = source;
+      _bgGain = gain;
+    } catch (e) {}
+  };
+  if (SOUND_BUFFERS['background']) start();
+  else _loadSound('background').then(start);
+}
+function stopBackground() {
+  try {
+    if (_bgSource) { try { _bgSource.stop(0); } catch (e) {} _bgSource.disconnect(); }
+  } catch (e) {}
+  _bgSource = null;
+  _bgGain = null;
 }
 
 // Gate container: 360x280, zone grid: left=16, w=328, h=238 (85% of 280)
@@ -52,12 +110,18 @@ function playSound(name) {
 // Ball starts at center-x=180, center-y=255 (bottom:-10, img 70x70)
 // So ball translate = zoneCenter - ballStart
 // Centers of each target zone from top-left of gate container (360x280).
-// Used both for ball landing and for visual target overlays.
+// Computed from where the ball actually lands:
+//   Ball starts with center at (180, 285) (bottom:-40, half height 35).
+//   targetPositions are translate offsets from start, so landing center = start + translate.
+//   zone 0: (180-82, 285-195) = (98, 90)
+//   zone 1: (180+82, 285-195) = (262, 90)
+//   zone 2: (180-82, 285-77)  = (98, 208)
+//   zone 3: (180+82, 285-77)  = (262, 208)
 const zoneTargetCenters = [
-  { left: 98, top: 60 },   // zone 0: top-left
-  { left: 262, top: 60 },  // zone 1: top-right
-  { left: 98, top: 178 },  // zone 2: bottom-left
-  { left: 262, top: 178 }, // zone 3: bottom-right
+  { left: 98, top: 90 },
+  { left: 262, top: 90 },
+  { left: 98, top: 208 },
+  { left: 262, top: 208 },
 ];
 
 const targetPositions = [
@@ -295,7 +359,17 @@ const GamePage = () => {
       const img = new Image();
       img.src = `${ASSET_BASE}${name}.png`;
     });
+    preloadSounds();
+    _loadSound('background');
   }, []);
+
+  useEffect(() => {
+    if (screen === 'game') startBackground();
+    else stopBackground();
+    return () => { if (screen !== 'game') stopBackground(); };
+  }, [screen]);
+
+  useEffect(() => () => stopBackground(), []);
 
   // Отслеживание долгого ожидания соперника
   useEffect(() => {
@@ -1473,7 +1547,6 @@ const GamePage = () => {
     if (zoneLocked || showingResult || inputBlocked || !!roleAnnounce) return;
     setSelectedZone(zone);
     selectedZoneRef.current = zone;
-    playSound('select');
     sendMessage('choose_zone', { zone });
   };
 
@@ -1740,7 +1813,7 @@ const GamePage = () => {
   const oppScore = scores[1 - playerIndex] ?? 0;
 
   return (
-    <div className="h-screen bg-[#1a6b35] flex flex-col items-center overflow-hidden font-sans select-none relative" style={safeFrameGameStyle}>
+    <div className="h-screen bg-[#1a6b35] flex flex-col items-center overflow-hidden font-sans select-none relative" style={{ ...safeFrameGameStyle, contain: 'layout style paint', touchAction: 'manipulation' }}>
       <TmaTopSafe variant="grass" />
       {/* Green field gradient */}
       <div className="absolute inset-0 bg-[linear-gradient(180deg,_#145a2a_0%,_#1a6b35_30%,_#1e7a3c_60%,_#196330_100%)] pointer-events-none" />
@@ -1876,11 +1949,13 @@ const GamePage = () => {
 
           {/* Keeper */}
           <div
-            className="absolute left-0 right-0 flex justify-center z-10 pointer-events-none"
+            className="absolute left-0 right-0 flex items-end justify-center z-10 pointer-events-none"
             style={{
-              bottom: keeperState === 'idle' ? '16px' : `${keeperBottom}px`,
-              transform: `translateX(${keeperX}px)`,
-              transition: 'transform 0.3s ease-out, bottom 0.3s ease-out',
+              bottom: 0,
+              height: '200px',
+              transform: `translate3d(${keeperX}px, ${keeperState === 'idle' ? -16 : -Number(keeperBottom)}px, 0)`,
+              transition: 'transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
+              willChange: 'transform',
             }}
           >
             <img
@@ -1899,11 +1974,13 @@ const GamePage = () => {
                 e.currentTarget.src = `${ASSET_BASE}keeper_idle.png`;
               }}
               style={{
-                height: keeperState === 'save' ? '100px' : '140px',
-                transform: `scaleX(${(isKeeperMirrored ? -1 : 1) * (role === 'kicker' ? 1.22 : 1)}) scaleY(${role === 'kicker' ? 1.22 : 1})`,
-                transformOrigin: 'center bottom',
-                transition: 'transform 0.15s ease-out, height 0.2s ease-out',
-                willChange: 'transform',
+                height: keeperState === 'save'
+                  ? (role === 'kicker' ? '122px' : '100px')
+                  : (role === 'kicker' ? '170px' : '140px'),
+                transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
+                objectPosition: 'center bottom',
+                transition: 'transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), height 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
+                willChange: 'transform, height',
               }}
             />
           </div>
@@ -1957,7 +2034,10 @@ const GamePage = () => {
             {[0, 1, 2, 3].map((zone) => (
               <button
                 key={zone}
+                type="button"
+                tabIndex={-1}
                 onClick={() => handleChooseZone(zone)}
+                onMouseDown={(e) => e.preventDefault()}
                 disabled={zoneLocked || showingResult || inputBlocked || !!roleAnnounce}
                 className={`w-full h-full outline-none transition-colors rounded-lg ${
                   zoneLocked || showingResult ? 'cursor-default' : 'hover:bg-white/10 active:bg-white/20'
