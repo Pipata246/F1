@@ -1,6 +1,6 @@
 /**
  * Telegram Bot — премиальная навигация F1 Duel (один актуальный экран в чате).
- * GET  /api/bot?action=setup — webhook, команды, Menu Button «Играть»
+ * GET  /api/bot?action=setup — webhook, команды, Menu Button (список команд)
  * POST /api/bot             — апдейты
  */
 
@@ -45,7 +45,8 @@ const DIVIDER = "────────────────";
 function buildLaunchHint() {
   return (
     `\n${DIVIDER}\n` +
-    `<i>Запуск:</i> кнопка <b>«Играть»</b> слева от поля ввода · иконка мини-приложения у скрепки`
+    `<i>Команды бота:</i> кнопка меню слева от поля ввода — <b>/start</b> · <b>/help</b> · <b>/games</b>\n` +
+    `<i>Мини-приложение:</i> иконка F1 Duel у скрепки (запуск игры)`
   );
 }
 
@@ -93,7 +94,7 @@ function buildAboutText() {
 function buildHelpText() {
   return (
     `<b>✦ Как начать</b>\n\n` +
-    `<b>1.</b> Нажмите <b>«Играть»</b> у поля ввода — откроется мини-приложение.\n` +
+    `<b>1.</b> Откройте мини-приложение — иконка F1 Duel рядом со скрепкой.\n` +
     `<b>2.</b> Примите правила при первом входе.\n` +
     `<b>3.</b> Пополните баланс TON во вкладке <b>Баланс</b>.\n` +
     `<b>4.</b> Выберите PvP-игру или вкладку <b>Рулетка</b>.\n\n` +
@@ -122,7 +123,7 @@ function buildHintText() {
     `<b>✦ F1 Duel</b>\n\n` +
     `Используйте кнопки ниже или команды:\n` +
     `<b>/help</b> — инструкция · <b>/games</b> — режимы\n\n` +
-    `<i>Для игры нажмите «Играть» слева от поля ввода.</i>`
+    `<i>Слева от поля ввода — меню команд бота. Игра — через иконку мини-приложения у скрепки.</i>`
   );
 }
 
@@ -211,13 +212,13 @@ async function showNavScreen(chatId, text, opts = {}) {
 
 async function configureBotProfile() {
   const short =
-    "PvP-дуэли и Rolls на TON. Премиальный игровой опыт в Telegram — кнопка «Играть» у поля ввода.";
+    "PvP-дуэли и Rolls на TON. Меню команд слева от ввода · игра — мини-приложение у скрепки.";
   const full =
     "✦ F1 Duel\n\n" +
     "Мини-приложение для честных PvP-матчей и рулетки Rolls на TON.\n\n" +
     "Жаба · гонки · пенальти · баскетбол · случайный матч · Rolls\n\n" +
-    "Откройте бота и нажмите «Играть» слева от поля ввода.\n" +
-    "В чате — /help и /games: краткая навигация перед стартом.";
+    "Слева от поля ввода — меню команд (/start, /help, /games).\n" +
+    "Иконка мини-приложения у скрепки — запуск игры.";
   const results = {};
   try {
     results.setMyShortDescription = await tg("setMyShortDescription", { short_description: short });
@@ -232,6 +233,7 @@ async function configureBotProfile() {
   return results;
 }
 
+/** Кнопка слева от поля ввода — выпадающий список команд (не Web App) */
 async function configureBotMenu() {
   return {
     setMyCommands: await tg("setMyCommands", {
@@ -239,11 +241,7 @@ async function configureBotMenu() {
       scope: { type: "default" },
     }),
     setChatMenuButton: await tg("setChatMenuButton", {
-      menu_button: {
-        type: "web_app",
-        text: "🎮 Играть",
-        web_app: { url: APP_URL },
-      },
+      menu_button: { type: "commands" },
     }),
   };
 }
@@ -358,7 +356,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({
         ok: true,
         appUrl: APP_URL,
-        hint: "GET ?action=setup — webhook, команды, Menu Button «Играть»",
+        hint: "GET ?action=setup — webhook, команды, Menu Button (commands)",
       });
     }
 
