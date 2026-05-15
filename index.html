@@ -569,6 +569,46 @@
     .gameRaceSvgAsset .st14{fill:#248EBC;}
     .gameRaceSvgAsset .st15{fill:#D1712A;}
     .gameRaceSvgAsset .st16{fill:#C3CC6A;}
+    .profileRefNavBtn{
+      width:100%;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 16px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.1);
+      background:rgba(24,26,32,.75);
+      color:var(--text);
+      cursor:pointer;
+      font:inherit;
+      text-align:left;
+    }
+    .profileRefNavBtn:active{opacity:.85}
+    .profileRefNavBtn__left{display:flex;align-items:center;gap:12px;min-width:0}
+    .profileRefNavBtn__icon{
+      width:40px;height:40px;border-radius:12px;
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(140,255,193,.12);
+      color:var(--accent);flex-shrink:0;
+    }
+    .profileRefNavBtn__icon svg{width:20px;height:20px}
+    .profileRefNavBtn__title{font-weight:600;font-size:15px}
+    .profileRefNavBtn__sub{font-size:12px;color:var(--muted);margin-top:2px}
+    .profileRefNavBtn__chev{color:var(--muted);flex-shrink:0}
+    .referralsHero{
+      display:flex;flex-direction:column;gap:10px;
+      padding:14px;border-radius:14px;
+      border:1px solid rgba(140,255,193,.2);
+      background:linear-gradient(145deg,rgba(140,255,193,.08),rgba(24,26,32,.6));
+    }
+    .referralsHero strong{font-size:22px;letter-spacing:.04em}
+    .referralsList{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+    .referralsListItem{
+      display:flex;justify-content:space-between;align-items:center;gap:10px;
+      padding:10px 12px;border-radius:12px;
+      background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);
+    }
     .profileStatHead--withIcon{
       display:flex;
       align-items:center;
@@ -1053,7 +1093,7 @@
           <input id="refInput" class="field" placeholder="Код (необязательно)" maxlength="10" />
 
           <div class="small" style="margin-top:10px">
-            За приглашённого друга пригласивший получает <b>+100 coins</b> (после первой дуэли приглашённого).
+            С кодом друга вы получите <b>0.5 TON</b> на баланс. Пригласивший получает <b>5%</b> с ваших пополнений.
           </div>
 
           <div style="margin-top:14px" class="row">
@@ -1346,14 +1386,26 @@
 
           <div class="divider"></div>
 
-          <div class="row">
+          <button type="button" class="profileRefNavBtn" id="openReferralsBtn" style="margin-bottom:12px">
+            <span class="profileRefNavBtn__left">
+              <span class="profileRefNavBtn__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                </svg>
+              </span>
+              <span>
+                <div class="profileRefNavBtn__title">Рефералы</div>
+                <div class="profileRefNavBtn__sub" id="profileRefNavSub">5% с пополнений друзей</div>
+              </span>
+            </span>
+            <span class="profileRefNavBtn__chev" aria-hidden="true">›</span>
+          </button>
+
+          <div class="row" style="margin-top:12px">
             <div class="pill" style="flex:1">
               <span class="text2">Правила</span>
               <strong id="rulesAcceptedLine">—</strong>
-            </div>
-            <div class="pill" style="flex:1">
-              <span class="text2">Твой код</span>
-              <strong id="myRefCode">—</strong>
             </div>
           </div>
 
@@ -1370,12 +1422,43 @@
               <input type="checkbox" id="setHaptic" />
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- REFERRALS -->
+      <section id="page-referrals" class="hidden">
+        <div class="glass card">
+          <button type="button" class="btn ghost" id="referralsBackBtn" style="margin-bottom:12px;width:auto;padding:8px 12px">← Профиль</button>
+          <h2 class="titleXL" style="margin:0 0 6px 0">Рефералы</h2>
+          <p class="subtitle" style="margin:0">Приглашайте друзей и получайте 5% с их пополнений</p>
+          <div class="divider"></div>
+
+          <div class="referralsHero">
+            <span class="text2">Ваш код</span>
+            <strong id="refPageCode">—</strong>
+            <span class="small muted" id="refPageEarned">Доступно к выводу: —</span>
+          </div>
+
+          <div class="small muted" style="margin-top:12px;line-height:1.45">
+            Друг получает <b>0.5 TON</b> при первом входе с вашим кодом.
+            Вы получаете <b>5%</b> с каждого его пополнения.
+            Вывести на баланс можно от <b>50 TON</b>.
+          </div>
+
+          <div class="row" style="margin-top:14px">
+            <button class="btn ghost" id="copyRefBtn" style="flex:1">Скопировать код</button>
+            <button class="btn primary" id="shareRefBtn" style="flex:1">Поделиться</button>
+          </div>
+
+          <button class="btn primary" id="claimRefBtn" style="margin-top:12px;width:100%" disabled>Вывести на баланс</button>
+          <div class="small muted" id="claimRefHint" style="margin-top:8px;text-align:center">Минимум 50 TON для вывода</div>
 
           <div class="divider"></div>
-          <div class="row">
-            <button class="btn ghost" id="copyRefBtn">Скопировать код</button>
-            <button class="btn primary" id="shareRefBtn">Поделиться</button>
-          </div>
+          <h3 style="margin:0 0 8px 0;font-size:15px">Приглашённые (<span id="refInviteCount">0</span>)</h3>
+          <div id="refInviteEmpty" class="small muted">Пока никого нет — поделитесь кодом</div>
+          <div id="refInviteList" class="referralsList"></div>
+
+          <span id="myRefCode" class="hidden" aria-hidden="true">—</span>
         </div>
       </section>
 
@@ -1800,6 +1883,7 @@
       referredBy: "",
       refStatus: "none",
       serverBalanceTon: null,
+      referralBalanceTon: null,
     },
     settings: { sound:true, haptic:true },
   };
@@ -2128,7 +2212,7 @@
     modalCancel.onclick = ()=> modalWrap.classList.remove("show");
   }
 
-  const pages = ["onb-rules","onb-ref","games","wallet","matches","profile","roulette","random-game"];
+  const pages = ["onb-rules","onb-ref","games","wallet","matches","profile","referrals","roulette","random-game"];
   function go(page){
     // Scroll to top when switching tabs
     window.scrollTo({ top: 0, behavior: 'instant' });
@@ -2143,11 +2227,12 @@
     });
     const mainNav = document.getElementById("mainNav");
     const topbar = document.querySelector(".topbar");
-    const isHideChrome = page.startsWith("onb-") || page === "random-game";
+    const isHideChrome = page.startsWith("onb-") || page === "random-game" || page === "referrals";
     if(mainNav){ mainNav.classList.toggle("hidden", isHideChrome); }
     if(topbar){ topbar.classList.toggle("hidden", isHideChrome); }
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
+    if(page === "referrals" && hasTgAuth) loadReferralStats();
     if(page === "wallet" && hasTgAuth){
       maybeSyncDepositsOnForeground().catch(()=>{});
       hydrateUserFromServer().then(()=>{
@@ -2631,6 +2716,17 @@
   const myRefCode = document.getElementById("myRefCode");
   const copyRefBtn = document.getElementById("copyRefBtn");
   const shareRefBtn = document.getElementById("shareRefBtn");
+  const openReferralsBtn = document.getElementById("openReferralsBtn");
+  const referralsBackBtn = document.getElementById("referralsBackBtn");
+  const refPageCode = document.getElementById("refPageCode");
+  const refPageEarned = document.getElementById("refPageEarned");
+  const claimRefBtn = document.getElementById("claimRefBtn");
+  const claimRefHint = document.getElementById("claimRefHint");
+  const refInviteCount = document.getElementById("refInviteCount");
+  const refInviteEmpty = document.getElementById("refInviteEmpty");
+  const refInviteList = document.getElementById("refInviteList");
+  const profileRefNavSub = document.getElementById("profileRefNavSub");
+  let referralStatsCache = null;
   const setSound = document.getElementById("setSound");
   const setHaptic = document.getElementById("setHaptic");
 
@@ -2674,6 +2770,86 @@
       renderMatches();
     }catch(e){}
   }
+
+  openReferralsBtn?.addEventListener("click", ()=>{
+    hSelect();
+    go("referrals");
+  });
+  referralsBackBtn?.addEventListener("click", ()=>{
+    hSelect();
+    go("profile");
+  });
+
+  async function loadReferralStats(){
+    if(!hasTgAuth) return;
+    try{
+      const data = await apiJson("/api/user", { action:"getReferralStats", initData: tgInitData });
+      referralStatsCache = data.stats || null;
+      renderReferralsPage();
+    }catch(e){
+      toast(e.message || "Не удалось загрузить рефералы");
+    }
+  }
+
+  function renderReferralsPage(){
+    const s = referralStatsCache;
+    const code = s?.referralCode || state.profile.myRefCode || "—";
+    state.profile.myRefCode = code === "—" ? state.profile.myRefCode : code;
+    if(myRefCode) myRefCode.textContent = code;
+    if(refPageCode) refPageCode.textContent = code;
+    const bal = Number(s?.referralBalance ?? state.profile.referralBalanceTon ?? 0);
+    state.profile.referralBalanceTon = String(bal);
+    if(refPageEarned){
+      refPageEarned.textContent = `Доступно к выводу: ${formatBalanceAmountOnly(String(bal))} TON`;
+    }
+    if(profileRefNavSub){
+      const n = Number.isFinite(bal) ? bal : 0;
+      profileRefNavSub.textContent = n > 0
+        ? `Накоплено ${formatBalanceAmountOnly(String(n))} TON`
+        : "5% с пополнений друзей";
+    }
+    const canClaim = !!(s?.canClaim);
+    if(claimRefBtn){
+      claimRefBtn.disabled = !canClaim;
+      claimRefBtn.textContent = canClaim ? "Вывести на баланс" : "Вывести на баланс";
+    }
+    if(claimRefHint){
+      const min = s?.minClaimTon ?? 50;
+      claimRefHint.textContent = canClaim
+        ? `Будет переведено ${formatBalanceAmountOnly(String(bal))} TON на игровой баланс`
+        : `Минимум ${min} TON для вывода (сейчас ${formatBalanceAmountOnly(String(bal))} TON)`;
+    }
+    const refs = Array.isArray(s?.referrals) ? s.referrals : [];
+    if(refInviteCount) refInviteCount.textContent = String(s?.referralsCount ?? refs.length);
+    if(refInviteEmpty) refInviteEmpty.style.display = refs.length ? "none" : "block";
+    if(refInviteList){
+      refInviteList.innerHTML = refs.map((r)=>{
+        const name = escapeHtml(r.display_name || "Игрок");
+        const when = r.joined_at ? formatDate(r.joined_at) : "—";
+        return `<div class="referralsListItem"><span>${name}</span><span class="small muted">${when}</span></div>`;
+      }).join("");
+    }
+  }
+
+  claimRefBtn?.addEventListener("click", async ()=>{
+    if(!hasTgAuth || claimRefBtn.disabled) return;
+    claimRefBtn.disabled = true;
+    try{
+      const data = await apiJson("/api/user", { action:"claimReferralEarnings", initData: tgInitData });
+      const amt = data.claimedTon;
+      toast(`На баланс зачислено ${formatBalanceAmountOnly(String(amt))} TON`, 4500);
+      hNote("success");
+      await hydrateUserFromServer({ skipBalanceIncreaseToast: true });
+      await loadReferralStats();
+      renderTopbar();
+      renderWallet();
+      renderProfile();
+    }catch(e){
+      toast(e.message || "Не удалось вывести");
+    }finally{
+      if(claimRefBtn) claimRefBtn.disabled = !referralStatsCache?.canClaim;
+    }
+  });
 
   copyRefBtn.onclick = async ()=>{
     try{
@@ -2760,7 +2936,7 @@
       }
     }
     rulesAcceptedLine.textContent = state.profile.rulesAcceptedAt ? `Приняты: ${formatDate(state.profile.rulesAcceptedAt)}` : "—";
-    myRefCode.textContent = state.profile.myRefCode;
+    if(myRefCode) myRefCode.textContent = state.profile.myRefCode || "—";
 
     setSound.checked = !!state.settings.sound;
     setHaptic.checked = !!state.settings.haptic;

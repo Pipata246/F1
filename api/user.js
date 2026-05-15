@@ -5,6 +5,14 @@ const {
   cleanupDepositIntents,
 } = require("./wallet-deposit-verify");
 const { withdrawalBreakdown, withdrawalFeePercentDisplay } = require("./withdraw-fee");
+const {
+  normalizeRefCode,
+  processDepositReferralCommission,
+  tryGrantReferralWelcome,
+  claimReferralEarnings,
+  getReferralStats,
+  depositCommissionSourceKey,
+} = require("./referral");
 
 /** Сравнение секретов без утечки по времени (длины должны совпадать). */
 function safeSecretEqual(provided, expected) {
@@ -176,8 +184,13 @@ async function sbRpc(functionName, payload) {
 
 function rpcScalar(data) {
   if (data == null) return null;
+  if (typeof data === "number" || typeof data === "string") return data;
   if (Array.isArray(data) && data.length && typeof data[0] === "object" && data[0] !== null) {
     const k = Object.keys(data[0])[0];
+    return data[0][k];
+  }
+  return data;
+}
 
 async function sbBroadcast(channelName, event, payload) {
   assertSupabaseEnv();
@@ -208,10 +221,6 @@ async function sbBroadcast(channelName, event, payload) {
   } catch (err) {
     console.error("Broadcast error:", err);
   }
-}
-    return k !== undefined ? data[0][k] : null;
-  }
-  return data;
 }
 
 function requireCryptoBot() {
@@ -643,6 +652,13 @@ async function finalizeUsdtDepositInvoice(invoiceId, extStatus) {
       updated_at: new Date().toISOString(),
     },
     prefer: "return=minimal",
+  });
+  await processDepositReferralCommission(
+    String(row.tg_user_id),
+    tonAmount,
+    depositCommissionSourceKey(String(row.tg_user_id), txHash)
+  ).catch((e) => {
+    console.error("referral commission usdt deposit:", e?.message || e);
   });
   return { found: true, completed: true, operationId: opId || null };
 }
@@ -1174,7 +1190,15 @@ async function walletCreditDepositInternal(req) {
     p_amount: amount,
     p_tx_hash: txHash,
   });
-  return { operationId: rpcScalar(rpcRes) };
+  const operationId = rpcScalar(rpcRes);
+  await processDepositReferralCommission(
+    tgUserId,
+    amount,
+    depositCommissionSourceKey(tgUserId, txHash)
+  ).catch((e) => {
+    console.error("referral commission internal deposit:", e?.message || e);
+  });
+  return { operationId };
 }
 
 async function walletCompleteWithdrawalInternal(req) {
@@ -1298,7 +1322,7 @@ async function authSession(initData) {
   touchPresenceTgId(tgId);
 
   const rows = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,referred_by,referral_asked_at,referral_code,rules_accepted_at,balance,deposit_memo,created_at,updated_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=tg_user_id,first_name,last_name,username,referred_by,referral_asked_at,referral_code,rules_accepted_at,balance,referral_balance,deposit_memo,created_at,updated_at&limit=1`
   );
 
   if (!rows.length) {
@@ -1335,31 +1359,54 @@ async function authSession(initData) {
   return { exists: true, user: { ...merged, referral_code: referralCode, display_name } };
 }
 
+async function assertValidReferralCodeForUser(code, tgId, ownReferralCode) {
+  const clean = normalizeRefCode(code);
+  if (!clean) return null;
+  const own = normalizeRefCode(ownReferralCode);
+  if (own && clean === own) throw new Error("Нельзя использовать свой реферальный код");
+  const found = await sb(
+    `users?referral_code=eq.${encodeURIComponent(clean)}&select=tg_user_id&limit=1`
+  );
+  if (!found?.length) throw new Error("Реферальный код не найден");
+  if (String(found[0].tg_user_id) === String(tgId)) {
+    throw new Error("Нельзя использовать свой реферальный код");
+  }
+  return clean;
+}
+
 async function upsertUser(initData, referredBy, rulesAcceptedAtMs) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tg = verified.user;
   const tgId = String(tg.id);
-  const cleanRef = String(referredBy || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  const cleanRefRaw = normalizeRefCode(referredBy);
   touchPresenceTgId(tgId);
 
   const existing = await sb(
-    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=referred_by,referral_asked_at,referral_code,rules_accepted_at&limit=1`
+    `users?tg_user_id=eq.${encodeURIComponent(tgId)}&select=referred_by,referral_asked_at,referral_code,rules_accepted_at,referral_welcome_granted_at&limit=1`
   );
   const prevRef = existing[0]?.referred_by || null;
   const prevAskedAt = existing[0]?.referral_asked_at || null;
+  const ownCode = existing[0]?.referral_code || null;
 
   const parsedRulesMs = Number(rulesAcceptedAtMs || 0);
   const rulesAcceptedAt = existing[0]?.rules_accepted_at ||
     (parsedRulesMs > 0 ? new Date(parsedRulesMs).toISOString() : null);
   if (!rulesAcceptedAt) throw new Error("Rules must be accepted before registration");
 
+  let nextRef = prevRef;
+  if (!prevAskedAt && cleanRefRaw) {
+    nextRef = await assertValidReferralCodeForUser(cleanRefRaw, tgId, ownCode);
+  } else if (!prevAskedAt) {
+    nextRef = null;
+  }
+
   const payload = {
     tg_user_id: tgId,
     first_name: tg.first_name || "",
     last_name: tg.last_name || "",
     username: tg.username || "",
-    referred_by: prevAskedAt ? prevRef : (cleanRef || null),
+    referred_by: nextRef,
     referral_asked_at: prevAskedAt || new Date().toISOString(),
     referral_code: existing[0]?.referral_code || (await getUniqueReferralCode()),
     rules_accepted_at: rulesAcceptedAt,
@@ -1379,6 +1426,13 @@ async function upsertUser(initData, referredBy, rulesAcceptedAtMs) {
   } catch {
     /* мемо подтянется при следующем authSession / getWalletInfo */
   }
+
+  if (nextRef && !existing[0]?.referral_welcome_granted_at) {
+    await tryGrantReferralWelcome(tgId).catch((e) => {
+      console.error("welcome bonus after upsert:", e?.message || e);
+    });
+  }
+
   return {
     ...row,
     deposit_memo: deposit_memo || row.deposit_memo,
@@ -4326,6 +4380,18 @@ module.exports = async (req, res) => {
     if (action === "markReferralAsked") {
       const user = await markReferralAsked(req.body?.initData || "");
       return res.status(200).json({ ok: true, user });
+    }
+    if (action === "getReferralStats") {
+      const verified = verifyTelegramInitData(req.body?.initData || "", BOT_TOKEN);
+      if (!verified.ok) throw new Error(verified.error);
+      const stats = await getReferralStats(String(verified.user.id));
+      return res.status(200).json({ ok: true, stats });
+    }
+    if (action === "claimReferralEarnings") {
+      const verified = verifyTelegramInitData(req.body?.initData || "", BOT_TOKEN);
+      if (!verified.ok) throw new Error(verified.error);
+      const result = await claimReferralEarnings(String(verified.user.id));
+      return res.status(200).json({ ok: true, ...result });
     }
     if (action === "recordMatchInternal") {
       const result = await recordMatchInternal(req);

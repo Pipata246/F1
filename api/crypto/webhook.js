@@ -117,6 +117,16 @@ module.exports = async (req, res) => {
         },
         prefer: "return=minimal",
       });
+      try {
+        const { processDepositReferralCommission, depositCommissionSourceKey } = require("../referral");
+        await processDepositReferralCommission(
+          String(row.tg_user_id),
+          tonAmount,
+          depositCommissionSourceKey(String(row.tg_user_id), txHash)
+        );
+      } catch (e) {
+        console.error("referral commission crypto webhook:", e?.message || e);
+      }
       return res.status(200).json({ ok: true, credited: true });
     }
 

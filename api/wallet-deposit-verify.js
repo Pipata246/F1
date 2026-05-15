@@ -350,6 +350,16 @@ async function tryFinalizeDepositFromBoc(api, params) {
   });
 
   await notifyDepositCredited(tgId, out.ton).catch(() => {});
+  try {
+    const { processDepositReferralCommission, depositCommissionSourceKey } = require("./referral");
+    await processDepositReferralCommission(
+      tgId,
+      out.ton,
+      depositCommissionSourceKey(tgId, hashHex || opId)
+    );
+  } catch (e) {
+    log.push(`referral commission: ${e?.message || e}`);
+  }
   log.push(`deposit: зачислено ${out.ton} TON tx=${hashHex.slice(0, 16)}…`);
   return { ok: true, credited: true, amountTon: out.ton, txHash: hashHex, operationId: opId, log };
 }
