@@ -842,7 +842,7 @@ async function requestUsdtWithdrawal(initData, amountTonStr) {
 function isWalletLedgerKind(kind) {
   const k = String(kind || "").toLowerCase();
   if (!k) return false;
-  if (k === "deposit" || k === "withdrawal") return true;
+  if (k === "deposit" || k === "withdrawal" || k === "credit" || k === "debit") return true;
   if (k.includes("deposit") || k.includes("withdraw") || k === "topup" || k === "top_up") return true;
   return false;
 }
@@ -862,8 +862,8 @@ async function getWalletHistory(initData, limit) {
   } catch {
     /* ignore */
   }
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
-  const fetchCap = Math.min(200, Math.max(safeLimit, 80));
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 100));
+  const fetchCap = Math.min(400, Math.max(safeLimit, 200));
 
   const rows = await sb(
     `wallet_operations?tg_user_id=eq.${encodeURIComponent(tgId)}&select=id,kind,amount,status,ton_tx_hash,to_address,created_at,meta&order=created_at.desc&limit=${fetchCap}`
@@ -889,7 +889,7 @@ async function getWalletHistory(initData, limit) {
   const opById = new Map();
   for (const r of rows || []) {
     const meta = asObj(r.meta) || {};
-    if (meta.game_key || meta.room_id || meta.roomId) continue;
+    if (meta.skip_wallet_history || meta.source === "pvp_balance_event") continue;
     const hasTx = !!(r.ton_tx_hash && String(r.ton_tx_hash).length > 4);
     if (!isWalletLedgerKind(r.kind) && !hasTx) continue;
     opById.set(String(r.id), { ...r, is_deposit_intent: false });
@@ -977,6 +977,50 @@ async function getWalletHistory(initData, limit) {
   for (const r of opById.values()) pushRow(r);
   for (const r of usdtRows) pushRow(r);
   for (const r of intentRows) pushRow(r);
+
+  let pvpBalanceRows = [];
+  try {
+    pvpBalanceRows = await sb(
+      `pvp_balance_events?tg_user_id=eq.${encodeURIComponent(tgId)}&event_type=in.(win,loss,refund)&select=id,room_id,game_key,event_type,amount,stake_ton,meta,created_at&order=created_at.desc&limit=${Math.max(fetchCap, 200)}`
+    );
+  } catch {
+    /* ignore */
+  }
+  const gameLabels = {
+    frog_hunt: "Frog Hunt",
+    obstacle_race: "Obstacle Race",
+    super_penalty: "Пенальти",
+    basketball: "Баскетбол",
+    roulette: "Рулетка",
+  };
+  for (const ev of pvpBalanceRows || []) {
+    const gk = String(ev.game_key || "");
+    const meta = asObj(ev.meta) || {};
+    const label = gameLabels[gk] || gk || "Игра";
+    const kind =
+      ev.event_type === "win"
+        ? "balance_win"
+        : ev.event_type === "loss"
+          ? "balance_loss"
+          : "balance_refund";
+    pushRow({
+      id: `pvp_bal_${ev.id}`,
+      kind,
+      amount: String(ev.amount ?? ""),
+      status: "completed",
+      ton_tx_hash: null,
+      to_address: null,
+      created_at: ev.created_at,
+      is_deposit_intent: false,
+      meta: {
+        game_key: gk,
+        stake_ton: ev.stake_ton,
+        room_id: ev.room_id,
+        text: meta.text || `${label}: ${ev.event_type === "win" ? "+" : ""}${ev.amount} TON`,
+        ...meta,
+      },
+    });
+  }
 
   combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   return combined.slice(0, safeLimit);
@@ -4503,12 +4547,12 @@ function buildMatchesFromStakeEvents(tgId, events, roomsById) {
   return out;
 }
 
-async function getMatchHistory(initData, limit = 50) {
+async function getMatchHistory(initData, limit = 50, gameKeyFilter = null) {
   const verified = verifyTelegramInitData(initData, BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
   const tgId = String(verified.user.id);
   touchPresenceTgId(tgId);
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const safeLimit = Math.max(1, Math.min(2000, Number(limit) || 500));
 
   const [allEvents, botRows] = await Promise.all([
     fetchStakeBalanceEventsForUser(tgId),
@@ -4541,8 +4585,13 @@ async function getMatchHistory(initData, limit = 50) {
 
   merged.sort((a, b) => new Date(b.finished_at).getTime() - new Date(a.finished_at).getTime());
   const counts = countMatchesByGame(merged);
+  const gk = gameKeyFilter != null ? String(gameKeyFilter).trim() : "";
+  let list = merged;
+  if (gk && gk !== "all") {
+    list = merged.filter((m) => String(m.game_key || "") === gk);
+  }
   return {
-    matches: merged.slice(0, safeLimit),
+    matches: list.slice(0, safeLimit),
     counts,
     total: merged.length,
   };
@@ -4677,7 +4726,11 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, stats });
     }
     if (action === "getMatchHistory") {
-      const hist = await getMatchHistory(req.body?.initData || "", req.body?.limit || 50);
+      const hist = await getMatchHistory(
+        req.body?.initData || "",
+        req.body?.limit || 500,
+        req.body?.gameKey ?? null
+      );
       return res.status(200).json({ ok: true, ...hist });
     }
     if (action === "presenceHeartbeat") {

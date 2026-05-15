@@ -269,9 +269,11 @@
       padding:10px 4px calc(14px + var(--header-inset-bottom));
       display:flex; align-items:stretch;
       gap:4px;
-      background: rgba(10,12,18,.45);
-      backdrop-filter: blur(18px);
-      border-top:1px solid rgba(255,255,255,.07);
+      background: linear-gradient(180deg, rgba(8,10,16,.72) 0%, rgba(8,10,16,.96) 28%, rgba(8,10,16,.98) 100%);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      border-top:1px solid rgba(255,255,255,.10);
+      box-shadow: 0 -8px 32px rgba(0,0,0,.55);
       z-index:25;
       max-width:100%;
       overflow-x:hidden;
@@ -805,6 +807,10 @@
       display:flex;
       flex-direction:column;
       gap:12px;
+      padding-bottom:8px;
+    }
+    #page-matches .uiBlock:last-of-type{
+      margin-bottom:4px;
     }
     .matchCard{
       padding:16px;
@@ -2588,7 +2594,12 @@
     location.hash = "#"+page;
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "referrals" && hasTgAuth) loadReferralStats();
-    if(page === "matches" && hasTgAuth) loadMatchHistory({ silent: true });
+    if(page === "matches" && hasTgAuth){
+      loadMatchHistory({
+        gameKey: matchesGameFilter === "all" ? null : matchesGameFilter,
+        silent: true,
+      });
+    }
     if(page === "wallet" && hasTgAuth){
       maybeSyncDepositsOnForeground().catch(()=>{});
       hydrateUserFromServer().then(()=>{
@@ -3115,6 +3126,14 @@
   let matchesTotal = 0;
   let matchesGameFilter = "all";
 
+  function parseMatchField(v){
+    if(v && typeof v === "object") return v;
+    if(typeof v === "string"){
+      try{ return JSON.parse(v); }catch{ return {}; }
+    }
+    return {};
+  }
+
   function getFilteredMatches(){
     if(matchesGameFilter === "all") return matchesCache.slice();
     return matchesCache.filter((m)=> String(m.game_key || "") === matchesGameFilter);
@@ -3157,8 +3176,17 @@
   async function loadMatchHistory(opts){
     if(!hasTgAuth) return;
     const silent = !!(opts && opts.silent);
+    const gameKey =
+      opts && Object.prototype.hasOwnProperty.call(opts, "gameKey")
+        ? opts.gameKey
+        : (matchesGameFilter === "all" ? null : matchesGameFilter);
     try{
-      const data = await apiJson("/api/user", { action:"getMatchHistory", initData: tgInitData, limit: 200 });
+      const data = await apiJson("/api/user", {
+        action:"getMatchHistory",
+        initData: tgInitData,
+        limit: 2000,
+        gameKey: gameKey || null,
+      });
       matchesCache = Array.isArray(data.matches) ? data.matches : [];
       matchesCounts = data.counts && typeof data.counts === "object"
         ? { ...matchesCounts, ...data.counts }
@@ -3407,8 +3435,8 @@
       
       // Специальная обработка для рулетки
       const isRoulette = m.game_key === 'roulette';
-      const scoreObj = m.score_json || {};
-      const details = m.details_json && typeof m.details_json === "object" ? m.details_json : {};
+      const scoreObj = parseMatchField(m.score_json);
+      const details = parseMatchField(m.details_json);
       let myName, oppName, myScore, oppScore;
       
       if(isRoulette){
@@ -3495,7 +3523,7 @@
     });
   }
 
-  document.getElementById("matchesFilterRow")?.addEventListener("click", (e)=>{
+  document.getElementById("matchesFilterRow")?.addEventListener("click", async (e)=>{
     const btn = e.target.closest(".matchFilterTab");
     if(!btn) return;
     const game = btn.getAttribute("data-game");
@@ -3510,7 +3538,10 @@
       });
     }
     hSelect();
-    renderMatches();
+    await loadMatchHistory({
+      gameKey: game === "all" ? null : game,
+      silent: true,
+    });
   });
 
   function renderAll(){
@@ -4044,8 +4075,11 @@
     let rows;
     try{
       await apiJson("/api/user", { action:"syncMyDeposits", initData: tgInitData }).catch(()=>{});
-      const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 100 });
-      const walletHistKinds = new Set(["deposit", "withdrawal", "usdt_deposit", "usdt_withdrawal"]);
+      const data = await apiJson("/api/user", { action:"getWalletHistory", initData: tgInitData, limit: 150 });
+      const walletHistKinds = new Set([
+        "deposit", "withdrawal", "usdt_deposit", "usdt_withdrawal",
+        "balance_win", "balance_loss", "balance_refund",
+      ]);
       rows = (Array.isArray(data.operations) ? data.operations : []).filter((r)=>{
         const k = String(r.kind || "");
         if(k === "deposit" && r.is_deposit_intent) return true;
@@ -4064,6 +4098,13 @@
     }
     const lines = rows.map((r)=>{
       const isIntent = r.kind === "deposit" && r.is_deposit_intent;
+      const gameLabel = {
+        frog_hunt: "Frog Hunt",
+        obstacle_race: "Obstacle Race",
+        super_penalty: "Пенальти",
+        basketball: "Баскетбол",
+        roulette: "Рулетка",
+      }[String(r.meta?.game_key || "")] || "";
       const kind = isIntent
         ? "Пополнение (заявка)"
         : r.kind === "deposit"
@@ -4074,7 +4115,13 @@
               ? "Вывод USDT"
           : r.kind === "withdrawal"
             ? "Вывод"
-            : "Операция";
+            : r.kind === "balance_win"
+              ? (gameLabel ? `Выигрыш · ${gameLabel}` : "Выигрыш в игре")
+              : r.kind === "balance_loss"
+                ? (gameLabel ? `Проигрыш · ${gameLabel}` : "Проигрыш в игре")
+                : r.kind === "balance_refund"
+                  ? (gameLabel ? `Возврат · ${gameLabel}` : "Возврат ставки")
+                  : "Операция";
       const st = {
         pending:"В обработке",
         confirming:"Подтверждение",
