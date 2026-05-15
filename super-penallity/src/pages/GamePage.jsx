@@ -51,6 +51,15 @@ function playSound(name) {
 //   0(TL)=(98,60)  1(TR)=(262,60)  2(BL)=(98,178)  3(BR)=(262,178)
 // Ball starts at center-x=180, center-y=255 (bottom:-10, img 70x70)
 // So ball translate = zoneCenter - ballStart
+// Centers of each target zone from top-left of gate container (360x280).
+// Used both for ball landing and for visual target overlays.
+const zoneTargetCenters = [
+  { left: 98, top: 60 },   // zone 0: top-left
+  { left: 262, top: 60 },  // zone 1: top-right
+  { left: 98, top: 178 },  // zone 2: bottom-left
+  { left: 262, top: 178 }, // zone 3: bottom-right
+];
+
 const targetPositions = [
   { x: -82, y: -195 },  // zone 0: top-left
   { x: 82, y: -195 },   // zone 1: top-right
@@ -1860,8 +1869,7 @@ const GamePage = () => {
         <div className="absolute bottom-[-70px] left-1/2 -translate-x-1/2 w-[8px] h-[8px] rounded-full bg-white/25 pointer-events-none z-0" />
         <motion.div
           className="relative w-full h-full"
-          animate={resultMessage?.type === 'win' ? { x: [-5, 5, -5, 5, 0] } : {}}
-          transition={{ duration: 0.3 }}
+          style={{ willChange: 'transform' }}
         >
           <img src={`${ASSET_BASE}gate.png`} alt="Gate" className="absolute inset-0 w-full h-full object-contain z-0 drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)]" />
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[200px] h-[40px] bg-black/40 blur-xl rounded-[100%] z-0" />
@@ -1891,34 +1899,40 @@ const GamePage = () => {
                 e.currentTarget.src = `${ASSET_BASE}keeper_idle.png`;
               }}
               style={{
-                height: keeperState === 'save'
-                  ? (role === 'kicker' ? '125px' : '100px')
-                  : (role === 'kicker' ? '170px' : '140px'),
-                transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
+                height: keeperState === 'save' ? '100px' : '140px',
+                transform: `scaleX(${(isKeeperMirrored ? -1 : 1) * (role === 'kicker' ? 1.22 : 1)}) scaleY(${role === 'kicker' ? 1.22 : 1})`,
+                transformOrigin: 'center bottom',
                 transition: 'transform 0.15s ease-out, height 0.2s ease-out',
+                willChange: 'transform',
               }}
             />
           </div>
 
           {/* Ball */}
-          <div className="absolute bottom-[-40px] left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="absolute bottom-[-40px] left-1/2 -translate-x-1/2 z-20 pointer-events-none" style={{ willChange: 'transform' }}>
             {ballVisible && (
-              <img src={`${ASSET_BASE}ball.png`} alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={ballStyle} />
+              <img src={`${ASSET_BASE}ball.png`} alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={{ ...ballStyle, willChange: 'transform' }} />
             )}
           </div>
 
           {/* Target overlays (only for kicker during turn input) */}
           {role === 'kicker' && !inputBlocked && !roleAnnounce && !showingResult && (
-            <div className="absolute top-0 left-4 w-[calc(100%-2rem)] h-[85%] grid grid-cols-2 grid-rows-2 z-40 pointer-events-none">
+            <div className="absolute inset-0 z-40 pointer-events-none">
               {[0, 1, 2, 3].map((zone) => {
                 const isSelected = selectedZone === zone;
+                const c = zoneTargetCenters[zone];
                 return (
                   <div
                     key={zone}
-                    className="flex items-center justify-center transition-all duration-200"
+                    className="absolute"
+                    style={{
+                      left: `${c.left}px`,
+                      top: `${c.top}px`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
                   >
                     <div
-                      className={`relative flex items-center justify-center rounded-full ${
+                      className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
                         isSelected
                           ? 'w-11 h-11 border-[3px] border-yellow-300 bg-yellow-300/25 animate-pulse shadow-[0_0_18px_rgba(253,224,71,0.85)]'
                           : 'w-9 h-9 border-2 border-dashed border-white/70 bg-black/10'
