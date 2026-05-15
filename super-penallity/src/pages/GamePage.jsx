@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@supabase/supabase-js';
+import { TmaTopSafe } from '../components/TmaTopSafe.jsx';
 
 const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
@@ -161,8 +162,12 @@ const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color, sudde
 
 const GamePage = () => {
   const safeFrameStyle = {
-    paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
-    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+    paddingTop: 'var(--tg-safe-top-ui)',
+    paddingBottom: 'var(--tg-safe-bottom-ui)',
+    boxSizing: 'border-box',
+  };
+  const safeFrameGameStyle = {
+    paddingBottom: 'var(--tg-safe-bottom-ui)',
     boxSizing: 'border-box',
   };
   const [screen, setScreen] = useState('stake-online');
@@ -1675,7 +1680,8 @@ const GamePage = () => {
   const oppScore = scores[1 - playerIndex] ?? 0;
 
   return (
-    <div className="h-screen bg-[#1a6b35] flex flex-col items-center overflow-hidden font-sans select-none relative" style={safeFrameStyle}>
+    <div className="h-screen bg-[#1a6b35] flex flex-col items-center overflow-hidden font-sans select-none relative" style={safeFrameGameStyle}>
+      <TmaTopSafe variant="grass" />
       {/* Green field gradient */}
       <div className="absolute inset-0 bg-[linear-gradient(180deg,_#145a2a_0%,_#1a6b35_30%,_#1e7a3c_60%,_#196330_100%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_20%,_rgba(255,255,255,0.04),_transparent_50%)] pointer-events-none" />

@@ -1,0 +1,45 @@
+:root {
+  --tg-header-offset: 0px;
+  --header-inset-top: max(
+    env(safe-area-inset-top, 0px),
+    var(--tg-content-safe-area-inset-top, 0px),
+    var(--tg-safe-area-inset-top, 0px),
+    var(--tg-header-offset, 0px)
+  );
+  --header-inset-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--tg-content-safe-area-inset-bottom, 0px),
+    var(--tg-safe-area-inset-bottom, 0px)
+  );
+  --tg-safe-top-ui: var(--header-inset-top);
+  --tg-safe-bottom-ui: max(var(--header-inset-bottom), env(safe-area-inset-bottom, 0px), 12px);
+}
+
+.tma-top-safe {
+  flex-shrink: 0;
+  width: 100%;
+  height: var(--header-inset-top);
+  min-height: var(--header-inset-top);
+  pointer-events: none;
+}
+
+.tma-top-safe--fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+}
+
+.tma-top-safe--pond,
+.tma-top-safe--dark {
+  background: linear-gradient(180deg, #0a1120 0%, rgba(10, 17, 32, 0.88) 72%, transparent 100%);
+}
+
+.tma-top-safe--grass {
+  background: linear-gradient(180deg, #145a2a 0%, rgba(20, 90, 42, 0.9) 72%, transparent 100%);
+}
+
+.tma-top-safe--court {
+  background: linear-gradient(180deg, #0a0a0c 0%, rgba(10, 10, 12, 0.92) 72%, transparent 100%);
+}

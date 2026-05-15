@@ -17,8 +17,8 @@
     --text: #e8f0ea;
     --text2: #6d9b7a;
     --radius: 14px;
-    --tg-safe-top-ui: calc(env(safe-area-inset-top, 0px) + 16px);
-    --tg-safe-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    --tg-safe-top-ui: var(--header-inset-top, max(env(safe-area-inset-top, 0px), 52px));
+    --tg-safe-bottom: var(--tg-safe-bottom-ui, max(env(safe-area-inset-bottom, 0px), 12px));
 }
 
 body {
@@ -259,6 +259,11 @@ body {
 }
 
 /* GAME SCREEN */
+#screen-game {
+    padding: 0 0 var(--tg-safe-bottom);
+    justify-content: flex-start;
+    align-items: stretch;
+}
 .game-wrap {
     width: 100%;
     max-width: 420px;

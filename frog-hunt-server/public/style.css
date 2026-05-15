@@ -17,6 +17,8 @@
   --pad-bg: #1a4a2a;
   --pad-border: #2d6a3d;
   --radius: 14px;
+  --tg-safe-top-ui: var(--header-inset-top, max(env(safe-area-inset-top, 0px), 52px));
+  --tg-safe-bottom: var(--tg-safe-bottom-ui, max(env(safe-area-inset-bottom, 0px), 12px));
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -42,7 +44,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
+  padding: var(--tg-safe-top-ui) 16px var(--tg-safe-bottom);
 }
 .screen.active {
   display: flex;
@@ -157,7 +159,7 @@ input[type="text"]::placeholder { color: var(--text2); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .center-content p { color: var(--text2); margin-bottom: 12px; }
 
-#screen-game { padding: 0; justify-content: flex-start; }
+#screen-game { padding: 0 0 var(--tg-safe-bottom); justify-content: flex-start; }
 .game-layout {
   width: 100%;
   height: 100%;

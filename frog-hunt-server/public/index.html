@@ -2,11 +2,13 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Frog Hunt</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="stylesheet" href="tma-safe-area.css">
   <link rel="stylesheet" href="style.css">
+  <script type="module" src="tma-safe-area.js"></script>
 </head>
 <body>
 
@@ -50,6 +52,7 @@
   <!-- GAME SCREEN -->
   <div id="screen-game" class="screen">
     <div class="game-layout">
+      <div class="tma-top-safe tma-top-safe--pond" aria-hidden="true"></div>
 
       <!-- Header -->
       <div class="game-header">

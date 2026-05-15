@@ -1,3 +1,5 @@
+@import '../../tma-safe-area.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

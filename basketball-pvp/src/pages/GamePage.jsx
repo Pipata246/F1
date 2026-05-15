@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
+import { TmaTopSafe } from '../components/TmaTopSafe.jsx';
 
 const ASSET_BASE = import.meta.env.BASE_URL || '/basketball-pvp/';
 const SETTINGS_KEY = "f1duel_global_settings_v1";
@@ -59,8 +60,12 @@ const Ambient = React.memo(() => (
 // ============ COMPONENT ============
 const GamePage = () => {
   const safeFrameStyle = {
-    paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
-    paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+    paddingTop: 'var(--tg-safe-top-ui)',
+    paddingBottom: 'var(--tg-safe-bottom-ui)',
+    boxSizing: 'border-box',
+  };
+  const safeFrameGameStyle = {
+    paddingBottom: 'var(--tg-safe-bottom-ui)',
     boxSizing: 'border-box',
   };
   
@@ -1145,7 +1150,8 @@ const GamePage = () => {
   const P_RED = '#FF3B30';
 
   return (
-    <div className="h-screen relative overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
+    <div className="h-screen relative overflow-hidden select-none" style={{ ...ST, ...safeFrameGameStyle }}>
+      <TmaTopSafe variant="court" fixed />
       {/* BG */}
       <img src={`${ASSET_BASE}bg.webp`} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover object-top z-0"
         style={{ imageRendering:'pixelated', transformOrigin:'top center', transform:'scale(1.15) translateY(8%)' }} />
@@ -1153,7 +1159,7 @@ const GamePage = () => {
       <Ambient />
 
       {/* SCOREBOARD */}
-      <div className="absolute top-0 left-0 right-0 z-30 px-2 pt-1">
+      <div className="absolute left-0 right-0 z-30 px-2 pt-1" style={{ top: 'var(--header-inset-top)' }}>
         <div className="bg-black/85 border-b-2 rounded-b-2xl px-4 py-2" style={{ borderColor: 'rgba(99,230,190,0.5)' }}>
           {currentStakeTon != null && <div className="text-center text-[10px] text-emerald-300 uppercase tracking-wider mb-1">Ставка: {currentStakeTon} TON</div>}
           <div className="flex justify-between items-center">
