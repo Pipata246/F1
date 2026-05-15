@@ -432,7 +432,8 @@ const GamePage = () => {
     }, 16000));
 
     return () => { timers.forEach(clearTimeout); };
-  }, [waitingOpponent, screen, applyPvpRoomState, apiPost]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingOpponent, screen]);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
