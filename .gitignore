@@ -6,3 +6,7 @@ node_modules/
 !.env.example
 .env.example
 .vscode/
+.claude/
+CLAUDE.md
+refactored-chasing-riddle-3-games.md
+refactored-chasing-riddle.md

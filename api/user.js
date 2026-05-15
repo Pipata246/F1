@@ -2378,7 +2378,29 @@ function pvpResolveSuperPenaltyRound(state) {
   const p1 = Number(s.scores.p1 || 0);
   const p2 = Number(s.scores.p2 || 0);
   const roundsPlayed = Number(s.round || 0);
-  
+
+  if (!s.suddenDeath && roundsPlayed < Number(s.maxRounds || 10)) {
+    const maxR = Number(s.maxRounds || 10);
+    const remaining = maxR - roundsPlayed;
+    let p1KicksLeft = 0;
+    let p2KicksLeft = 0;
+    for (let i = 0; i < remaining; i++) {
+      if ((roundsPlayed + i) % 2 === 0) p1KicksLeft++;
+      else p2KicksLeft++;
+    }
+    const leaderSide = p1 > p2 ? "p1" : (p2 > p1 ? "p2" : null);
+    if (leaderSide) {
+      const leaderScore = leaderSide === "p1" ? p1 : p2;
+      const loserScore = leaderSide === "p1" ? p2 : p1;
+      const loserKicks = leaderSide === "p1" ? p2KicksLeft : p1KicksLeft;
+      if (loserScore + loserKicks < leaderScore) {
+        gameOver = true;
+        winnerSide = leaderSide;
+        s.earlyEnd = true;
+      }
+    }
+  }
+
   if (s.suddenDeath) {
     // ОВЕРТАЙМ: Игра до первого гола
     // После каждой пары раундов (оба игрока сделали по удару) проверяем счёт
@@ -2462,10 +2484,18 @@ function pvpApplySuperPenaltyMove(room, tgId, move) {
   const zone = Number(asObj(move).zone);
   if (![0, 1, 2, 3].includes(zone)) throw new Error("Invalid zone");
   const next = { ...s, choices: { ...asObj(s.choices) } };
-  // Защита от повторной отправки: если уже записан ход — отклоняем
   const submitted = asObj(s.moveSubmittedBy);
-  if (submitted[side]) return next;
-  if (next.choices[side] !== null && next.choices[side] !== undefined) return next;
+  if (submitted[side] && String(submitted[side]) !== String(tgId)) {
+    throw new Error("Move already submitted by another player");
+  }
+  if (next.choices[side] !== null && next.choices[side] !== undefined) {
+    const storedZone = Number(next.choices[side]);
+    if (Number.isInteger(storedZone) && storedZone !== zone) {
+      throw new Error("Move already submitted");
+    }
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
   next.choices[side] = zone;
   next.moveSubmittedBy = { ...submitted, [side]: tgId };
   if (next.choices.p1 === null || next.choices.p2 === null) {
@@ -2729,13 +2759,17 @@ function pvpAdvanceByTime(room) {
           }
           next.botPending = {
             kind: "super_penalty_move",
-            dueAtMs: now + pvpBotMoveDelayMs(),
+            delayMs: pvpBotMoveDelayMs(),
             value: smartZone,
           };
           next.updatedAt = new Date().toISOString();
           return { changed: true, state: next };
         }
-        const dueAt = Number(botPending.dueAtMs || 0);
+        const phaseAt = Number(s.phaseAtMs || 0);
+        const legacyDueAt = Number(botPending.dueAtMs || 0);
+        const dueAt = legacyDueAt > 0
+          ? legacyDueAt
+          : (phaseAt > 0 ? phaseAt + Number(botPending.delayMs || 1500) : 0);
         if (dueAt > 0 && now >= dueAt) {
           next.choices = {
             ...c,
@@ -3122,8 +3156,7 @@ function pvpAdvanceByTime(room) {
     }
   }
 
-  // Turn timeout: missing moves are auto-filled randomly, then round resolves normally.
-  if (s.phase === "turn_input" && elapsed >= 16000) {
+  if (s.phase === "turn_input" && elapsed >= 18000) {
     const pending = asObj(s.pending);
     const frogChosen =
       pending.frogCell !== null &&

@@ -19,6 +19,32 @@ function appSettings() {
   }
 }
 
+const SOUND_CACHE = {};
+const SOUND_VOLUMES = {
+  kick: 0.6,
+  save: 0.5,
+  goal: 0.7,
+  whistle_start: 0.5,
+  whistle_end: 0.55,
+  tick: 0.3,
+  select: 0.35,
+};
+function playSound(name) {
+  if (!appSettings().sound) return;
+  try {
+    let audio = SOUND_CACHE[name];
+    if (!audio) {
+      audio = new Audio(`${ASSET_BASE}sounds/${name}.mp3`);
+      audio.preload = 'auto';
+      SOUND_CACHE[name] = audio;
+    }
+    audio.currentTime = 0;
+    audio.volume = SOUND_VOLUMES[name] != null ? SOUND_VOLUMES[name] : 0.5;
+    const p = audio.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) {}
+}
+
 // Gate container: 360x280, zone grid: left=16, w=328, h=238 (85% of 280)
 // Zone cells: 164x119 each
 // Zone centers from container origin:
@@ -187,6 +213,7 @@ const GamePage = () => {
   const [waitingOpponent, setWaitingOpponent] = useState(false);
   const [timer, setTimer] = useState(10);
   const [history, setHistory] = useState([]);
+  const [selectedZone, setSelectedZone] = useState(null);
 
   // Animation state
   const [ballVisible, setBallVisible] = useState(true);
@@ -230,6 +257,9 @@ const GamePage = () => {
   const pvpPollInFlightRef = useRef(false);
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
+  const pvpMoveCommittedRef = useRef(false);
+  const pvpLastTurnKeyRef = useRef('');
+  const selectedZoneRef = useRef(null);
   const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
   const PVP_POLL_FAST_MS = 300; // Быстрый polling в критические моменты
   const pvpPollFastModeRef = useRef(false); // Флаг быстрого режима
@@ -249,6 +279,14 @@ const GamePage = () => {
 
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
+  useEffect(() => { selectedZoneRef.current = selectedZone; }, [selectedZone]);
+
+  useEffect(() => {
+    ['keeper_idle', 'keeper_save', 'keeper_green', 'keeper_red', 'ball', 'gate'].forEach((name) => {
+      const img = new Image();
+      img.src = `${ASSET_BASE}${name}.png`;
+    });
+  }, []);
 
   // Отслеживание долгого ожидания соперника
   useEffect(() => {
@@ -572,6 +610,9 @@ const GamePage = () => {
         setIsKeeperMirrored(false);
         setKeeperX(0);
         setKeeperBottom('4');
+        setSelectedZone(null);
+        selectedZoneRef.current = null;
+        playSound('whistle_start');
         
         // Если овертайм уже показывается - НЕ показываем роль, ждём его завершения
         if (!overtimeAnnounce) {
@@ -612,6 +653,7 @@ const GamePage = () => {
         clearRoundStuckTimer();
         clearMoveWatchdog();
         clearWaitingBotMoveTimer();
+        playSound('whistle_end');
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
@@ -643,15 +685,22 @@ const GamePage = () => {
     setTimer(10);
     timerRef.current = setInterval(() => {
       setTimer(prev => {
+        const next = prev - 1;
         if (prev <= 1) {
           stopTimer();
           if (!zoneLocked && !showingResult) {
-            const autoZone = Math.floor(Math.random() * 4);
+            const pending = selectedZoneRef.current;
+            const autoZone = (pending !== null && pending !== undefined && [0, 1, 2, 3].includes(Number(pending)))
+              ? Number(pending)
+              : Math.floor(Math.random() * 4);
             sendMessage('choose_zone', { zone: autoZone });
           }
           return 0;
         }
-        return prev - 1;
+        if (next > 0 && next <= 3 && !zoneLocked && !showingResult) {
+          playSound('tick');
+        }
+        return next;
       });
     }, 1000);
   };
@@ -702,6 +751,7 @@ const GamePage = () => {
       transform: `translate(${target.x}px, ${target.y}px) scale(0.55)`,
       transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
     });
+    playSound('kick');
 
     // Keeper moves to their chosen zone
     const kpos = keeperZonePos[keeperZone];
@@ -727,6 +777,7 @@ const GamePage = () => {
     // Result text
     setTimeout(() => {
       if (isGoal) {
+        playSound('goal');
         if (iAmKicker) {
           setResultMessage({ text: 'GOAL!', type: 'win' });
           confetti({ particleCount: 25, spread: 40, origin: { y: 0.6 }, ticks: 40 });
@@ -736,6 +787,7 @@ const GamePage = () => {
           if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
         }
       } else {
+        playSound('save');
         if (iAmKicker) {
           setResultMessage({ text: 'SAVED!', type: 'loss' });
           if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
@@ -774,19 +826,19 @@ const GamePage = () => {
       if (!showingResultRef.current) return;
 
       if (playModeRef.current === 'pvp') {
-        // УСИЛЕННАЯ ЗАЩИТА: Принудительно запрашиваем состояние
         pvpPollState();
-        
-        // Force unlock if still stuck after 1 more second
+        setTimeout(() => pvpPollState(), 600);
         setTimeout(() => {
           if (!showingResultRef.current) return;
-          console.log('[UNLOCK] Принудительная разблокировка после результата');
+          if (pvpMoveCommittedRef.current) {
+            pvpPollState();
+            return;
+          }
           setShowingResult(false);
           setResultMessage(null);
           setZoneLocked(false);
           setWaitingOpponent(false);
           setInputBlocked(false);
-          // Ещё один poll для синхронизации
           pvpPollState();
         }, 1000);
         return;
@@ -952,6 +1004,9 @@ const GamePage = () => {
       const startKey = `${baseRound}:${roleNow}:${sudden ? 1 : 0}`;
       if (startKey !== pvpLastStartKeyRef.current) {
         pvpLastStartKeyRef.current = startKey;
+        pvpMoveCommittedRef.current = false;
+        setSelectedZone(null);
+        selectedZoneRef.current = null;
         const scoresObj = s.scores || { p1: 0, p2: 0 };
         handleServerMessage({
           type: 'round_start',
@@ -970,55 +1025,67 @@ const GamePage = () => {
   const pvpPollState = useCallback(() => {
     if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
     pvpPollInFlightRef.current = true;
-    
-    // Показываем ошибку соединения если нет ответа 3 секунды
+
     if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
     connectionErrorTimerRef.current = setTimeout(() => {
-      // Показываем для любой онлайн игры (PvP или fallback бот), но не для локального демо-бота
       if (playModeRef.current === 'pvp' && screen === 'game') {
         setShowConnectionError(true);
       }
     }, 3000);
-    
-    apiPost({
-      action: 'pvpGetRoomState',
-      initData: tgInitDataRef.current,
-      roomId: pvpRoomIdRef.current,
-    }).then((data) => {
-      // Успешный ответ - скрываем ошибку и обновляем время
-      if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
-      setShowConnectionError(false);
-      lastSuccessfulPollRef.current = Date.now();
-      
-      if (!data?.ok) {
-        const err = String(data?.error || '');
-        if (err === 'ACCEPT_TIMEOUT') {
-          stopPvpPolling();
-          pvpRoomIdRef.current = null;
-          goHome();
+
+    const controller = (typeof AbortController === 'function') ? new AbortController() : null;
+    const abortTimer = setTimeout(() => {
+      if (controller) {
+        try { controller.abort(); } catch (e) {}
+      }
+    }, 10000);
+
+    fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'pvpGetRoomState',
+        initData: tgInitDataRef.current,
+        roomId: pvpRoomIdRef.current,
+      }),
+      signal: controller ? controller.signal : undefined,
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
+        setShowConnectionError(false);
+        lastSuccessfulPollRef.current = Date.now();
+
+        if (!data?.ok) {
+          const err = String(data?.error || '');
+          if (err === 'ACCEPT_TIMEOUT') {
+            stopPvpPolling();
+            pvpRoomIdRef.current = null;
+            goHome();
+            return;
+          }
+          if (err === 'Room not found' && acceptInfo) {
+            pvpRoomIdRef.current = null;
+            setAcceptInfo(null);
+            setScreen('waiting');
+            showBottomNotice('Пользователь не принял матч');
+            startSearchOnline();
+          }
           return;
         }
-        if (err === 'Room not found' && acceptInfo) {
-          pvpRoomIdRef.current = null;
-          setAcceptInfo(null);
-          setScreen('waiting');
-          showBottomNotice('Пользователь не принял матч');
-          startSearchOnline();
+        if (data.room) applyPvpRoomState(data.room);
+      })
+      .catch(() => {
+        const timeSinceLastSuccess = Date.now() - lastSuccessfulPollRef.current;
+        if (timeSinceLastSuccess > 3000 && playModeRef.current === 'pvp' && screen === 'game') {
+          setShowConnectionError(true);
         }
-        return;
-      }
-      if (data.room) applyPvpRoomState(data.room);
-    }).catch(() => {
-      // Ошибка сети - показываем модалку если прошло больше 3 сек с последнего успешного poll
-      const timeSinceLastSuccess = Date.now() - lastSuccessfulPollRef.current;
-      // Показываем для любой онлайн игры (PvP или fallback бот), но не для локального демо-бота
-      if (timeSinceLastSuccess > 3000 && playModeRef.current === 'pvp' && screen === 'game') {
-        setShowConnectionError(true);
-      }
-    }).finally(() => {
-      pvpPollInFlightRef.current = false;
-    });
-  }, [apiPost, applyPvpRoomState, goHome, stopPvpPolling, acceptInfo, screen]);
+      })
+      .finally(() => {
+        clearTimeout(abortTimer);
+        pvpPollInFlightRef.current = false;
+      });
+  }, [applyPvpRoomState, goHome, stopPvpPolling, acceptInfo, screen]);
 
   const sendMessage = (type, data = {}) => {
     if (playModeRef.current === 'pvp') {
@@ -1045,72 +1112,49 @@ const GamePage = () => {
         stopTimer();
 
         let penAttempts = 0;
-        let moveConfirmed = false;
-        
+
         const submitPenMove = () => {
+          if (pvpMoveCommittedRef.current) return;
           penAttempts++;
-          console.log(`[MOVE] Отправка хода zone=${zone}, попытка ${penAttempts}`);
-          
           apiPost({
             action: 'pvpSubmitMove',
             initData: tgInitDataRef.current,
             roomId: pvpRoomIdRef.current,
             move: { zone },
           }).then((data2) => {
+            if (pvpMoveCommittedRef.current) return;
             if (data2?.ok) {
-              moveConfirmed = true;
-              console.log('[MOVE] Ход подтверждён сервером');
-              
+              pvpMoveCommittedRef.current = true;
               if (data2.room) {
                 applyPvpRoomState(data2.room);
               }
-              
-              // Сразу запрашиваем обновлённое состояние
               setTimeout(() => pvpPollState(), 200);
             } else {
-              console.log('[MOVE] Ошибка от сервера:', data2?.error);
-              
               if (penAttempts < 3) {
                 setTimeout(submitPenMove, 400);
               } else {
-                // Failed after 3 attempts - unlock and allow retry
-                setZoneLocked(false);
-                setWaitingOpponent(false);
-                showBottomNotice('Ошибка отправки хода. Попробуй снова.');
+                showBottomNotice('Сервер обрабатывает... Подожди соперника.');
               }
             }
-          }).catch((err) => {
-            console.log('[MOVE] Ошибка сети:', err);
-            
+          }).catch(() => {
+            if (pvpMoveCommittedRef.current) return;
             if (penAttempts < 3) {
               setTimeout(submitPenMove, 400);
             } else {
-              setZoneLocked(false);
-              setWaitingOpponent(false);
-              showBottomNotice('Ошибка сети. Попробуй снова.');
+              showBottomNotice('Сервер обрабатывает... Подожди соперника.');
             }
           });
         };
         submitPenMove();
 
-        // ИСПРАВЛЕНИЕ: Уменьшили watchdog с 5 сек до 4 сек
-        // Если через 4 сек нет подтверждения — форсируем poll и проверяем
         clearMoveWatchdog();
         pvpMoveWatchdogTimerRef.current = setTimeout(() => {
-          if (!moveConfirmed && zoneLocked && pvpRoomIdRef.current && tgInitDataRef.current) {
-            console.log('[WATCHDOG] Ход не подтверждён, форсируем poll');
-            // Форсируем несколько poll подряд
+          if (!pvpMoveCommittedRef.current && pvpRoomIdRef.current && tgInitDataRef.current) {
             pvpPollState();
-            setTimeout(() => pvpPollState(), 300);
-            setTimeout(() => pvpPollState(), 600);
-            
-            // Если через ещё 2 сек всё ещё зависло — разблокируем
+            setTimeout(() => pvpPollState(), 400);
             setTimeout(() => {
-              if (zoneLocked && waitingOpponent) {
-                console.log('[WATCHDOG] Принудительная разблокировка');
-                setZoneLocked(false);
-                setWaitingOpponent(false);
-                showBottomNotice('Ошибка синхронизации. Попробуй снова.');
+              if (!pvpMoveCommittedRef.current) {
+                showBottomNotice('Сервер не отвечает... Ждём.');
               }
             }, 2000);
           }
@@ -1418,6 +1462,9 @@ const GamePage = () => {
 
   const handleChooseZone = (zone) => {
     if (zoneLocked || showingResult || inputBlocked || !!roleAnnounce) return;
+    setSelectedZone(zone);
+    selectedZoneRef.current = zone;
+    playSound('select');
     sendMessage('choose_zone', { zone });
   };
 
@@ -1832,8 +1879,17 @@ const GamePage = () => {
               }
               alt="Keeper"
               className="object-contain drop-shadow-2xl"
+              loading="eager"
+              decoding="sync"
+              onError={(e) => {
+                if (e.currentTarget.dataset.fallback === '1') return;
+                e.currentTarget.dataset.fallback = '1';
+                e.currentTarget.src = `${ASSET_BASE}keeper_idle.png`;
+              }}
               style={{
-                height: keeperState === 'save' ? '100px' : '140px',
+                height: keeperState === 'save'
+                  ? (role !== 'keeper' ? '110px' : '100px')
+                  : (role !== 'keeper' ? '152px' : '140px'),
                 transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
                 transition: 'transform 0.15s ease-out, height 0.2s ease-out',
               }}
@@ -1846,6 +1902,36 @@ const GamePage = () => {
               <img src={`${ASSET_BASE}ball.png`} alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={ballStyle} />
             )}
           </div>
+
+          {/* Target overlays (only for kicker during turn input) */}
+          {role === 'kicker' && !inputBlocked && !roleAnnounce && !showingResult && (
+            <div className="absolute top-0 left-4 w-[calc(100%-2rem)] h-[85%] grid grid-cols-2 grid-rows-2 z-20 pointer-events-none">
+              {[0, 1, 2, 3].map((zone) => {
+                const isSelected = selectedZone === zone;
+                return (
+                  <div
+                    key={zone}
+                    className="flex items-center justify-center transition-opacity duration-200"
+                    style={{ opacity: isSelected ? 1 : 0.55 }}
+                  >
+                    <div
+                      className={`w-16 h-16 border-2 rounded-lg flex items-center justify-center ${
+                        isSelected
+                          ? 'border-yellow-300 bg-yellow-300/20 animate-pulse'
+                          : 'border-dashed border-white/50'
+                      }`}
+                    >
+                      <div
+                        className={`w-3 h-3 rounded-full ${
+                          isSelected ? 'bg-yellow-300' : 'bg-white/60'
+                        }`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Zone buttons */}
           <div
