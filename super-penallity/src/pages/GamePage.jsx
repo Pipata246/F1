@@ -942,10 +942,10 @@ const GamePage = () => {
     // Safety timeout: если застряли на результате - разблокируем
     // ИСПРАВЛЕНИЕ: Одинаковый таймаут для всех случаев (2.5 сек)
     // Модалка овертайма показывается 2.5 сек, бэкенд переходит в turn_input через 800мс
-    // Анимация удара/сейва занимает 2.5 сек. После её завершения снимаем флаг showingResult,
+    // Анимация удара/сейва занимает 1.8 сек. После её завершения снимаем флаг showingResult,
     // чтобы applyPvpRoomState мог обработать переход на новый раунд (round_start). Остальные
     // сбросы (zoneLocked, role, keeper position) сделает обработчик round_start.
-    const safetyTimeout = 2500;
+    const safetyTimeout = 1800;
     roundStuckTimerRef.current = setTimeout(() => {
       if (!showingResultRef.current) return;
       setShowingResult(false);

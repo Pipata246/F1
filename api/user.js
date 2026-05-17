@@ -2821,9 +2821,9 @@ function pvpAdvanceByTime(room) {
       resolved.updatedAt = new Date().toISOString();
       return { changed: true, state: resolved };
     }
-    if (s.phase === "round_result" && elapsed >= 2500) {
-      // 2500мс синхронизирует серверный переход с клиентской анимацией удара/сейва (2.5 сек).
-      // Игроки видят полную анимацию до сброса вратаря в idle для следующего раунда.
+    if (s.phase === "round_result" && elapsed >= 1800) {
+      // 1800мс синхронизирует серверный переход с клиентской анимацией удара/сейва.
+      // Игроки видят результат удара отчётливо без затянутой паузы.
       const rr = asObj(s.lastRoundResult);
       if (rr.gameOver) {
         next.phase = "match_over";
