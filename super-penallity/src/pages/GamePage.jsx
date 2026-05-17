@@ -311,6 +311,10 @@ const GamePage = () => {
   const [keeperBottom, setKeeperBottom] = useState('4');
   const [resultMessage, setResultMessage] = useState(null);
   const [showingResult, setShowingResult] = useState(false);
+  // Когда true — у keeper-<div> и <img> transition='none'. Используется для мгновенного
+  // сброса позиции/текстуры/высоты вратаря без обратной анимации (которая воспринимается
+  // игроками как «вторая анимация» одного и того же хода).
+  const [keeperTransitionDisabled, setKeeperTransitionDisabled] = useState(false);
 
   // Role announcement
   const [roleAnnounce, setRoleAnnounce] = useState(null);
@@ -733,6 +737,7 @@ const GamePage = () => {
         setKeeperBottom('4');
         setSelectedZone(null);
         selectedZoneRef.current = null;
+        lastSubmittedZoneRef.current = null; // новый раунд — снимаем commit-флаг хода
         playSound('whistle_start');
         
         // Если овертайм уже показывается - НЕ показываем роль, ждём его завершения
@@ -809,16 +814,24 @@ const GamePage = () => {
         const next = prev - 1;
         if (prev <= 1) {
           stopTimer();
-          if (!zoneLocked && !showingResult) {
+          // Refs синхронны и не stale в setInterval-замыкании, в отличие от zoneLocked/showingResult state.
+          // Это снимает рассинхрон, когда игрок успел тапнуть в последнюю секунду, а таймер
+          // не «увидел» этого и автозаполнил случайной зоной поверх его выбора.
+          const alreadySubmitted = (lastSubmittedZoneRef.current !== null && lastSubmittedZoneRef.current !== undefined);
+          if (!alreadySubmitted && !showingResultRef.current) {
             const pending = selectedZoneRef.current;
             const autoZone = (pending !== null && pending !== undefined && [0, 1, 2, 3].includes(Number(pending)))
               ? Number(pending)
               : Math.floor(Math.random() * 4);
+            if (selectedZoneRef.current === null || selectedZoneRef.current === undefined) {
+              selectedZoneRef.current = autoZone;
+              setSelectedZone(autoZone);
+            }
             sendMessage('choose_zone', { zone: autoZone });
           }
           return 0;
         }
-        if (next > 0 && next <= 3 && !zoneLocked && !showingResult) {
+        if (next > 0 && next <= 3 && (lastSubmittedZoneRef.current === null || lastSubmittedZoneRef.current === undefined) && !showingResultRef.current) {
           playSound('tick');
         }
         return next;
@@ -919,6 +932,27 @@ const GamePage = () => {
         }
       }
     }, 400);
+
+    // Мгновенный (без обратной анимации) сброс вратаря в idle-позицию ВНУТРИ окна показа
+    // результата. Без флага keeperTransitionDisabled <div> и <img> вратаря плавно
+    // откатываются за 0.45s — игроки видят это как «вторую анимацию» одного хода.
+    // С флагом — keeper моментально телепортируется на стартовую позицию (transition: none),
+    // потом флаг снимается, чтобы будущие прыжки снова были плавные.
+    setTimeout(() => {
+      if (!showingResultRef.current) return; // если раунд уже сменился — пусть round_start решит
+      setBallVisible(false);
+      setKeeperTransitionDisabled(true);
+      setKeeperX(0);
+      setKeeperBottom('4');
+      setIsKeeperMirrored(false);
+      setKeeperState('idle');
+      // Восстанавливаем transition после применения сброса (двойной rAF для надёжности на iOS)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setKeeperTransitionDisabled(false);
+        });
+      });
+    }, 1100);
 
     // Если начинается овертайм - показываем уведомление ПЕРЕД следующим раундом
     if (msg.startSuddenDeath) {
@@ -1122,6 +1156,7 @@ const GamePage = () => {
         pvpMoveCommittedRef.current = false;
         setSelectedZone(null);
         selectedZoneRef.current = null;
+        lastSubmittedZoneRef.current = null; // снимаем commit-флаг хода для нового раунда
         const scoresObj = s.scores || { p1: 0, p2: 0 };
         handleServerMessage({
           type: 'round_start',
@@ -1218,11 +1253,17 @@ const GamePage = () => {
       if (type === 'choose_zone') {
         const zone = Number(data.zone);
         if (![0, 1, 2, 3].includes(zone)) return;
-        
-        // Prevent duplicate submissions
-        if (zoneLocked) return;
 
+        // Atomic anti-duplicate через ref. React state-flag zoneLocked в этой же transaction
+        // может быть stale, если функция вызвана из setInterval-замыкания или batched click.
+        if (lastSubmittedZoneRef.current !== null && lastSubmittedZoneRef.current !== undefined) return;
         lastSubmittedZoneRef.current = zone;
+        // Синхронизируем selectedZoneRef — мишень и серверная зона должны указывать на одно
+        if (selectedZoneRef.current === null || selectedZoneRef.current === undefined) {
+          selectedZoneRef.current = zone;
+          setSelectedZone(zone);
+        }
+
         setZoneLocked(true);
         setWaitingOpponent(true);
         stopTimer();
@@ -1287,9 +1328,15 @@ const GamePage = () => {
       if (type === 'choose_zone') {
         const playerZone = Number(data.zone);
         if (![0, 1, 2, 3].includes(playerZone)) return;
-        
-        if (zoneLocked) return;
-        
+
+        // Atomic anti-duplicate через ref (как в PvP-ветке)
+        if (lastSubmittedZoneRef.current !== null && lastSubmittedZoneRef.current !== undefined) return;
+        lastSubmittedZoneRef.current = playerZone;
+        if (selectedZoneRef.current === null || selectedZoneRef.current === undefined) {
+          selectedZoneRef.current = playerZone;
+          setSelectedZone(playerZone);
+        }
+
         setZoneLocked(true);
         setWaitingOpponent(true);
         stopTimer();
@@ -1452,6 +1499,8 @@ const GamePage = () => {
     pvpLastRoundMarkerRef.current = 0;
     pvpLastStartKeyRef.current = '';
     pvpMoveCommittedRef.current = false;
+    lastSubmittedZoneRef.current = null;
+    selectedZoneRef.current = null;
     pvpRoomIdRef.current = null;
     stopPvpPolling();
     if (pvpFindRetryTimerRef.current) {
@@ -1500,6 +1549,8 @@ const GamePage = () => {
     playModeRef.current = 'demo-bot';
     matchEndedRef.current = false;
     matchSavedRef.current = false;
+    lastSubmittedZoneRef.current = null;
+    selectedZoneRef.current = null;
     setOpponent('Бот 🤖');
     setPlayerIndex(0); // Игрок всегда первый
     playerIndexRef.current = 0;
@@ -1582,10 +1633,16 @@ const GamePage = () => {
   };
 
   const handleChooseZone = (zone) => {
-    if (zoneLocked || showingResult || inputBlocked || !!roleAnnounce) return;
-    setSelectedZone(zone);
-    selectedZoneRef.current = zone;
-    sendMessage('choose_zone', { zone });
+    if (![0, 1, 2, 3].includes(Number(zone))) return;
+    // Атомарная защита через ref: state-based zoneLocked может быть stale между двумя тапами
+    // в одном React tick (batched update), что давало рассинхрон «мишень светит B, мяч летит в A».
+    if (selectedZoneRef.current !== null && selectedZoneRef.current !== undefined) return;
+    if (lastSubmittedZoneRef.current !== null && lastSubmittedZoneRef.current !== undefined) return;
+    if (showingResultRef.current || inputBlocked || roleAnnounce) return;
+    const z = Number(zone);
+    selectedZoneRef.current = z;
+    setSelectedZone(z);
+    sendMessage('choose_zone', { zone: z });
   };
 
   const handlePlayAgain = () => {
@@ -1993,7 +2050,7 @@ const GamePage = () => {
               bottom: 0,
               height: '200px',
               transform: `translate3d(${keeperX}px, ${keeperState === 'idle' ? -16 : -Number(keeperBottom)}px, 0)`,
-              transition: 'transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
+              transition: keeperTransitionDisabled ? 'none' : 'transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
               willChange: 'transform',
             }}
           >
@@ -2018,7 +2075,9 @@ const GamePage = () => {
                   : (role === 'kicker' ? '170px' : '140px'),
                 transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
                 objectPosition: 'center bottom',
-                transition: 'transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), height 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
+                transition: keeperTransitionDisabled
+                  ? 'none'
+                  : 'transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), height 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
                 willChange: 'transform, height',
               }}
             />
