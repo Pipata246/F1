@@ -1242,24 +1242,32 @@ const GamePage = () => {
     // A3: синхронизируем turnId из сервера
     if (s.turnId) turnIdRef.current = String(s.turnId);
 
-    // A1: серверно-подтверждённая зона текущего раунда (если игрок уже отправил ход)
-    // Мишень мгновенно отразит то, что записал сервер — это единственный источник правды.
+    // A1: серверно-подтверждённая зона текущего раунда (если игрок уже отправил ход).
+    // КРИТИЧНО: Number(null) === 0 в JS — проверяем null/undefined ЯВНО до конверсии,
+    // иначе любое отсутствующее значение даёт zone=0 (левая верхняя) и подсвечивает её.
     const choicesObj = s.choices || {};
-    const myChoice = choicesObj[mySide];
-    if (Number.isInteger(Number(myChoice)) && [0, 1, 2, 3].includes(Number(myChoice))) {
-      const cz = Number(myChoice);
-      // setConfirmedZone дёргается при каждом poll — React сравнит и не перерендерит если значение то же
-      setConfirmedZone(cz);
+    const myChoiceRaw = choicesObj[mySide];
+    if (myChoiceRaw !== null && myChoiceRaw !== undefined) {
+      const cz = Number(myChoiceRaw);
+      if (Number.isInteger(cz) && cz >= 0 && cz <= 3) {
+        setConfirmedZone(cz);
+      }
     }
 
     const rr = s.lastRoundResult || {};
     const marker = Number(rr.marker || 0);
     if (marker > pvpLastRoundMarkerRef.current) {
       pvpLastRoundMarkerRef.current = marker;
-      // A1: при round_result закрепляем confirmedZone на финальной зоне игрока
+      // A1: при round_result закрепляем confirmedZone на финальной зоне игрока.
+      // Те же явные null/undefined-проверки чтобы не подставить 0 случайно.
       const rrKickerIdx = Number(rr.kickerIndex || 0);
-      const myZoneInResult = rrKickerIdx === myIdx ? Number(rr.kickerZone || 0) : Number(rr.keeperZone || 0);
-      if ([0, 1, 2, 3].includes(myZoneInResult)) {
+      const myRaw = rrKickerIdx === myIdx ? rr.kickerZone : rr.keeperZone;
+      let myZoneInResult = null;
+      if (myRaw !== null && myRaw !== undefined) {
+        const n = Number(myRaw);
+        if (Number.isInteger(n) && n >= 0 && n <= 3) myZoneInResult = n;
+      }
+      if (myZoneInResult !== null) {
         setConfirmedZone(myZoneInResult);
       }
       const scoresObj = rr.scores || { p1: 0, p2: 0 };
