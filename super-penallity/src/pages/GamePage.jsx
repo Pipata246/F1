@@ -1668,6 +1668,13 @@ const GamePage = () => {
     lastAnimSignatureRef.current = ''; // A2: сброс signature анимаций
     animTimersRef.current.forEach((t) => clearTimeout(t));
     animTimersRef.current = [];
+    turnIdRef.current = ''; // A3: сброс turnId
+    // Сброс UI state'ов от предыдущего матча — иначе мишень светится до выбора в новом матче
+    setSelectedZone(null);
+    setConfirmedZone(null);
+    setZoneLocked(false);
+    setShowingResult(false);
+    setResultMessage(null);
     pvpRoomIdRef.current = null;
     stopPvpPolling();
     if (pvpFindRetryTimerRef.current) {
@@ -1718,6 +1725,15 @@ const GamePage = () => {
     matchSavedRef.current = false;
     lastSubmittedZoneRef.current = null;
     selectedZoneRef.current = null;
+    lastAnimSignatureRef.current = ''; // A2: сброс signature анимаций
+    animTimersRef.current.forEach((t) => clearTimeout(t));
+    animTimersRef.current = [];
+    // Сброс UI state'ов от предыдущего матча — иначе мишень светится до выбора в новом матче
+    setSelectedZone(null);
+    setConfirmedZone(null);
+    setZoneLocked(false);
+    setShowingResult(false);
+    setResultMessage(null);
     setOpponent('Бот 🤖');
     setPlayerIndex(0); // Игрок всегда первый
     playerIndexRef.current = 0;
