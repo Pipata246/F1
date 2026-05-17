@@ -1765,6 +1765,11 @@ function pvpDefaultObstacleState(player1Id, player2Id) {
   };
 }
 
+// A3: уникальный id раунда. Клиент привязывает submit к нему — устаревший submit отвергается.
+function pvpMakeTurnId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function pvpDefaultSuperPenaltyState(player1Id, player2Id) {
   return {
     engine: "super_penalty_v1",
@@ -1781,6 +1786,7 @@ function pvpDefaultSuperPenaltyState(player1Id, player2Id) {
     // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: добавляем moveSubmittedBy
     moveSubmittedBy: { p1: null, p2: null },
     markers: { round: 0, match: 0 },
+    turnId: pvpMakeTurnId(), // A3
     players: { p1: String(player1Id), p2: String(player2Id) },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -2483,6 +2489,14 @@ function pvpApplySuperPenaltyMove(room, tgId, move) {
   if (!side) throw new Error("Invalid room side");
   const zone = Number(asObj(move).zone);
   if (![0, 1, 2, 3].includes(zone)) throw new Error("Invalid zone");
+  // A3: turnId-guard. Если клиент отправил submit с устаревшим turnId (например, retry
+  // после восстановления сети уже в новом раунде) — отвергаем. Совместимость с legacy
+  // state без turnId: проверяем только если оба значения присутствуют.
+  const incomingTurnId = String(asObj(move).turnId || "");
+  const storedTurnId = String(s.turnId || "");
+  if (incomingTurnId && storedTurnId && incomingTurnId !== storedTurnId) {
+    throw new Error("STALE_TURN");
+  }
   const next = { ...s, choices: { ...asObj(s.choices) } };
   const submitted = asObj(s.moveSubmittedBy);
   if (submitted[side] && String(submitted[side]) !== String(tgId)) {
@@ -2808,7 +2822,8 @@ function pvpAdvanceByTime(room) {
         return { changed: true, state: next };
       }
     }
-    if (s.phase === "turn_input" && elapsed >= 11000) {
+    if (s.phase === "turn_input" && elapsed >= 13000) {
+      // A5: 13с серверный auto-resolve + 11с клиентский таймер = буфер 2с под Vercel cold start
       // No random auto-moves until both humans have polled at least once (real PvP only).
       if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
       const choices = { ...asObj(s.choices) };
@@ -2835,6 +2850,7 @@ function pvpAdvanceByTime(room) {
         next.phaseAtMs = now;
         next.choices = { p1: null, p2: null };
         next.moveSubmittedBy = { p1: null, p2: null };
+        next.turnId = pvpMakeTurnId(); // A3: новый id раунда
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
@@ -4801,6 +4817,20 @@ module.exports = async (req, res) => {
     if (action === "pvpGetRoomState") {
       const room = await pvpGetRoomState(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, room, serverNowMs: Date.now() });
+    }
+    if (action === "pvpGetMyActiveRoom") {
+      // A7: используется клиентом при mount для восстановления матча после refresh.
+      // Возвращает активную PvP-комнату игрока (если есть).
+      const verified = verifyTelegramInitData(req.body?.initData || "", BOT_TOKEN);
+      if (!verified.ok) return res.status(401).json({ ok: false, error: verified.error });
+      const tgId = String(verified.user.id);
+      const gameKey = req.body?.gameKey ? String(req.body.gameKey) : null;
+      const gameFilter = gameKey ? `&game_key=eq.${encodeURIComponent(gameKey)}` : "";
+      const rows = await sb(
+        `pvp_rooms?status=eq.active&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})${gameFilter}&select=id,game_key,status,stake_ton,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,updated_at&order=updated_at.desc&limit=1`
+      );
+      const room = rows?.[0] || null;
+      return res.status(200).json({ ok: true, room });
     }
     if (action === "pvpGetFilteredState") {
       const room = await pvpGetFilteredState(req.body?.initData || "", req.body?.roomId || 0);

@@ -34,33 +34,59 @@ const SOUND_MAX_DURATION = {
 };
 const SOUND_BUFFERS = {};
 let _audioCtx = null;
-function _getAudioCtx() {
-  if (_audioCtx) return _audioCtx;
+let _audioCtxReady = false;
+let _audioGestureBound = false;
+
+// A9: на iOS Telegram WebApp AudioContext должен создаваться в первом user-gesture (tap/click).
+// Без этого ctx.state остаётся 'suspended' и звуки не воспроизводятся, пока игрок не тапнет.
+function _initAudioCtx() {
+  if (_audioCtxReady && _audioCtx) return _audioCtx;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return null;
-  try { _audioCtx = new Ctx(); } catch (e) { _audioCtx = null; }
+  try {
+    if (!_audioCtx) _audioCtx = new Ctx();
+    if (_audioCtx.state === 'suspended') {
+      _audioCtx.resume().catch(() => {});
+    }
+    _audioCtxReady = true;
+    // Прелоадим звуки только после успешной инициализации (iOS не даст decodeAudioData до этого)
+    Object.keys(SOUND_VOLUMES).forEach((name) => { _loadSound(name); });
+  } catch (e) { _audioCtx = null; _audioCtxReady = false; }
   return _audioCtx;
 }
+
+function _armAudioOnGesture() {
+  if (_audioGestureBound) return;
+  _audioGestureBound = true;
+  const arm = () => { _initAudioCtx(); };
+  ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
+    window.addEventListener(evt, arm, { once: true, passive: true, capture: true });
+  });
+}
+
 function _loadSound(name) {
-  const ctx = _getAudioCtx();
-  if (!ctx) return Promise.resolve(null);
+  if (!_audioCtxReady || !_audioCtx) return Promise.resolve(null);
   if (SOUND_BUFFERS[name]) return Promise.resolve(SOUND_BUFFERS[name]);
   return fetch(`${ASSET_BASE}sounds/${name}.mp3`)
     .then((r) => r.arrayBuffer())
     .then((buf) => new Promise((resolve, reject) => {
-      ctx.decodeAudioData(buf, resolve, reject);
+      _audioCtx.decodeAudioData(buf, resolve, reject);
     }))
     .then((decoded) => { SOUND_BUFFERS[name] = decoded; return decoded; })
     .catch(() => null);
 }
 function preloadSounds() {
-  Object.keys(SOUND_VOLUMES).forEach((name) => { _loadSound(name); });
+  // До user-gesture фактически ничего не происходит — _loadSound вернёт null.
+  // После gesture _initAudioCtx сам прелоадит всё.
+  if (_audioCtxReady) {
+    Object.keys(SOUND_VOLUMES).forEach((name) => { _loadSound(name); });
+  }
 }
 function playSound(name) {
   if (!appSettings().sound) return;
+  if (!_audioCtxReady || !_audioCtx) return; // ждём user-gesture
   try {
-    const ctx = _getAudioCtx();
-    if (!ctx) return;
+    const ctx = _audioCtx;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     const buffer = SOUND_BUFFERS[name];
     if (!buffer) { _loadSound(name); return; }
@@ -88,8 +114,8 @@ let _bgGain = null;
 function startBackground() {
   if (!appSettings().sound) return;
   if (_bgSource) return;
-  const ctx = _getAudioCtx();
-  if (!ctx) return;
+  if (!_audioCtxReady || !_audioCtx) return; // ждём user-gesture
+  const ctx = _audioCtx;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   const start = () => {
     const buffer = SOUND_BUFFERS['background'];
@@ -300,7 +326,11 @@ const GamePage = () => {
   const [waitingOpponent, setWaitingOpponent] = useState(false);
   const [timer, setTimer] = useState(10);
   const [history, setHistory] = useState([]);
-  const [selectedZone, setSelectedZone] = useState(null);
+  const [selectedZone, setSelectedZone] = useState(null); // pending — локальный выбор до подтверждения сервером
+  // A1: confirmedZone из server (room.state_json.choices[mySide] или lastRoundResult).
+  // Мишень рендерится по (confirmedZone ?? selectedZone). После подтверждения сервером
+  // мишень мгновенно переключается на серверную зону — невозможен рассинхрон с мячом.
+  const [confirmedZone, setConfirmedZone] = useState(null);
 
   // Animation state
   const [ballVisible, setBallVisible] = useState(true);
@@ -356,6 +386,16 @@ const GamePage = () => {
   const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
   const PVP_POLL_FAST_MS = 300; // Быстрый polling в критические моменты
   const pvpPollFastModeRef = useRef(false); // Флаг быстрого режима
+  // A4: reconciliation против out-of-order ответов и stale poll'ов
+  const lastAppliedUpdatedAtRef = useRef(0); // ms of room.updated_at
+  const pvpPollRequestIdRef = useRef(0); // монотонный id для каждого poll
+  // A2: signature последнего запущенного round_result + список таймеров анимации.
+  // Защищает от двойного запуска анимации одного хода (особенно в demo-bot, где marker check
+  // в applyPvpRoomState не работает — там прямой handleServerMessage).
+  const lastAnimSignatureRef = useRef('');
+  const animTimersRef = useRef([]);
+  // A3: текущий turnId раунда, обновляется из poll. Привязывает submit к конкретному раунду.
+  const turnIdRef = useRef('');
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
@@ -379,9 +419,19 @@ const GamePage = () => {
       const img = new Image();
       img.src = `${ASSET_BASE}${name}.png`;
     });
+    // A9: на iOS AudioContext активируется только в user-gesture. До тапа звуки молчат.
+    _armAudioOnGesture();
     preloadSounds();
-    _loadSound('background');
   }, []);
+
+  // A9: если фон должен играть, а AudioContext ещё не готов — перезапускаем при первом тапе
+  useEffect(() => {
+    if (screen !== 'game') return undefined;
+    if (_audioCtxReady) return undefined;
+    const retry = () => { if (screen === 'game') startBackground(); };
+    window.addEventListener('pointerdown', retry, { once: true, capture: true });
+    return () => window.removeEventListener('pointerdown', retry, { capture: true });
+  }, [screen]);
 
   useEffect(() => {
     if (screen === 'game') startBackground();
@@ -564,17 +614,59 @@ const GamePage = () => {
   // УБИРАЕМ ВСЕ УВЕДОМЛЕНИЯ - удаляем beforeunload полностью
   // useEffect для beforeunload УДАЛЁН
 
-  // При монтировании компонента проверяем перезагрузку
+  // A7: при mount проверяем sessionStorage на наличие активного матча и пробуем переподключиться.
+  // Если матч ещё активен на сервере — восстанавливаем UI и polling. Иначе чистим storage.
   useEffect(() => {
-    // При ЛЮБОЙ перезагрузке - всегда на главную
-    const wasReloaded = performance.navigation?.type === 1 || 
-                        performance.getEntriesByType?.('navigation')?.[0]?.type === 'reload';
-    
-    if (wasReloaded) {
-      // Страница была перезагружена - ВСЕГДА выкидываем на главную
-      window.location.replace('/');
+    const stored = (() => { try { return sessionStorage.getItem('sp_active_room'); } catch { return null; } })();
+    if (!stored) return;
+    const storedRoomId = Number(stored);
+    if (!Number.isInteger(storedRoomId) || storedRoomId <= 0) {
+      try { sessionStorage.removeItem('sp_active_room'); } catch {}
+      return;
     }
+    // Ждём, пока tgInitData загрузится (он set'ится в другом useEffect)
+    const tryReconnect = () => {
+      const init = tgInitDataRef.current;
+      if (!init) {
+        setTimeout(tryReconnect, 200);
+        return;
+      }
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pvpGetMyActiveRoom', initData: init, gameKey: 'super_penalty' }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (!data?.ok || !data.room) {
+            try { sessionStorage.removeItem('sp_active_room'); } catch {}
+            return;
+          }
+          if (Number(data.room.id) !== storedRoomId) {
+            try { sessionStorage.removeItem('sp_active_room'); } catch {}
+            return;
+          }
+          // Восстанавливаем матч
+          pvpRoomIdRef.current = Number(data.room.id);
+          playModeRef.current = 'pvp';
+          matchEndedRef.current = false;
+          // Сразу запускаем polling — он принесёт актуальный state и applyPvpRoomState разрулит UI
+          startPvpPolling();
+        })
+        .catch(() => { try { sessionStorage.removeItem('sp_active_room'); } catch {} });
+    };
+    tryReconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A7: при входе в активный матч сохраняем roomId, при выходе — чистим
+  useEffect(() => {
+    if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && screen === 'game') {
+      try { sessionStorage.setItem('sp_active_room', String(pvpRoomIdRef.current)); } catch {}
+    } else if (screen === 'result' || screen === 'stake-online' || screen === 'menu') {
+      try { sessionStorage.removeItem('sp_active_room'); } catch {}
+    }
+  }, [screen]);
 
 
   useEffect(() => {
@@ -629,36 +721,28 @@ const GamePage = () => {
     };
   }, []);
 
+  // A7: убрали авто-отправку pvpLeaveRoom на pagehide и pvpCancelQueue на visibility=hidden
+  // в активном матче. Refresh/сворачивание Telegram больше не приводит к мгновенной потере
+  // ставки. Сервер сам объявит leave по stale presence (через 45с) если игрок не вернётся.
+  // При входе в waiting (поиск) на pagehide всё ещё отменяем очередь — отдельная логика.
   useEffect(() => {
-    const postPvp = (action) => {
+    const onPageHide = () => {
+      // Отменяем поиск только если игрок не в активном матче (screen === 'waiting' и ещё нет roomId с активной фазой)
       if (playModeRef.current !== 'pvp') return;
       const init = tgInitDataRef.current;
       const rid = pvpRoomIdRef.current;
       if (!init || !rid) return;
-      const payload = JSON.stringify({ action, initData: init, roomId: rid });
-      try {
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
-        }
-      } catch {}
-      fetch('/api/user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-        keepalive: true,
-      }).catch(() => {});
+      // В waiting (accept / matchmaking) отменяем — иначе оппонент будет ждать в зомби-комнате
+      if (screen !== 'game') {
+        const payload = JSON.stringify({ action: 'pvpCancelQueue', initData: init, roomId: rid });
+        try { if (navigator.sendBeacon) navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' })); } catch {}
+        fetch('/api/user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
+      }
+      // В активном матче — НЕ leave. Сервер сам разберётся через stale presence.
     };
-    const onVis = () => {
-      if (document.visibilityState === 'hidden') postPvp('pvpCancelQueue');
-    };
-    const onPageHide = () => postPvp('pvpLeaveRoom');
-    document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pagehide', onPageHide);
-    return () => {
-      document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('pagehide', onPageHide);
-    };
-  }, []);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [screen]);
 
   useEffect(() => {
     return () => {
@@ -719,6 +803,10 @@ const GamePage = () => {
         clearRoundStuckTimer();
         clearMoveWatchdog();
         clearWaitingBotMoveTimer();
+        // A2: сбрасываем signature + чистим зависшие анимационные таймеры предыдущего раунда
+        lastAnimSignatureRef.current = '';
+        animTimersRef.current.forEach((t) => clearTimeout(t));
+        animTimersRef.current = [];
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
         setRole(msg.role);
@@ -737,6 +825,7 @@ const GamePage = () => {
         setKeeperBottom('4');
         setSelectedZone(null);
         selectedZoneRef.current = null;
+        setConfirmedZone(null); // A1: новый раунд — сбрасываем серверно-подтверждённую зону
         lastSubmittedZoneRef.current = null; // новый раунд — снимаем commit-флаг хода
         playSound('whistle_start');
         
@@ -808,7 +897,8 @@ const GamePage = () => {
 
   const startTimer = () => {
     stopTimer();
-    setTimer(10);
+    // A5: 11с клиентский таймер + 13с серверный auto-resolve = буфер 2с под Vercel cold start.
+    setTimer(11);
     timerRef.current = setInterval(() => {
       setTimer(prev => {
         const next = prev - 1;
@@ -862,6 +952,17 @@ const GamePage = () => {
   };
 
   const handleRoundResult = (msg) => {
+    // A2: signature-guard — defensive против повторного вызова handleRoundResult для одного хода.
+    // Marker check в applyPvpRoomState уже защищает PvP-путь, но demo-bot путь вызывает
+    // handleServerMessage напрямую (без marker) — это страховка против дублей анимации.
+    const sig = `${msg.round ?? 0}:${msg.kickerIndex ?? -1}:${msg.kickerZone ?? -1}:${msg.keeperZone ?? -1}:${msg.isGoal ? 1 : 0}`;
+    if (sig === lastAnimSignatureRef.current) return; // тот же ход — игнор
+    lastAnimSignatureRef.current = sig;
+
+    // A2: чистим таймеры предыдущего раунда — невозможно, чтобы их setState'ы перебили текущий
+    animTimersRef.current.forEach((t) => clearTimeout(t));
+    animTimersRef.current = [];
+
     clearRoundStuckTimer();
     clearMoveWatchdog();
     stopTimer();
@@ -878,6 +979,17 @@ const GamePage = () => {
     const { kickerZone, keeperZone, isGoal, kickerIndex } = msg;
     const iAmKicker = playerIndexRef.current === kickerIndex;
 
+    // A6: если игрок отправил одну зону, а сервер записал другую (auto-resolve / network race) —
+    // показываем честный notice. Без него игрок видит «мяч улетел не туда» и не понимает почему.
+    if (
+      playModeRef.current === 'pvp' &&
+      msg.submittedZone != null &&
+      msg.myZoneInResult != null &&
+      Number(msg.submittedZone) !== Number(msg.myZoneInResult)
+    ) {
+      showBottomNotice('Ход не успел дойти — авто-выбор сервера');
+    }
+
     // Ball flies to kicker's zone
     const target = targetPositions[kickerZone];
     setBallVisible(true);
@@ -891,7 +1003,7 @@ const GamePage = () => {
     const kpos = keeperZonePos[keeperZone];
     setIsKeeperMirrored(keeperZone === 0 || keeperZone === 2);
 
-    setTimeout(() => {
+    animTimersRef.current.push(setTimeout(() => {
       setKeeperX(kpos.x);
       setKeeperBottom(String(kpos.bottom));
       // Save sprite ONLY when keeper actually catches the ball
@@ -901,15 +1013,15 @@ const GamePage = () => {
         // Keeper missed — stays idle sprite, just moves to position
         setKeeperState('moved');
       }
-    }, 150);
+    }, 150));
 
     // If saved, hide the flying ball after it "reaches" the keeper.
-    setTimeout(() => {
+    animTimersRef.current.push(setTimeout(() => {
       if (!isGoal) setBallVisible(false);
-    }, 420);
+    }, 420));
 
     // Result text
-    setTimeout(() => {
+    animTimersRef.current.push(setTimeout(() => {
       if (isGoal) {
         playSound('goal');
         if (iAmKicker) {
@@ -931,14 +1043,14 @@ const GamePage = () => {
           if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
         }
       }
-    }, 400);
+    }, 400));
 
     // Мгновенный (без обратной анимации) сброс вратаря в idle-позицию ВНУТРИ окна показа
     // результата. Без флага keeperTransitionDisabled <div> и <img> вратаря плавно
     // откатываются за 0.45s — игроки видят это как «вторую анимацию» одного хода.
     // С флагом — keeper моментально телепортируется на стартовую позицию (transition: none),
     // потом флаг снимается, чтобы будущие прыжки снова были плавные.
-    setTimeout(() => {
+    animTimersRef.current.push(setTimeout(() => {
       if (!showingResultRef.current) return; // если раунд уже сменился — пусть round_start решит
       setBallVisible(false);
       setKeeperTransitionDisabled(true);
@@ -952,25 +1064,25 @@ const GamePage = () => {
           setKeeperTransitionDisabled(false);
         });
       });
-    }, 1100);
+    }, 1100));
 
     // Если начинается овертайм - показываем уведомление ПЕРЕД следующим раундом
     if (msg.startSuddenDeath) {
       const overtimeStartRound = msg.round || 0;
       // Показываем овертайм через 1.5 сек после результата
-      setTimeout(() => {
+      animTimersRef.current.push(setTimeout(() => {
         setOvertimeAnnounce(true);
         setSuddenDeath(true);
         setSuddenDeathStartRound(overtimeStartRound);
         if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('warning');
         // Скрываем овертайм через 2.5 сек
-        setTimeout(() => {
+        animTimersRef.current.push(setTimeout(() => {
           setOvertimeAnnounce(false);
           // Сбрасываем результат раунда чтобы разблокировать для следующего
           setShowingResult(false);
           setResultMessage(null);
-        }, 2500);
-      }, 1500);
+        }, 2500));
+      }, 1500));
     }
 
     // Safety timeout: если застряли на результате - разблокируем
@@ -1034,6 +1146,12 @@ const GamePage = () => {
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
     if (matchEndedRef.current) return; // не реагируем на запоздалые ответы после окончания
+    // A4: игнорируем stale ответы. Если incoming updated_at не больше последнего применённого —
+    // это out-of-order или дубликат. Marker/startKey-guards защитят ниже, но stale-guard
+    // предотвращает лишние setState и render'ы.
+    const incomingMs = Number(new Date(room.updated_at || 0).getTime()) || 0;
+    if (incomingMs > 0 && incomingMs < lastAppliedUpdatedAtRef.current) return;
+    if (incomingMs > 0) lastAppliedUpdatedAtRef.current = incomingMs;
     const s = room.state_json || {};
 
     const matchOver = String(room.status) === 'finished'
@@ -1121,10 +1239,29 @@ const GamePage = () => {
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
     setCurrentStakeTon(room.stake_ton != null ? Number(room.stake_ton) : null);
 
+    // A3: синхронизируем turnId из сервера
+    if (s.turnId) turnIdRef.current = String(s.turnId);
+
+    // A1: серверно-подтверждённая зона текущего раунда (если игрок уже отправил ход)
+    // Мишень мгновенно отразит то, что записал сервер — это единственный источник правды.
+    const choicesObj = s.choices || {};
+    const myChoice = choicesObj[mySide];
+    if (Number.isInteger(Number(myChoice)) && [0, 1, 2, 3].includes(Number(myChoice))) {
+      const cz = Number(myChoice);
+      // setConfirmedZone дёргается при каждом poll — React сравнит и не перерендерит если значение то же
+      setConfirmedZone(cz);
+    }
+
     const rr = s.lastRoundResult || {};
     const marker = Number(rr.marker || 0);
     if (marker > pvpLastRoundMarkerRef.current) {
       pvpLastRoundMarkerRef.current = marker;
+      // A1: при round_result закрепляем confirmedZone на финальной зоне игрока
+      const rrKickerIdx = Number(rr.kickerIndex || 0);
+      const myZoneInResult = rrKickerIdx === myIdx ? Number(rr.kickerZone || 0) : Number(rr.keeperZone || 0);
+      if ([0, 1, 2, 3].includes(myZoneInResult)) {
+        setConfirmedZone(myZoneInResult);
+      }
       const scoresObj = rr.scores || { p1: 0, p2: 0 };
       handleServerMessage({
         type: 'round_result',
@@ -1133,9 +1270,12 @@ const GamePage = () => {
         isGoal: !!rr.isGoal,
         scores: [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)],
         round: Number(rr.round || 0),
-        kickerIndex: Number(rr.kickerIndex || 0),
+        kickerIndex: rrKickerIdx,
         history: Array.isArray(rr.history) ? rr.history : [],
         startSuddenDeath: !!rr.startSuddenDeath, // NEW: pass overtime flag
+        // A6: передаём submitted-zone в handleRoundResult чтобы показать toast при mismatch
+        submittedZone: lastSubmittedZoneRef.current,
+        myZoneInResult,
       });
       return;
     }
@@ -1156,6 +1296,7 @@ const GamePage = () => {
         pvpMoveCommittedRef.current = false;
         setSelectedZone(null);
         selectedZoneRef.current = null;
+        setConfirmedZone(null); // A1: новый раунд — confirmedZone должна сброситься
         lastSubmittedZoneRef.current = null; // снимаем commit-флаг хода для нового раунда
         const scoresObj = s.scores || { p1: 0, p2: 0 };
         handleServerMessage({
@@ -1175,6 +1316,8 @@ const GamePage = () => {
   const pvpPollState = useCallback(() => {
     if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
     pvpPollInFlightRef.current = true;
+    // A4: монотонный id — ответы с устаревшим id игнорируются (если успел уйти более новый запрос)
+    const requestId = ++pvpPollRequestIdRef.current;
 
     if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
     connectionErrorTimerRef.current = setTimeout(() => {
@@ -1202,6 +1345,8 @@ const GamePage = () => {
     })
       .then((r) => r.json())
       .then((data) => {
+        // A4: stale-guard — если за время этого fetch уже улетел более новый poll, игнорируем ответ
+        if (requestId !== pvpPollRequestIdRef.current) return;
         if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
         setShowConnectionError(false);
         lastSuccessfulPollRef.current = Date.now();
@@ -1214,12 +1359,22 @@ const GamePage = () => {
             goHome();
             return;
           }
-          if (err === 'Room not found' && acceptInfo) {
-            pvpRoomIdRef.current = null;
-            setAcceptInfo(null);
-            setScreen('waiting');
-            showBottomNotice('Пользователь не принял матч');
-            startSearchOnline();
+          if (err === 'Room not found') {
+            // A8: после завершения матча сервер чистит комнату через pvpDeleteRoomAfterDone.
+            // Это НЕ accept-timeout — это нормальный cleanup. Не показываем «не принял матч»
+            // и не запускаем новый поиск.
+            if (matchEndedRef.current || screen === 'result') {
+              stopPvpPolling();
+              pvpRoomIdRef.current = null;
+              return;
+            }
+            if (acceptInfo) {
+              pvpRoomIdRef.current = null;
+              setAcceptInfo(null);
+              setScreen('waiting');
+              showBottomNotice('Пользователь не принял матч');
+              startSearchOnline();
+            }
           }
           return;
         }
@@ -1278,7 +1433,8 @@ const GamePage = () => {
             action: 'pvpSubmitMove',
             initData: tgInitDataRef.current,
             roomId: pvpRoomIdRef.current,
-            move: { zone },
+            // A3: turnId связывает submit с конкретным раундом — сервер отвергнет stale
+            move: { zone, turnId: turnIdRef.current || undefined },
           }).then((data2) => {
             if (pvpMoveCommittedRef.current) return;
             if (data2?.ok) {
@@ -1288,6 +1444,13 @@ const GamePage = () => {
               }
               setTimeout(() => pvpPollState(), 200);
             } else {
+              const err = String(data2?.error || '');
+              if (err === 'STALE_TURN') {
+                // A3: submit пришёл уже после смены раунда — тихо игнорируем, poll принесёт актуальный state
+                pvpMoveCommittedRef.current = true;
+                pvpPollState();
+                return;
+              }
               if (penAttempts < 3) {
                 setTimeout(submitPenMove, 400);
               } else {
@@ -1501,6 +1664,10 @@ const GamePage = () => {
     pvpMoveCommittedRef.current = false;
     lastSubmittedZoneRef.current = null;
     selectedZoneRef.current = null;
+    lastAppliedUpdatedAtRef.current = 0; // A4: сброс reconciliation на новый матч
+    lastAnimSignatureRef.current = ''; // A2: сброс signature анимаций
+    animTimersRef.current.forEach((t) => clearTimeout(t));
+    animTimersRef.current = [];
     pvpRoomIdRef.current = null;
     stopPvpPolling();
     if (pvpFindRetryTimerRef.current) {
@@ -2094,7 +2261,10 @@ const GamePage = () => {
           {role === 'kicker' && !inputBlocked && !roleAnnounce && !showingResult && (
             <div className="absolute inset-0 z-40 pointer-events-none">
               {[0, 1, 2, 3].map((zone) => {
-                const isSelected = selectedZone === zone;
+                // A1: confirmedZone (от сервера) приоритетнее selectedZone (локальный pending).
+                // Это гарантирует, что мишень = реальный ход, записанный сервером.
+                const displayedZone = confirmedZone != null ? confirmedZone : selectedZone;
+                const isSelected = displayedZone === zone;
                 const c = zoneTargetCenters[zone];
                 return (
                   <div
@@ -2129,7 +2299,8 @@ const GamePage = () => {
           {role === 'keeper' && !inputBlocked && !roleAnnounce && !showingResult && (
             <div className="absolute inset-0 z-40 pointer-events-none">
               {[0, 1, 2, 3].map((zone) => {
-                const isSelected = selectedZone === zone;
+                const displayedZone = confirmedZone != null ? confirmedZone : selectedZone;
+                const isSelected = displayedZone === zone;
                 const c = zoneTargetCenters[zone];
                 return (
                   <div
