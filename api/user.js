@@ -1816,8 +1816,8 @@ function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
 
 const PVP_BOT_WAIT_MIN_MS = 10_000; // 10 seconds minimum
 const PVP_BOT_WAIT_SPAN_MS = 5_000; // 10..15 sec range
-const PVP_BOT_MOVE_MIN_MS = 1000;
-const PVP_BOT_MOVE_MAX_MS = 3000;
+const PVP_BOT_MOVE_MIN_MS = 300;
+const PVP_BOT_MOVE_MAX_MS = 1000;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
@@ -2821,7 +2821,9 @@ function pvpAdvanceByTime(room) {
       resolved.updatedAt = new Date().toISOString();
       return { changed: true, state: resolved };
     }
-    if (s.phase === "round_result" && elapsed >= 800) {
+    if (s.phase === "round_result" && elapsed >= 2500) {
+      // 2500мс синхронизирует серверный переход с клиентской анимацией удара/сейва (2.5 сек).
+      // Игроки видят полную анимацию до сброса вратаря в idle для следующего раунда.
       const rr = asObj(s.lastRoundResult);
       if (rr.gameOver) {
         next.phase = "match_over";
@@ -2829,19 +2831,10 @@ function pvpAdvanceByTime(room) {
         next.winnerSide = rr.winnerSide || null;
         next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
       } else {
-        // ИСПРАВЛЕНИЕ: Убрали увеличенную задержку для овертайма
-        // Модалка на фронте показывается 2.5 сек, этого достаточно
-        // Бэкенд переходит в turn_input через 800мс как обычно
-        if (elapsed >= 800) {
-          next.phase = "turn_input";
-          next.phaseAtMs = now;
-          next.choices = { p1: null, p2: null };
-          // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при переходе к новому раунду
-          next.moveSubmittedBy = { p1: null, p2: null };
-        } else {
-          // Ещё не прошло достаточно времени - не меняем фазу
-          return { changed: false, state: s };
-        }
+        next.phase = "turn_input";
+        next.phaseAtMs = now;
+        next.choices = { p1: null, p2: null };
+        next.moveSubmittedBy = { p1: null, p2: null };
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };

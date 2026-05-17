@@ -400,14 +400,17 @@ const GamePage = () => {
 
     const timers = [];
 
-    // 5 сек: force poll (тикнет pvpAdvanceByTime на сервере, бот сходит)
+    // Нормальный flow: бот 0.3-1с + poll 0.8с + анимация 2.5с ≈ 4.6с висит waitingOpponent.
+    // Recovery таймеры начинаются ПОСЛЕ этого окна, чтобы не мешать обычной игре.
+
+    // 8 сек: force poll (тикнет pvpAdvanceByTime, бот сходит если завис)
     timers.push(setTimeout(() => {
       if (!waitingOpponent || matchEndedRef.current) return;
       pvpPollInFlightRef.current = false;
       pvpPollState();
-    }, 5000));
+    }, 8000));
 
-    // 10 сек: повторная отправка того же хода (server идемпотентен — это форс прокручивает state машину)
+    // 14 сек: повторная отправка хода + force poll
     timers.push(setTimeout(() => {
       if (!waitingOpponent || matchEndedRef.current) return;
       const zone = lastSubmittedZoneRef.current;
@@ -423,13 +426,13 @@ const GamePage = () => {
       }).catch(() => {});
       pvpPollInFlightRef.current = false;
       pvpPollState();
-    }, 10000));
+    }, 14000));
 
-    // 16 сек: показываем пользователю модалку с выходом
+    // 22 сек: модалка с выходом
     timers.push(setTimeout(() => {
       if (!waitingOpponent || matchEndedRef.current) return;
       setShowConnectionError(true);
-    }, 16000));
+    }, 22000));
 
     return () => { timers.forEach(clearTimeout); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -939,33 +942,21 @@ const GamePage = () => {
     // Safety timeout: если застряли на результате - разблокируем
     // ИСПРАВЛЕНИЕ: Одинаковый таймаут для всех случаев (2.5 сек)
     // Модалка овертайма показывается 2.5 сек, бэкенд переходит в turn_input через 800мс
+    // Анимация удара/сейва занимает 2.5 сек. После её завершения снимаем флаг showingResult,
+    // чтобы applyPvpRoomState мог обработать переход на новый раунд (round_start). Остальные
+    // сбросы (zoneLocked, role, keeper position) сделает обработчик round_start.
     const safetyTimeout = 2500;
     roundStuckTimerRef.current = setTimeout(() => {
       if (!showingResultRef.current) return;
-
-      if (playModeRef.current === 'pvp') {
-        pvpPollState();
-        setTimeout(() => pvpPollState(), 600);
-        setTimeout(() => {
-          if (!showingResultRef.current) return;
-          if (pvpMoveCommittedRef.current) {
-            pvpPollState();
-            return;
-          }
-          setShowingResult(false);
-          setResultMessage(null);
-          setZoneLocked(false);
-          setWaitingOpponent(false);
-          setInputBlocked(false);
-          pvpPollState();
-        }, 1000);
-        return;
-      }
-
-      // Bot mode removed - all logic goes through backend now
       setShowingResult(false);
       setResultMessage(null);
-      setInputBlocked(false);
+      if (playModeRef.current === 'pvp') {
+        // Форсируем poll — server только что транзитнулся в turn_input, надо подхватить состояние
+        pvpPollInFlightRef.current = false;
+        pvpPollState();
+      } else {
+        setInputBlocked(false);
+      }
     }, safetyTimeout);
   };
 
@@ -1116,6 +1107,9 @@ const GamePage = () => {
     }
 
     if (s.phase === 'turn_input') {
+      // Если в данный момент проигрывается анимация результата раунда — не начинаем новый раунд
+      // до её завершения. Это предотвращает «скачок» вратаря и роли посередине удара.
+      if (showingResultRef.current) return;
       const baseRound = Number(s.round || 0);
       const sudden = !!s.suddenDeath;
       const kickerIndex = sudden && Number.isInteger(Number(s.kickerOverride))
@@ -1232,6 +1226,7 @@ const GamePage = () => {
         setZoneLocked(true);
         setWaitingOpponent(true);
         stopTimer();
+        enableFastPolling(); // ускоряем polling до 300мс чтобы быстрее получить round_result
 
         let penAttempts = 0;
 
@@ -2036,7 +2031,7 @@ const GamePage = () => {
             )}
           </div>
 
-          {/* Target overlays (only for kicker during turn input) */}
+          {/* Target overlays — kicker (yellow attack targets) */}
           {role === 'kicker' && !inputBlocked && !roleAnnounce && !showingResult && (
             <div className="absolute inset-0 z-40 pointer-events-none">
               {[0, 1, 2, 3].map((zone) => {
@@ -2055,13 +2050,48 @@ const GamePage = () => {
                     <div
                       className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
                         isSelected
-                          ? 'w-11 h-11 border-[3px] border-yellow-300 bg-yellow-300/25 animate-pulse shadow-[0_0_18px_rgba(253,224,71,0.85)]'
-                          : 'w-9 h-9 border-2 border-dashed border-white/70 bg-black/10'
+                          ? 'w-16 h-16 border-[4px] border-yellow-300 bg-yellow-400/35 animate-pulse shadow-[0_0_28px_rgba(253,224,71,1)]'
+                          : 'w-14 h-14 border-[3px] border-yellow-400 bg-yellow-400/20 shadow-[0_0_14px_rgba(253,224,71,0.7)]'
                       }`}
                     >
                       <div
                         className={`rounded-full ${
-                          isSelected ? 'w-2.5 h-2.5 bg-yellow-300' : 'w-1.5 h-1.5 bg-white/80'
+                          isSelected ? 'w-3.5 h-3.5 bg-yellow-200' : 'w-2.5 h-2.5 bg-yellow-300'
+                        }`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Zone overlays — keeper (emerald dive zones) */}
+          {role === 'keeper' && !inputBlocked && !roleAnnounce && !showingResult && (
+            <div className="absolute inset-0 z-40 pointer-events-none">
+              {[0, 1, 2, 3].map((zone) => {
+                const isSelected = selectedZone === zone;
+                const c = zoneTargetCenters[zone];
+                return (
+                  <div
+                    key={zone}
+                    className="absolute"
+                    style={{
+                      left: `${c.left}px`,
+                      top: `${c.top}px`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                  >
+                    <div
+                      className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
+                        isSelected
+                          ? 'w-16 h-16 border-[4px] border-emerald-300 bg-emerald-400/35 animate-pulse shadow-[0_0_28px_rgba(52,211,153,1)]'
+                          : 'w-14 h-14 border-[3px] border-emerald-400 bg-emerald-400/18 shadow-[0_0_14px_rgba(52,211,153,0.7)]'
+                      }`}
+                    >
+                      <div
+                        className={`rounded-full ${
+                          isSelected ? 'w-3.5 h-3.5 bg-emerald-200' : 'w-2.5 h-2.5 bg-emerald-300'
                         }`}
                       />
                     </div>
