@@ -3,301 +3,31 @@ import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@supabase/supabase-js';
 import { TmaTopSafe } from '../components/TmaTopSafe.jsx';
+import { zoneTargetCenters, targetPositions, keeperZonePos } from '../lib/zonePositions.js';
+import {
+  armAudioOnGesture,
+  preloadSounds,
+  playSound,
+  startBackground,
+  stopBackground,
+  isAudioReady,
+  appSettings,
+} from '../lib/sound.js';
+import { GrassSVG } from '../components/GrassSVG.jsx';
+import { KickDots } from '../components/KickDots.jsx';
+import { Keeper } from '../components/Keeper.jsx';
+import { Ball } from '../components/Ball.jsx';
+import { TargetZones } from '../components/TargetZones.jsx';
+import { ConnectionErrorModal } from '../components/ConnectionErrorModal.jsx';
+import { WaitingScreen } from '../components/screens/WaitingScreen.jsx';
+import { StakeSelectScreen } from '../components/screens/StakeSelectScreen.jsx';
+import { ResultScreen } from '../components/screens/ResultScreen.jsx';
 
 const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const ASSET_BASE = import.meta.env.BASE_URL || '/super-penallity/';
-const SETTINGS_KEY = "f1duel_global_settings_v1";
-function appSettings() {
-  try {
-    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-    return { sound: s?.sound !== false, haptic: s?.haptic !== false };
-  } catch {
-    return { sound: true, haptic: true };
-  }
-}
-
-const SOUND_VOLUMES = {
-  kick: 0.6,
-  save: 0.5,
-  goal: 0.75,
-  background: 0.18,
-  whistle_start: 0.5,
-  whistle_end: 0.55,
-  tick: 0.3,
-};
-const SOUND_MAX_DURATION = {
-  goal: 2.4,
-  whistle_end: 2.5,
-};
-const SOUND_BUFFERS = {};
-let _audioCtx = null;
-let _audioCtxReady = false;
-let _audioGestureBound = false;
-
-// A9: на iOS Telegram WebApp AudioContext должен создаваться в первом user-gesture (tap/click).
-// Без этого ctx.state остаётся 'suspended' и звуки не воспроизводятся, пока игрок не тапнет.
-function _initAudioCtx() {
-  if (_audioCtxReady && _audioCtx) return _audioCtx;
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  if (!Ctx) return null;
-  try {
-    if (!_audioCtx) _audioCtx = new Ctx();
-    if (_audioCtx.state === 'suspended') {
-      _audioCtx.resume().catch(() => {});
-    }
-    _audioCtxReady = true;
-    // Прелоадим звуки только после успешной инициализации (iOS не даст decodeAudioData до этого)
-    Object.keys(SOUND_VOLUMES).forEach((name) => { _loadSound(name); });
-  } catch (e) { _audioCtx = null; _audioCtxReady = false; }
-  return _audioCtx;
-}
-
-function _armAudioOnGesture() {
-  if (_audioGestureBound) return;
-  _audioGestureBound = true;
-  const arm = () => { _initAudioCtx(); };
-  ['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
-    window.addEventListener(evt, arm, { once: true, passive: true, capture: true });
-  });
-}
-
-function _loadSound(name) {
-  if (!_audioCtxReady || !_audioCtx) return Promise.resolve(null);
-  if (SOUND_BUFFERS[name]) return Promise.resolve(SOUND_BUFFERS[name]);
-  return fetch(`${ASSET_BASE}sounds/${name}.mp3`)
-    .then((r) => r.arrayBuffer())
-    .then((buf) => new Promise((resolve, reject) => {
-      _audioCtx.decodeAudioData(buf, resolve, reject);
-    }))
-    .then((decoded) => { SOUND_BUFFERS[name] = decoded; return decoded; })
-    .catch(() => null);
-}
-function preloadSounds() {
-  // До user-gesture фактически ничего не происходит — _loadSound вернёт null.
-  // После gesture _initAudioCtx сам прелоадит всё.
-  if (_audioCtxReady) {
-    Object.keys(SOUND_VOLUMES).forEach((name) => { _loadSound(name); });
-  }
-}
-function playSound(name) {
-  if (!appSettings().sound) return;
-  if (!_audioCtxReady || !_audioCtx) return; // ждём user-gesture
-  try {
-    const ctx = _audioCtx;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const buffer = SOUND_BUFFERS[name];
-    if (!buffer) { _loadSound(name); return; }
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = ctx.createGain();
-    const volume = SOUND_VOLUMES[name] != null ? SOUND_VOLUMES[name] : 0.5;
-    gain.gain.value = volume;
-    source.connect(gain).connect(ctx.destination);
-    source.start(0);
-    const maxDur = SOUND_MAX_DURATION[name];
-    if (maxDur != null) {
-      const fadeStart = Math.max(0, maxDur - 0.4);
-      try {
-        gain.gain.setValueAtTime(volume, ctx.currentTime + fadeStart);
-        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + maxDur);
-      } catch (e) {}
-      try { source.stop(ctx.currentTime + maxDur); } catch (e) {}
-    }
-  } catch (e) {}
-}
-
-let _bgSource = null;
-let _bgGain = null;
-function startBackground() {
-  if (!appSettings().sound) return;
-  if (_bgSource) return;
-  if (!_audioCtxReady || !_audioCtx) return; // ждём user-gesture
-  const ctx = _audioCtx;
-  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-  const start = () => {
-    const buffer = SOUND_BUFFERS['background'];
-    if (!buffer) return;
-    try {
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-      const gain = ctx.createGain();
-      gain.gain.value = SOUND_VOLUMES.background;
-      source.connect(gain).connect(ctx.destination);
-      source.start(0);
-      _bgSource = source;
-      _bgGain = gain;
-    } catch (e) {}
-  };
-  if (SOUND_BUFFERS['background']) start();
-  else _loadSound('background').then(start);
-}
-function stopBackground() {
-  try {
-    if (_bgSource) { try { _bgSource.stop(0); } catch (e) {} _bgSource.disconnect(); }
-  } catch (e) {}
-  _bgSource = null;
-  _bgGain = null;
-}
-
-// Gate container: 360x280, zone grid: left=16, w=328, h=238 (85% of 280)
-// Zone cells: 164x119 each
-// Zone centers from container origin:
-//   0(TL)=(98,60)  1(TR)=(262,60)  2(BL)=(98,178)  3(BR)=(262,178)
-// Ball starts at center-x=180, center-y=255 (bottom:-10, img 70x70)
-// So ball translate = zoneCenter - ballStart
-// Centers of each target zone from top-left of gate container (360x280).
-// Computed from where the ball actually lands:
-//   Ball starts with center at (180, 285) (bottom:-40, half height 35).
-//   targetPositions are translate offsets from start, so landing center = start + translate.
-//   zone 0: (180-82, 285-195) = (98, 90)
-//   zone 1: (180+82, 285-195) = (262, 90)
-//   zone 2: (180-82, 285-77)  = (98, 208)
-//   zone 3: (180+82, 285-77)  = (262, 208)
-const zoneTargetCenters = [
-  { left: 98, top: 90 },
-  { left: 262, top: 90 },
-  { left: 98, top: 208 },
-  { left: 262, top: 208 },
-];
-
-const targetPositions = [
-  { x: -82, y: -195 },  // zone 0: top-left
-  { x: 82, y: -195 },   // zone 1: top-right
-  { x: -82, y: -77 },   // zone 2: bottom-left
-  { x: 82, y: -77 },    // zone 3: bottom-right
-];
-
-// Keeper x offset from center (180) to zone center
-// Keeper bottom values so keeper center aligns with zone center y
-// Using h=100px save sprite: bottom = (280 - zoneCenterY) - 50
-const keeperZonePos = [
-  { x: -82, bottom: 170 }, // zone 0: top-left
-  { x: 82, bottom: 170 },  // zone 1: top-right
-  { x: -82, bottom: 52 },  // zone 2: bottom-left
-  { x: 82, bottom: 52 },   // zone 3: bottom-right
-];
-
-// Optimized grass - reduced from 350 to 100 paths for better performance
-const GrassSVG = memo(() => (
-  <svg className="absolute bottom-0 left-0 w-full h-36 z-[1] pointer-events-none" viewBox="0 0 400 120" preserveAspectRatio="none">
-    {/* Layer 1: dark back blades */}
-    <g fill="#145a2a" opacity="0.9">
-      {Array.from({ length: 25 }).map((_, i) => {
-        const x = i * 16 + Math.sin(i * 1.7) * 3;
-        const h = 40 + Math.sin(i * 0.5) * 18;
-        const lean = Math.sin(i * 0.8) * 8;
-        return <path key={`a${i}`} d={`M${x},120 Q${x + lean},${120 - h * 0.6} ${x + lean * 0.6},${120 - h} Q${x + lean * 0.3},${120 - h * 0.6} ${x + 5},120`} />;
-      })}
-    </g>
-    {/* Layer 2: medium green mid blades */}
-    <g fill="#1a6b35" opacity="0.85">
-      {Array.from({ length: 30 }).map((_, i) => {
-        const x = i * 13.3 + 2 + Math.cos(i * 1.3) * 4;
-        const h = 32 + Math.cos(i * 0.7) * 14;
-        const lean = Math.cos(i * 1.1) * 7;
-        return <path key={`b${i}`} d={`M${x},120 Q${x + lean},${120 - h * 0.6} ${x + lean * 0.5},${120 - h} Q${x + lean * 0.2},${120 - h * 0.6} ${x + 6},120`} />;
-      })}
-    </g>
-    {/* Layer 3: bright front blades */}
-    <g fill="#1e7a3c" opacity="0.8">
-      {Array.from({ length: 30 }).map((_, i) => {
-        const x = i * 13.3 + 1 + Math.sin(i * 2.1) * 3;
-        const h = 24 + Math.sin(i * 0.9) * 10;
-        const lean = Math.sin(i * 0.6) * 5;
-        return <path key={`c${i}`} d={`M${x},120 Q${x + lean},${120 - h * 0.5} ${x + lean * 0.4},${120 - h} Q${x + lean * 0.1},${120 - h * 0.5} ${x + 7},120`} />;
-      })}
-    </g>
-    {/* Layer 4: accent blades */}
-    <g fill="#22903f" opacity="0.6">
-      {Array.from({ length: 15 }).map((_, i) => {
-        const x = i * 26.7 + 3 + Math.sin(i * 2.5) * 4;
-        const h = 16 + Math.sin(i * 1.8) * 8;
-        const lean = Math.sin(i * 1.3) * 3;
-        return <path key={`d${i}`} d={`M${x},120 Q${x + lean},${120 - h} ${x + lean * 0.2},${120 - h - 3} Q${x},${120 - h} ${x + 5},120`} />;
-      })}
-    </g>
-  </svg>
-));
-
-// Dots for this player's KICKS only (not keeper rounds)
-// Green = scored, Red = missed
-const KickDots = memo(({ history, playerIdx, totalKicks = 5, label, color, suddenDeath, suddenDeathStartRound }) => {
-  // Фильтруем только удары этого игрока (когда он был kicker)
-  const allKicks = history.filter(h => h.kickerIndex === playerIdx);
-  
-  let kicks;
-  if (suddenDeath) {
-    // В овертайме показываем только удары ПОСЛЕ начала овертайма
-    const overtimeKicks = allKicks.filter((k) => {
-      const fullHistoryIdx = history.indexOf(k);
-      return fullHistoryIdx >= suddenDeathStartRound;
-    });
-    
-    // ИСПРАВЛЕНИЕ: Определяем текущий цикл овертайма
-    // Каждый цикл = 2 удара (по 1 от каждого игрока)
-    // Если после цикла счёт равный - начинается новый цикл
-    
-    // Группируем удары по циклам (каждые 2 раунда = 1 цикл)
-    const cycleSize = 2; // Каждый игрок делает 1 удар за цикл
-    const totalOvertimeRounds = history.length - suddenDeathStartRound;
-    const completedCycles = Math.floor(totalOvertimeRounds / cycleSize);
-    
-    // Проверяем счёт после каждого завершённого цикла
-    let currentCycleStart = suddenDeathStartRound;
-    
-    for (let cycle = 0; cycle < completedCycles; cycle++) {
-      const cycleEnd = suddenDeathStartRound + (cycle + 1) * cycleSize;
-      
-      // Считаем голы обоих игроков в этом цикле
-      const cycleHistory = history.slice(currentCycleStart, cycleEnd);
-      const p1Goals = cycleHistory.filter(h => h.kickerIndex === 0 && h.isGoal).length;
-      const p2Goals = cycleHistory.filter(h => h.kickerIndex === 1 && h.isGoal).length;
-      
-      // Если счёт НЕ равный - кто-то выиграл, показываем все удары этого цикла
-      if (p1Goals !== p2Goals) {
-        break;
-      }
-      
-      // Счёт равный - это был полный цикл, начинается новый
-      currentCycleStart = cycleEnd;
-    }
-    
-    // Показываем только удары текущего цикла
-    const currentCycleKicks = overtimeKicks.filter((k) => {
-      const fullHistoryIdx = history.indexOf(k);
-      return fullHistoryIdx >= currentCycleStart;
-    });
-    
-    // Показываем последние totalKicks ударов текущего цикла
-    kicks = currentCycleKicks.slice(-totalKicks);
-  } else {
-    // В основной игре показываем первые totalKicks ударов
-    kicks = allKicks.slice(0, totalKicks);
-  }
-  
-  return (
-    <div className="flex items-center justify-center gap-2">
-      <span className={`text-[10px] font-bold truncate w-14 text-right ${color}`}>{label}</span>
-      <div className="flex gap-1">
-        {Array.from({ length: totalKicks }).map((_, i) => {
-          const k = kicks[i];
-          if (!k) return <div key={i} className="w-4 h-4 rounded-full border-2 border-white/20" />;
-          return (
-            <div key={i} className={`w-4 h-4 rounded-full border-2 ${
-              k.isGoal
-                ? 'bg-green-500 border-green-400'
-                : 'bg-red-500 border-red-400'
-            }`} />
-          );
-        })}
-      </div>
-    </div>
-  );
-});
 
 const GamePage = () => {
   const safeFrameStyle = {
@@ -430,14 +160,14 @@ const GamePage = () => {
       img.src = `${ASSET_BASE}${name}.png`;
     });
     // A9: на iOS AudioContext активируется только в user-gesture. До тапа звуки молчат.
-    _armAudioOnGesture();
+    armAudioOnGesture();
     preloadSounds();
   }, []);
 
   // A9: если фон должен играть, а AudioContext ещё не готов — перезапускаем при первом тапе
   useEffect(() => {
     if (screen !== 'game') return undefined;
-    if (_audioCtxReady) return undefined;
+    if (isAudioReady()) return undefined;
     const retry = () => { if (screen === 'game') startBackground(); };
     window.addEventListener('pointerdown', retry, { once: true, capture: true });
     return () => window.removeEventListener('pointerdown', retry, { capture: true });
@@ -2025,151 +1755,51 @@ const GamePage = () => {
     );
   }
 
-  // --- WAITING ---
   if (screen === 'waiting') {
-    const leftSec = Math.max(0, Math.ceil((Number(acceptInfo?.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0);
     return (
-      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
-        <div className="z-10 flex flex-col items-center gap-6">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-white text-xl font-bold">Ищем соперника...</p>
-          {!!selectedStakeOptions.length && <p className="text-gray-400 text-sm">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
-          <button onClick={handleCancelWait} className="text-gray-400 hover:text-white text-sm mt-4 px-6 py-2 border border-white/10 rounded-lg transition-colors">
-            Отмена
-          </button>
-        </div>
-        {!!acceptInfo && (
-          <div className="fixed inset-0 z-[999] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-gradient-to-b from-[#1f6a37] to-[#1a3f2a] border border-emerald-200/35 rounded-2xl p-5 text-center shadow-2xl">
-              <p className="text-white text-lg font-black">Матч найден</p>
-              <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
-              {acceptInfo.stake != null && <p className="text-lime-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
-              <p className={`text-3xl font-black mt-2 ${leftSec <= 3 ? 'text-rose-200' : 'text-lime-200'}`}>{leftSec}с</p>
-              <p className="mt-3 text-xs text-lime-100/90">Игра начнется автоматически</p>
-            </div>
-          </div>
-        )}
-      </div>
+      <WaitingScreen
+        darkBg={darkBg}
+        safeFrameStyle={safeFrameStyle}
+        selectedStakeOptions={selectedStakeOptions}
+        acceptInfo={acceptInfo}
+        acceptTick={acceptTick}
+        onCancel={handleCancelWait}
+      />
     );
   }
 
   if (screen === 'stake-online') {
     return (
-      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none relative`} style={safeFrameStyle}>
-        <div className="z-10 flex flex-col items-center gap-4 w-full max-w-xs px-4">
-          <div className="text-6xl">⚽</div>
-          <h1 className="text-3xl font-black text-white tracking-wide">ПЕНАЛЬТИ</h1>
-          <p className="text-gray-400 text-sm text-center leading-relaxed">PvP: бей и лови! 5 ударов каждому, серия до промаха при ничьей.</p>
-          <div className="w-full max-w-xs mx-auto mt-2">
-            <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider text-center">Выбери ставки TON</p>
-            <div className="grid grid-cols-3 gap-2">
-              {[0.1, 0.5, 1, 5, 10, 25].map((stake) => {
-                const active = selectedStakeOptions.includes(stake);
-                const blocked = Number(balanceTon || 0) < Number(stake);
-                return (
-                  <button
-                    key={stake}
-                    type="button"
-                    onClick={() => toggleStakeOption(stake)}
-                    className={`aspect-square rounded-xl border text-sm font-black transition-all ${
-                      blocked
-                        ? 'bg-red-500/20 border-red-400 text-red-200'
-                        : active
-                          ? 'bg-emerald-500/25 border-emerald-300 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.35)]'
-                          : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
-                    }`}
-                  >
-                    {stake} TON
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={() => startSearchOnline()} className="w-full mt-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
-            <button onClick={() => goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
-          </div>
-          {!!bottomNotice && (
-            <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
-              {bottomNotice}
-            </div>
-          )}
-        </div>
-      </div>
+      <StakeSelectScreen
+        darkBg={darkBg}
+        safeFrameStyle={safeFrameStyle}
+        selectedStakeOptions={selectedStakeOptions}
+        balanceTon={balanceTon}
+        bottomNotice={bottomNotice}
+        onToggleStake={toggleStakeOption}
+        onStart={() => startSearchOnline()}
+        onBack={() => goHome()}
+      />
     );
   }
 
-  // --- RESULT ---
   if (screen === 'result' && matchResult) {
-    const tonStake = Number(currentStakeTon || 0);
-    const hasTonStake = playModeRef.current !== 'bot' && Number.isFinite(tonStake) && tonStake > 0;
-    const tonResultText = hasTonStake
-      ? (matchResult.youWon ? `TON итог: +${(tonStake * 2).toFixed(9).replace(/\.?0+$/, '')} TON` : `TON итог: -${tonStake.toFixed(9).replace(/\.?0+$/, '')} TON`)
-      : null;
     return (
-      <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
-        <div className="z-10 flex flex-col items-center gap-6">
-          {matchResult.opponentLeft ? (
-            <>
-              <h1 className="text-4xl font-black text-yellow-400">Соперник вышел</h1>
-              <p className="text-gray-400">Победа засчитана!</p>
-            </>
-          ) : matchResult.youWon ? (
-            <motion.h1 initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-              className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-[#4aff93] to-[#00b548]">
-              ПОБЕДА!
-            </motion.h1>
-          ) : (
-            <motion.h1 initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-              className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-[#ff6b6b] to-[#c90000]">
-              ПОРАЖЕНИЕ
-            </motion.h1>
-          )}
-
-          <div className="flex items-center gap-8 mt-4">
-            <div className="text-center">
-              <p className="text-blue-400 text-sm font-bold">{displayName || 'Ты'}</p>
-              <p className="text-4xl font-black text-blue-400">{matchResult.scores[playerIndex]}</p>
-            </div>
-            <p className="text-2xl text-gray-600 font-bold">:</p>
-            <div className="text-center">
-              <p className="text-red-400 text-sm font-bold">{opponent}</p>
-              <p className="text-4xl font-black text-red-400">{matchResult.scores[1 - playerIndex]}</p>
-            </div>
-          </div>
-          {tonResultText && (
-            <div className={`text-sm font-black ${matchResult.youWon ? 'text-emerald-300' : 'text-rose-300'}`}>{tonResultText}</div>
-          )}
-
-          <div className="flex flex-col items-center gap-2 mt-4 bg-white/5 p-3 rounded-xl border border-white/10">
-            <KickDots 
-              history={history} 
-              playerIdx={playerIndex} 
-              totalKicks={suddenDeath ? 1 : 5} 
-              label={displayName || 'Ты'} 
-              color="text-blue-400"
-              suddenDeath={suddenDeath}
-              suddenDeathStartRound={suddenDeathStartRound}
-            />
-            <KickDots 
-              history={history} 
-              playerIdx={1 - playerIndex} 
-              totalKicks={suddenDeath ? 1 : 5} 
-              label={opponent} 
-              color="text-red-400"
-              suddenDeath={suddenDeath}
-              suddenDeathStartRound={suddenDeathStartRound}
-            />
-          </div>
-
-          <div className="mt-6 flex gap-3">
-            <button onClick={handleExitToMenu} className="bg-white/5 border border-white/20 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all active:scale-95">
-              Выйти
-            </button>
-            <button onClick={handlePlayAgain} className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-blue-500/20">
-              Ещё раз
-            </button>
-          </div>
-        </div>
-      </div>
+      <ResultScreen
+        darkBg={darkBg}
+        safeFrameStyle={safeFrameStyle}
+        matchResult={matchResult}
+        playerIndex={playerIndex}
+        displayName={displayName}
+        opponent={opponent}
+        history={history}
+        suddenDeath={suddenDeath}
+        suddenDeathStartRound={suddenDeathStartRound}
+        currentStakeTon={currentStakeTon}
+        playMode={playModeRef.current}
+        onExit={handleExitToMenu}
+        onPlayAgain={handlePlayAgain}
+      />
     );
   }
 
@@ -2314,125 +1944,23 @@ const GamePage = () => {
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[200px] h-[40px] bg-black/40 blur-xl rounded-[100%] z-0" />
 
           {/* Keeper */}
-          <div
-            className="absolute left-0 right-0 flex items-end justify-center z-10 pointer-events-none"
-            style={{
-              bottom: 0,
-              height: '200px',
-              transform: `translate3d(${keeperX}px, ${keeperState === 'idle' ? -16 : -Number(keeperBottom)}px, 0)`,
-              transition: keeperTransitionDisabled ? 'none' : 'transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
-              willChange: 'transform',
-            }}
-          >
-            <img
-              src={
-                role === 'keeper'
-                  ? (keeperState === 'save' ? `${ASSET_BASE}keeper_save.png` : `${ASSET_BASE}keeper_idle.png`)
-                  : (keeperState === 'save' ? `${ASSET_BASE}keeper_red.png`  : `${ASSET_BASE}keeper_green.png`)
-              }
-              alt="Keeper"
-              className="object-contain drop-shadow-2xl"
-              loading="eager"
-              decoding="sync"
-              onError={(e) => {
-                if (e.currentTarget.dataset.fallback === '1') return;
-                e.currentTarget.dataset.fallback = '1';
-                e.currentTarget.src = `${ASSET_BASE}keeper_idle.png`;
-              }}
-              style={{
-                height: keeperState === 'save'
-                  ? (role === 'kicker' ? '122px' : '100px')
-                  : (role === 'kicker' ? '170px' : '140px'),
-                transform: isKeeperMirrored ? 'scaleX(-1)' : 'scaleX(1)',
-                objectPosition: 'center bottom',
-                transition: keeperTransitionDisabled
-                  ? 'none'
-                  : 'transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), height 0.45s cubic-bezier(0.22, 0.61, 0.36, 1)',
-                willChange: 'transform, height',
-              }}
-            />
-          </div>
+          <Keeper
+            assetBase={ASSET_BASE}
+            role={role}
+            keeperState={keeperState}
+            keeperX={keeperX}
+            keeperBottom={keeperBottom}
+            isKeeperMirrored={isKeeperMirrored}
+            transitionDisabled={keeperTransitionDisabled}
+          />
 
-          {/* Ball */}
-          <div className="absolute bottom-[-40px] left-1/2 -translate-x-1/2 z-20 pointer-events-none" style={{ willChange: 'transform' }}>
-            {ballVisible && (
-              <img src={`${ASSET_BASE}ball.png`} alt="Ball" className="w-[70px] h-[70px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]" style={{ ...ballStyle, willChange: 'transform' }} />
-            )}
-          </div>
+          <Ball assetBase={ASSET_BASE} visible={ballVisible} style={ballStyle} />
 
-          {/* Target overlays — kicker (yellow attack targets) */}
-          {role === 'kicker' && !inputBlocked && !roleAnnounce && !showingResult && (
-            <div className="absolute inset-0 z-40 pointer-events-none">
-              {[0, 1, 2, 3].map((zone) => {
-                // A1: confirmedZone (от сервера) приоритетнее selectedZone (локальный pending).
-                // Это гарантирует, что мишень = реальный ход, записанный сервером.
-                const displayedZone = confirmedZone != null ? confirmedZone : selectedZone;
-                const isSelected = displayedZone === zone;
-                const c = zoneTargetCenters[zone];
-                return (
-                  <div
-                    key={zone}
-                    className="absolute"
-                    style={{
-                      left: `${c.left}px`,
-                      top: `${c.top}px`,
-                      transform: 'translate(-50%, -50%)',
-                    }}
-                  >
-                    <div
-                      className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
-                        isSelected
-                          ? 'w-16 h-16 border-[4px] border-yellow-300 bg-yellow-400/35 animate-pulse shadow-[0_0_28px_rgba(253,224,71,1)]'
-                          : 'w-14 h-14 border-[3px] border-yellow-400 bg-yellow-400/20 shadow-[0_0_14px_rgba(253,224,71,0.7)]'
-                      }`}
-                    >
-                      <div
-                        className={`rounded-full ${
-                          isSelected ? 'w-3.5 h-3.5 bg-yellow-200' : 'w-2.5 h-2.5 bg-yellow-300'
-                        }`}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Zone overlays — keeper (emerald dive zones) */}
-          {role === 'keeper' && !inputBlocked && !roleAnnounce && !showingResult && (
-            <div className="absolute inset-0 z-40 pointer-events-none">
-              {[0, 1, 2, 3].map((zone) => {
-                const displayedZone = confirmedZone != null ? confirmedZone : selectedZone;
-                const isSelected = displayedZone === zone;
-                const c = zoneTargetCenters[zone];
-                return (
-                  <div
-                    key={zone}
-                    className="absolute"
-                    style={{
-                      left: `${c.left}px`,
-                      top: `${c.top}px`,
-                      transform: 'translate(-50%, -50%)',
-                    }}
-                  >
-                    <div
-                      className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
-                        isSelected
-                          ? 'w-16 h-16 border-[4px] border-emerald-300 bg-emerald-400/35 animate-pulse shadow-[0_0_28px_rgba(52,211,153,1)]'
-                          : 'w-14 h-14 border-[3px] border-emerald-400 bg-emerald-400/18 shadow-[0_0_14px_rgba(52,211,153,0.7)]'
-                      }`}
-                    >
-                      <div
-                        className={`rounded-full ${
-                          isSelected ? 'w-3.5 h-3.5 bg-emerald-200' : 'w-2.5 h-2.5 bg-emerald-300'
-                        }`}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <TargetZones
+            role={role}
+            displayedZone={confirmedZone != null ? confirmedZone : selectedZone}
+            visible={!inputBlocked && !roleAnnounce && !showingResult && (role === 'kicker' || role === 'keeper')}
+          />
 
           {/* Zone buttons */}
           <div
@@ -2499,67 +2027,18 @@ const GamePage = () => {
       
       {/* Connection Error Modal */}
       <AnimatePresence>
-        {showConnectionError && (
-          <motion.div
-            key="connection-error"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 flex items-center justify-center z-[100] bg-black/60 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ scale: 0.8, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.8, y: 20 }}
-              transition={{ duration: 0.3 }}
-              className="px-8 py-6 rounded-2xl shadow-2xl text-center border-2 bg-gray-900/95 border-red-500"
-            >
-              {/* WiFi Off Icon */}
-              <div className="mb-4">
-                <svg className="w-16 h-16 mx-auto text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
-                </svg>
-              </div>
-
-              <div className="text-2xl font-black tracking-wide uppercase text-red-400 mb-3">
-                ПРОБЛЕМА С СОЕДИНЕНИЕМ
-              </div>
-
-              <div className="flex justify-center items-center gap-2 mb-4">
-                <div className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-              </div>
-
-              <div className="text-sm text-white/70 font-medium mb-5">
-                Пытаемся восстановить связь...
-              </div>
-
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => {
-                    setShowConnectionError(false);
-                    pvpPollInFlightRef.current = false;
-                    pvpPollState();
-                  }}
-                  className="bg-white/5 border border-white/20 text-white text-sm font-bold py-2 px-4 rounded-xl active:scale-95"
-                >
-                  Повторить
-                </button>
-                <button
-                  onClick={() => {
-                    setShowConnectionError(false);
-                    handleExitToMenu();
-                  }}
-                  className="bg-red-600/80 border border-red-400 text-white text-sm font-bold py-2 px-4 rounded-xl active:scale-95"
-                >
-                  Выйти
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
+        <ConnectionErrorModal
+          visible={showConnectionError}
+          onRetry={() => {
+            setShowConnectionError(false);
+            pvpPollInFlightRef.current = false;
+            pvpPollState();
+          }}
+          onExit={() => {
+            setShowConnectionError(false);
+            handleExitToMenu();
+          }}
+        />
       </AnimatePresence>
       
       {!!bottomNotice && (
