@@ -873,14 +873,27 @@ const GamePage = () => {
         break;
 
       case 'match_result':
+        // Идемпотентность: если matchEndedRef уже выставлен — мы уже завершали матч, выходим.
+        // Без этого watchdog мог делать второй setScreen/playSound, плюс свежий poll мог
+        // на доли секунды вернуть UI в game и result-экран моргал.
+        if (matchEndedRef.current) break;
+        matchEndedRef.current = true;
         clearRoundStuckTimer();
         clearMoveWatchdog();
         clearWaitingBotMoveTimer();
+        // Останавливаем polling — больше никаких applyPvpRoomState и переключений screen
+        if (playModeRef.current === 'pvp') {
+          stopPvpPolling();
+          pvpRoomIdRef.current = null;
+          try { sessionStorage.removeItem('sp_active_room'); } catch {}
+        }
+        // Чистим все остаточные анимационные таймеры финального раунда
+        animTimersRef.current.forEach((t) => clearTimeout(t));
+        animTimersRef.current = [];
         playSound('whistle_end');
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
           setScreen('result');
-          // Save match to backend only for PvP (not bot demo)
           if (playModeRef.current === 'pvp' && !matchSavedRef.current) {
             saveMatchToBackend(msg.youWon, msg.scores, matchRef.current?.history || history);
           }
@@ -1189,10 +1202,10 @@ const GamePage = () => {
       || String(s.phase || '') === 'match_over';
 
     if (matchOver) {
-      matchEndedRef.current = true;
-      stopPvpPolling();
+      // Идемпотентность завершения матча инкапсулирована в case 'match_result' (handleServerMessage).
+      // Здесь только готовим данные и единожды вызываем — без двойного cleanup'а.
+      if (matchEndedRef.current) return;
       stopRealtimeSubscription();
-      pvpRoomIdRef.current = null;
 
       const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
       const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
@@ -1206,6 +1219,11 @@ const GamePage = () => {
       else if (arr[0] !== arr[1]) youWon = myIdx === 0 ? arr[0] > arr[1] : arr[1] > arr[0];
 
       if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg && String(s.leaveKind || '') === 'explicit') {
+        // Спец-кейс: оппонент явно вышел — показываем result сразу как «оппонент вышел».
+        matchEndedRef.current = true;
+        stopPvpPolling();
+        pvpRoomIdRef.current = null;
+        try { sessionStorage.removeItem('sp_active_room'); } catch {}
         setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
         setScreen('result');
         return;
