@@ -474,20 +474,12 @@ const GamePage = () => {
       pvpPollState();
     }, 8000));
 
-    // 14 сек: повторная отправка хода + force poll
+    // 14 сек: forced poll, чтобы подтянуть актуальный state.
+    // Раньше тут был ВТОРОЙ submit без turnId — это создавало баг: за 14 сек раунд мог
+    // смениться, ретрай записывал зону прошлого раунда в новый. Удалили retry.
+    // Если первый submit не прошёл по сети — fast polling + серверный auto-resolve справятся.
     timers.push(setTimeout(() => {
       if (!waitingOpponent || matchEndedRef.current) return;
-      const zone = lastSubmittedZoneRef.current;
-      if (zone == null || !pvpRoomIdRef.current || !tgInitDataRef.current) return;
-      pvpMoveCommittedRef.current = false;
-      apiPost({
-        action: 'pvpSubmitMove',
-        initData: tgInitDataRef.current,
-        roomId: pvpRoomIdRef.current,
-        move: { zone: Number(zone) },
-      }).then((data) => {
-        if (data?.room && !matchEndedRef.current) applyPvpRoomState(data.room);
-      }).catch(() => {});
       pvpPollInFlightRef.current = false;
       pvpPollState();
     }, 14000));

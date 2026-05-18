@@ -2498,13 +2498,17 @@ function pvpApplySuperPenaltyMove(room, tgId, move) {
   if (!side) throw new Error("Invalid room side");
   const zone = Number(asObj(move).zone);
   if (![0, 1, 2, 3].includes(zone)) throw new Error("Invalid zone");
-  // A3: turnId-guard. Если клиент отправил submit с устаревшим turnId (например, retry
-  // после восстановления сети уже в новом раунде) — отвергаем. Совместимость с legacy
-  // state без turnId: проверяем только если оба значения присутствуют.
+  // A3+fix: turnId-guard. Раньше проверка работала только если ОБА значения присутствуют —
+  // это давало дыру: устаревший клиент или recovery-retry без turnId писал зону прошлого
+  // раунда в текущий choices. Теперь:
+  //   - Если у сервера есть turnId (всё после migration) — клиент ОБЯЗАН передать совпадающий.
+  //   - Если incomingTurnId не передан или не совпал — STALE_TURN.
   const incomingTurnId = String(asObj(move).turnId || "");
   const storedTurnId = String(s.turnId || "");
-  if (incomingTurnId && storedTurnId && incomingTurnId !== storedTurnId) {
-    throw new Error("STALE_TURN");
+  if (storedTurnId) {
+    if (!incomingTurnId || incomingTurnId !== storedTurnId) {
+      throw new Error("STALE_TURN");
+    }
   }
   const next = { ...s, choices: { ...asObj(s.choices) } };
   const submitted = asObj(s.moveSubmittedBy);
