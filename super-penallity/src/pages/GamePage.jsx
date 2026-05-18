@@ -26,6 +26,7 @@ import { useTelegramWebApp } from '../hooks/useTelegramWebApp.js';
 import { useMatchResume } from '../hooks/useMatchResume.js';
 import { apiPost } from '../lib/api.js';
 import { usePvpPolling } from '../hooks/usePvpPolling.js';
+import { useMatchLifecycle } from '../hooks/useMatchLifecycle.js';
 
 const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
@@ -1222,177 +1223,68 @@ const GamePage = () => {
     ));
   };
 
-  const startSearchOnline = () => {
-    const name = displayName.trim() || 'Player';
-    const stakes = askStakeOptions();
-    if (!stakes) return;
-    tgInitDataRef.current = window.Telegram?.WebApp?.initData || tgInitDataRef.current || '';
-    setSelectedStakeOptions(stakes);
-    setCurrentStakeTon(null);
-    matchSavedRef.current = false;
-    matchEndedRef.current = false;
-    pvpLastRoundMarkerRef.current = 0;
-    pvpLastStartKeyRef.current = '';
-    pvpMoveCommittedRef.current = false;
-    lastSubmittedZoneRef.current = null;
-    selectedZoneRef.current = null;
-    lastAppliedUpdatedAtRef.current = 0; // A4: сброс reconciliation на новый матч
-    lastAnimSignatureRef.current = ''; // A2: сброс signature анимаций
-    animTimersRef.current.forEach((t) => clearTimeout(t));
-    animTimersRef.current = [];
-    turnIdRef.current = ''; // A3: сброс turnId
-    // Сброс UI state'ов от предыдущего матча — иначе мишень светится до выбора в новом матче
-    setSelectedZone(null);
-    setConfirmedZone(null);
-    setZoneLocked(false);
-    setShowingResult(false);
-    setResultMessage(null);
-    pvpRoomIdRef.current = null;
-    stopPvpPolling();
-    if (pvpFindRetryTimerRef.current) {
-      clearTimeout(pvpFindRetryTimerRef.current);
-      pvpFindRetryTimerRef.current = null;
-    }
-    if (localFindTimerRef.current) {
-      clearTimeout(localFindTimerRef.current);
-      localFindTimerRef.current = null;
-    }
-    matchRef.current = null;
+  // Lifecycle действия (старт матчмейкинга, демо, отмена, заново, выход) вынесены
+  // в useMatchLifecycle. Подсасываем актуальные ссылки applyPvpRoomState/goHome/startSearchOnline
+  // в forward-refs для usePvpPolling (хук объявлен выше них).
+  const {
+    startSearchOnline,
+    startSearchBot,
+    handleCancelWait,
+    handlePlayAgain,
+    handleExitToMenu,
+  } = useMatchLifecycle({
+    displayName,
+    askStakeOptions,
+    initDataRef: tgInitDataRef,
+    pvpRoomIdRef,
+    matchEndedRef,
+    matchSavedRef,
+    matchRef,
+    pvpLastRoundMarkerRef,
+    pvpLastStartKeyRef,
+    pvpMoveCommittedRef,
+    lastSubmittedZoneRef,
+    selectedZoneRef,
+    lastAppliedUpdatedAtRef,
+    turnIdRef,
+    lastAnimSignatureRef,
+    animTimersRef,
+    pvpFindRetryTimerRef,
+    localFindTimerRef,
+    wsRef,
+    playModeRef,
+    playerIndexRef,
+    setSelectedStakeOptions,
+    setCurrentStakeTon,
+    setSelectedZone,
+    setConfirmedZone,
+    setZoneLocked,
+    setShowingResult,
+    setResultMessage,
+    setOpponent,
+    setPlayerIndex,
+    setScores,
+    setRound,
+    setMaxRounds,
+    setSuddenDeath,
+    setSuddenDeathStartRound,
+    setHistory,
+    setMatchResult,
+    setScreen,
+    showBottomNotice,
+    startPvpPolling,
+    stopPvpPolling,
+    applyPvpRoomState,
+    handleServerMessage,
+    stopRealtimeSubscription,
+  });
 
-    playModeRef.current = 'pvp';
-    if (!tgInitDataRef.current) {
-      playModeRef.current = 'idle';
-      showBottomNotice('Нет Telegram-сессии. Открой игру через Telegram.');
-      setScreen('stake-online');
-      return;
-    }
-    setScreen('waiting');
-    apiPost({
-      action: 'pvpFindMatch',
-      initData: tgInitDataRef.current || '',
-      gameKey: 'super_penalty',
-      playerName: name,
-      stakeOptions: stakes,
-    }).then((data) => {
-      if (playModeRef.current !== 'pvp') return;
-      if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
-      pvpRoomIdRef.current = data.room.id;
-      // Запускаем HTTP polling как в Frog Hunt
-      startPvpPolling();
-      // Сразу применяем начальное состояние
-      if (data.room) applyPvpRoomState(data.room);
-      // Polling как страховка пока WebSocket не подключился
-      startPvpPolling();
-    }).catch((err) => {
-      playModeRef.current = 'idle';
-      showBottomNotice(String(err?.message || '').trim() || 'Не удалось начать поиск. Попробуй снова.');
-      setScreen('stake-online');
-    });
-  };
-
-  const startSearchBot = () => {
-    // Локальная игра с демо-ботом (без ставок, без бэкенда)
-    playModeRef.current = 'demo-bot';
-    matchEndedRef.current = false;
-    matchSavedRef.current = false;
-    lastSubmittedZoneRef.current = null;
-    selectedZoneRef.current = null;
-    lastAnimSignatureRef.current = ''; // A2: сброс signature анимаций
-    animTimersRef.current.forEach((t) => clearTimeout(t));
-    animTimersRef.current = [];
-    // Сброс UI state'ов от предыдущего матча — иначе мишень светится до выбора в новом матче
-    setSelectedZone(null);
-    setConfirmedZone(null);
-    setZoneLocked(false);
-    setShowingResult(false);
-    setResultMessage(null);
-    setOpponent('Бот 🤖');
-    setPlayerIndex(0); // Игрок всегда первый
-    playerIndexRef.current = 0;
-    setScores([0, 0]);
-    setRound(0);
-    setMaxRounds(5); // 5 раундов как в обычной игре
-    setSuddenDeath(false);
-    setSuddenDeathStartRound(0);
-    setHistory([]);
-    setScreen('game');
-    
-    // Начинаем первый раунд
-    setTimeout(() => {
-      handleServerMessage({
-        type: 'round_start',
-        round: 1,
-        maxRounds: 5,
-        role: 'kicker', // Игрок начинает как kicker
-        scores: [0, 0],
-        suddenDeath: false,
-        history: [],
-      });
-    }, 500);
-  };
-
-  // Подсасываем актуальные ссылки в forward-refs для usePvpPolling. Без этого хук видит
-  // только начальные null, а нам нужно вызывать свежие applyPvpRoomState/goHome/startSearchOnline.
+  // Подсасываем актуальные ссылки в forward-refs для usePvpPolling.
   useEffect(() => {
     applyPvpRoomStateRef.current = applyPvpRoomState;
     goHomeRef.current = goHome;
     startSearchOnlineRef.current = startSearchOnline;
   });
-
-  const handleCancelWait = () => {
-    if (pvpFindRetryTimerRef.current) {
-      clearTimeout(pvpFindRetryTimerRef.current);
-      pvpFindRetryTimerRef.current = null;
-    }
-    if (localFindTimerRef.current) {
-      clearTimeout(localFindTimerRef.current);
-      localFindTimerRef.current = null;
-    }
-    const mode = playModeRef.current;
-    if (mode === 'pvp') {
-      const rid = pvpRoomIdRef.current;
-      pvpRoomIdRef.current = null;
-      if (rid && tgInitDataRef.current) {
-        // Отправляем отмену поиска
-        const payload = JSON.stringify({
-          action: 'pvpCancelQueue',
-          initData: tgInitDataRef.current,
-          roomId: rid,
-        });
-        
-        // Используем sendBeacon для надёжной отправки
-        try {
-          if (navigator.sendBeacon) {
-            navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
-          }
-        } catch {}
-        
-        // Дублируем обычным fetch
-        fetch('/api/user', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: payload,
-          keepalive: true,
-        }).catch(() => {});
-      }
-      stopPvpPolling();
-    }
-    if (mode === 'bot') {
-      matchRef.current = null;
-    }
-    playModeRef.current = 'idle';
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    stopRealtimeSubscription();
-    
-    // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ перед переходом
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.disableClosingConfirmation();
-    }
-    
-    // Переходим на главную БЕЗ вызова goHome() чтобы избежать дублирования pvpLeaveRoom
-    window.location.replace('/');
-  };
 
   const handleChooseZone = (zone) => {
     if (![0, 1, 2, 3].includes(Number(zone))) return;
@@ -1405,43 +1297,6 @@ const GamePage = () => {
     selectedZoneRef.current = z;
     setSelectedZone(z);
     sendMessage('choose_zone', { zone: z });
-  };
-
-  const handlePlayAgain = () => {
-    const wasDemo = playModeRef.current === 'demo-bot';
-    setMatchResult(null);
-    setHistory([]);
-    if (wasDemo) {
-      startSearchBot();
-    } else {
-      startSearchOnline();
-    }
-  };
-  const handleExitToMenu = () => {
-    if (pvpFindRetryTimerRef.current) {
-      clearTimeout(pvpFindRetryTimerRef.current);
-      pvpFindRetryTimerRef.current = null;
-    }
-    if (localFindTimerRef.current) {
-      clearTimeout(localFindTimerRef.current);
-      localFindTimerRef.current = null;
-    }
-    playModeRef.current = 'idle';
-    matchRef.current = null;
-    setMatchResult(null);
-    setHistory([]);
-    stopPvpPolling();
-    pvpRoomIdRef.current = null;
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    
-    // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ перед переходом
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.disableClosingConfirmation();
-    }
-    
-    // Переходим на главную
-    window.location.replace('/');
   };
 
   const saveMatchToBackend = (youWon, finalScores, finalHistory) => {
