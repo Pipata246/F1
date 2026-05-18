@@ -384,7 +384,7 @@ const GamePage = () => {
   const matchEndedRef = useRef(false);
   const lastSubmittedZoneRef = useRef(null);
   const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
-  const PVP_POLL_FAST_MS = 300; // Быстрый polling в критические моменты
+  const PVP_POLL_FAST_MS = 200; // Быстрый polling в критические моменты (ускорено с 300мс)
   const pvpPollFastModeRef = useRef(false); // Флаг быстрого режима
   // A4: reconciliation против out-of-order ответов и stale poll'ов
   const lastAppliedUpdatedAtRef = useRef(0); // ms of room.updated_at
@@ -838,10 +838,8 @@ const GamePage = () => {
         lastSubmittedZoneRef.current = null; // новый раунд — снимаем commit-флаг хода
         playSound('whistle_start');
         
-        // Fix #3/#4: ускорили roleAnnounce 1100ms -> 700ms. Игрок успевает увидеть текст,
-        // но не зевает 1.1с до старта таймера. Овертайм-задержка 2500ms -> 2000ms (синхронно
-        // с овертайм-модалкой). Используем ref для overtimeAnnounce чтобы видеть актуальное
-        // значение без React batch задержки.
+        // roleAnnounce ускорен до 500ms. Игрок успевает прочитать "Твой удар!"/"Отбивай мяч!"
+        // (короткий текст + анимация появления), но не зевает лишнее время до старта таймера.
         if (!overtimeAnnounceRef.current) {
           setRoleAnnounce({ role: msg.role, round: msg.round });
           setInputBlocked(true);
@@ -849,7 +847,7 @@ const GamePage = () => {
             setRoleAnnounce(null);
             setInputBlocked(false);
             startTimer();
-          }, 700);
+          }, 500);
         } else {
           setTimeout(() => {
             setRoleAnnounce({ role: msg.role, round: msg.round });
@@ -858,7 +856,7 @@ const GamePage = () => {
               setRoleAnnounce(null);
               setInputBlocked(false);
               startTimer();
-            }, 700);
+            }, 500);
           }, 2000);
         }
         break;
@@ -1104,10 +1102,38 @@ const GamePage = () => {
         // Форсируем poll — server только что транзитнулся в turn_input, надо подхватить состояние
         pvpPollInFlightRef.current = false;
         pvpPollState();
+        // Если первый poll попал в момент когда сервер ещё не дотранзитнулся,
+        // догоняем ещё одним через 400мс. updated_at-guard отбросит, если ответ stale.
+        animTimersRef.current.push(setTimeout(() => {
+          if (!matchEndedRef.current && pvpRoomIdRef.current) {
+            pvpPollInFlightRef.current = false;
+            pvpPollState();
+          }
+        }, 400));
       } else {
         setInputBlocked(false);
       }
     }, safetyTimeout);
+
+    // Финальный раунд (gameOver=true): гарантированный watchdog. Если по какой-то причине
+    // никто не довёл матч до result-экрана за 2.5 секунды после анимации удара, форсим
+    // match_result сами. Покрывает: оборванное polling-окно в PvP, потерянный setTimeout
+    // в demo-bot, любой другой race в цепочке завершения.
+    if (msg.gameOver) {
+      animTimersRef.current.push(setTimeout(() => {
+        if (matchEndedRef.current) return;
+        if (screen === 'result' || matchResult) return;
+        // Считаем результат по серверной стороне-победителю если есть, иначе по счёту
+        let youWon = false;
+        if (msg.winnerSide && msg.mySide) {
+          youWon = msg.winnerSide === msg.mySide;
+        } else if (Array.isArray(msg.scores) && msg.scores.length === 2) {
+          const myIdx = playerIndexRef.current;
+          youWon = myIdx === 0 ? msg.scores[0] > msg.scores[1] : msg.scores[1] > msg.scores[0];
+        }
+        handleServerMessage({ type: 'match_result', youWon, scores: msg.scores || [0, 0] });
+      }, 2500));
+    }
   };
 
   // ==================== HTTP POLLING (КАК В FROG HUNT) ====================
@@ -1275,19 +1301,22 @@ const GamePage = () => {
         setConfirmedZone(myZoneInResult);
       }
       const scoresObj = rr.scores || { p1: 0, p2: 0 };
+      const finalScores = [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)];
       handleServerMessage({
         type: 'round_result',
         kickerZone: Number(rr.kickerZone || 0),
         keeperZone: Number(rr.keeperZone || 0),
         isGoal: !!rr.isGoal,
-        scores: [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)],
+        scores: finalScores,
         round: Number(rr.round || 0),
         kickerIndex: rrKickerIdx,
         history: Array.isArray(rr.history) ? rr.history : [],
         startSuddenDeath: !!rr.startSuddenDeath,
-        // Fix #1: только серверный явный флаг — никаких сравнений зон.
         autoFilledSides: Array.isArray(rr.autoFilledSides) ? rr.autoFilledSides : [],
         mySide,
+        // Финальный раунд — пробрасываем явный флаг и победителя для client watchdog'а
+        gameOver: !!rr.gameOver,
+        winnerSide: rr.winnerSide || null,
       });
       return;
     }
@@ -1573,7 +1602,11 @@ const GamePage = () => {
             }
           }
           
-          // Показываем результат раунда
+          // Показываем результат раунда.
+          // gameOver передаётся для watchdog'а в handleRoundResult — на случай если
+          // setTimeout match_result потерялся (animTimersRef cleanup и т.п.).
+          const endsBasic = (totalMoves >= maxMoves && !needsOvertime && !suddenDeath);
+          const gameOverFlag = endsBasic || gameEnded;
           handleServerMessage({
             type: 'round_result',
             kickerZone,
@@ -1584,6 +1617,9 @@ const GamePage = () => {
             kickerIndex,
             history: newHistory,
             startSuddenDeath: startingSuddenDeath,
+            gameOver: gameOverFlag,
+            winnerSide: gameOverFlag ? (newScores[0] > newScores[1] ? 'p1' : 'p2') : null,
+            mySide: 'p1', // в demo игрок всегда p1
           });
           
           // Устанавливаем suddenDeathStartRound если начинается овертайм
