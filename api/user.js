@@ -2831,9 +2831,12 @@ function pvpAdvanceByTime(room) {
         return { changed: true, state: next };
       }
     }
-    if (s.phase === "turn_input" && elapsed >= 13000) {
-      // A5: 13с серверный auto-resolve + 11с клиентский таймер = буфер 2с под Vercel cold start
-      // No random auto-moves until both humans have polled at least once (real PvP only).
+    if (s.phase === "turn_input" && elapsed >= 17000) {
+      // Серверный auto-resolve через 17с от phaseAtMs. Клиентский таймер 11с стартует с
+      // задержкой ~2с (safetyTimeout 1500ms + poll 200ms + roleAnnounce 500ms), и ещё ~1с
+      // ест сетевая latency Vercel cold start. Итого с момента phaseAtMs клиентский timer
+      // истекает на ~13-14с, и буфер до серверного auto-resolve должен быть >=3с — иначе
+      // сервер успевает выстрелить случайной зоной пока у игрока «ещё есть время».
       if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
       const prevChoices = asObj(s.choices);
       const choices = { ...prevChoices };

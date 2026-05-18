@@ -400,6 +400,10 @@ const GamePage = () => {
   const overtimeAnnounceRef = useRef(false);
   // A3: текущий turnId раунда, обновляется из poll. Привязывает submit к конкретному раунду.
   const turnIdRef = useRef('');
+  // Дельта между clock-ами клиента и сервера: clientNow - serverNow (мс).
+  // Позволяет вычислять "сколько на сервере уже прошло" с момента phaseAtMs не зависимо
+  // от разъезда системных часов клиента и сервера.
+  const serverClockOffsetMsRef = useRef(0);
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
@@ -840,13 +844,24 @@ const GamePage = () => {
         
         // roleAnnounce ускорен до 500ms. Игрок успевает прочитать "Твой удар!"/"Отбивай мяч!"
         // (короткий текст + анимация появления), но не зевает лишнее время до старта таймера.
+        // Расчёт остатка реального времени до серверного auto-resolve через clock offset.
+        const computeRemainingSeconds = () => {
+          if (!msg.phaseAtMs || !Number.isFinite(msg.phaseAtMs)) return undefined;
+          const SERVER_AUTO_RESOLVE_MS = 17000;
+          const SAFETY_BUFFER_MS = 1000;
+          const serverNowEstimate = Date.now() - serverClockOffsetMsRef.current;
+          const serverElapsed = serverNowEstimate - msg.phaseAtMs;
+          const remainingMs = SERVER_AUTO_RESOLVE_MS - serverElapsed - SAFETY_BUFFER_MS;
+          if (remainingMs <= 0) return 2;
+          return Math.ceil(remainingMs / 1000);
+        };
         if (!overtimeAnnounceRef.current) {
           setRoleAnnounce({ role: msg.role, round: msg.round });
           setInputBlocked(true);
           setTimeout(() => {
             setRoleAnnounce(null);
             setInputBlocked(false);
-            startTimer();
+            startTimer(computeRemainingSeconds());
           }, 500);
         } else {
           setTimeout(() => {
@@ -855,7 +870,7 @@ const GamePage = () => {
             setTimeout(() => {
               setRoleAnnounce(null);
               setInputBlocked(false);
-              startTimer();
+              startTimer(computeRemainingSeconds());
             }, 500);
           }, 2000);
         }
@@ -916,10 +931,18 @@ const GamePage = () => {
     }
   }, [history, overtimeAnnounce]);
 
-  const startTimer = () => {
+  const startTimer = (initialSecondsParam) => {
     stopTimer();
-    // A5: 11с клиентский таймер + 13с серверный auto-resolve = буфер 2с под Vercel cold start.
-    setTimer(11);
+    // Серверный auto-resolve срабатывает через 17с от phaseAtMs. Если знаем сколько уже
+    // прошло на сервере (через serverNowMs - phaseAtMs), стартуем таймер с реального
+    // остатка минус 1с safety buffer. Игрок не «оторвётся» от сервера.
+    const SERVER_AUTO_RESOLVE_S = 17;
+    const SAFETY_BUFFER_S = 1;
+    let initialSeconds = 11; // дефолт — для demo-bot или если sync не доступен
+    if (Number.isFinite(initialSecondsParam) && initialSecondsParam > 0) {
+      initialSeconds = Math.max(2, Math.min(SERVER_AUTO_RESOLVE_S - SAFETY_BUFFER_S, Math.ceil(initialSecondsParam)));
+    }
+    setTimer(initialSeconds);
     timerRef.current = setInterval(() => {
       setTimer(prev => {
         const next = prev - 1;
@@ -1355,8 +1378,8 @@ const GamePage = () => {
         pvpMoveCommittedRef.current = false;
         setSelectedZone(null);
         selectedZoneRef.current = null;
-        setConfirmedZone(null); // A1: новый раунд — confirmedZone должна сброситься
-        lastSubmittedZoneRef.current = null; // снимаем commit-флаг хода для нового раунда
+        setConfirmedZone(null);
+        lastSubmittedZoneRef.current = null;
         const scoresObj = s.scores || { p1: 0, p2: 0 };
         handleServerMessage({
           type: 'round_start',
@@ -1366,6 +1389,8 @@ const GamePage = () => {
           scores: [Number(scoresObj.p1 || 0), Number(scoresObj.p2 || 0)],
           suddenDeath: sudden,
           history: Array.isArray(s.history) ? s.history : [],
+          // phaseAtMs (серверная отметка начала turn_input) для синхронизации таймера
+          phaseAtMs: Number(s.phaseAtMs || 0),
         });
       }
       return;
@@ -1409,6 +1434,10 @@ const GamePage = () => {
         if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
         setShowConnectionError(false);
         lastSuccessfulPollRef.current = Date.now();
+        // Server clock offset для синхронизации таймера с серверным auto-resolve.
+        if (data && Number.isFinite(Number(data.serverNowMs))) {
+          serverClockOffsetMsRef.current = Date.now() - Number(data.serverNowMs);
+        }
 
         if (!data?.ok) {
           const err = String(data?.error || '');
