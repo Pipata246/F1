@@ -394,6 +394,10 @@ const GamePage = () => {
   // в applyPvpRoomState не работает — там прямой handleServerMessage).
   const lastAnimSignatureRef = useRef('');
   const animTimersRef = useRef([]);
+  // Fix #2: отдельный список таймеров overtime modal'и. НЕ чистится при новом раунде
+  // (иначе скрывающий setTimeout не успеет сработать и модалка висит весь овертайм).
+  const overtimeTimersRef = useRef([]);
+  const overtimeAnnounceRef = useRef(false);
   // A3: текущий turnId раунда, обновляется из poll. Привязывает submit к конкретному раунду.
   const turnIdRef = useRef('');
   const localFindTimerRef = useRef(null);
@@ -413,6 +417,8 @@ const GamePage = () => {
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
   useEffect(() => { selectedZoneRef.current = selectedZone; }, [selectedZone]);
+  // Fix #2: синхронный ref для overtimeAnnounce — round_start handler читает его без React batch-задержки
+  useEffect(() => { overtimeAnnounceRef.current = overtimeAnnounce; }, [overtimeAnnounce]);
 
   useEffect(() => {
     ['keeper_idle', 'keeper_save', 'keeper_green', 'keeper_red', 'ball', 'gate'].forEach((name) => {
@@ -807,6 +813,9 @@ const GamePage = () => {
         lastAnimSignatureRef.current = '';
         animTimersRef.current.forEach((t) => clearTimeout(t));
         animTimersRef.current = [];
+        // Fix #2: страховка от зависшей overtime модалки.
+        // Если показалась — снимаем при входе в следующий раунд, даже если timer'ы потерялись.
+        if (overtimeAnnounce) setOvertimeAnnounce(false);
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
         setRole(msg.role);
@@ -829,18 +838,19 @@ const GamePage = () => {
         lastSubmittedZoneRef.current = null; // новый раунд — снимаем commit-флаг хода
         playSound('whistle_start');
         
-        // Если овертайм уже показывается - НЕ показываем роль, ждём его завершения
-        if (!overtimeAnnounce) {
+        // Fix #3/#4: ускорили roleAnnounce 1100ms -> 700ms. Игрок успевает увидеть текст,
+        // но не зевает 1.1с до старта таймера. Овертайм-задержка 2500ms -> 2000ms (синхронно
+        // с овертайм-модалкой). Используем ref для overtimeAnnounce чтобы видеть актуальное
+        // значение без React batch задержки.
+        if (!overtimeAnnounceRef.current) {
           setRoleAnnounce({ role: msg.role, round: msg.round });
           setInputBlocked(true);
-          // Block input while role announcement is visible. Timer starts AFTER announcement.
           setTimeout(() => {
             setRoleAnnounce(null);
             setInputBlocked(false);
             startTimer();
-          }, 1100);
+          }, 700);
         } else {
-          // Овертайм показывается - ждём его завершения (2.5 сек), потом показываем роль
           setTimeout(() => {
             setRoleAnnounce({ role: msg.role, round: msg.round });
             setInputBlocked(true);
@@ -848,8 +858,8 @@ const GamePage = () => {
               setRoleAnnounce(null);
               setInputBlocked(false);
               startTimer();
-            }, 1100);
-          }, 2500);
+            }, 700);
+          }, 2000);
         }
         break;
 
@@ -979,15 +989,11 @@ const GamePage = () => {
     const { kickerZone, keeperZone, isGoal, kickerIndex } = msg;
     const iAmKicker = playerIndexRef.current === kickerIndex;
 
-    // A6: если игрок отправил одну зону, а сервер записал другую (auto-resolve / network race) —
-    // показываем честный notice. Без него игрок видит «мяч улетел не туда» и не понимает почему.
-    if (
-      playModeRef.current === 'pvp' &&
-      msg.submittedZone != null &&
-      msg.myZoneInResult != null &&
-      Number(msg.submittedZone) !== Number(msg.myZoneInResult)
-    ) {
-      showBottomNotice('Ход не успел дойти — авто-выбор сервера');
+    // Fix #1: toast показывается ТОЛЬКО когда сервер явно сообщил, что my side был auto-resolved
+    // (флаг autoFilledSides от server pvpAdvanceByTime). Сравнение зон давало false positive
+    // при overtime/role swap, где kicker/keeper менялись и нумерация выглядела как mismatch.
+    if (playModeRef.current === 'pvp' && Array.isArray(msg.autoFilledSides) && msg.mySide && msg.autoFilledSides.includes(msg.mySide)) {
+      showBottomNotice('Ход не успел дойти, авто-выбор сервера');
     }
 
     // Ball flies to kicker's zone
@@ -1069,29 +1075,27 @@ const GamePage = () => {
     // Если начинается овертайм - показываем уведомление ПЕРЕД следующим раундом
     if (msg.startSuddenDeath) {
       const overtimeStartRound = msg.round || 0;
-      // Показываем овертайм через 1.5 сек после результата
-      animTimersRef.current.push(setTimeout(() => {
+      // Fix #2: overtime таймеры в ОТДЕЛЬНОМ ref'е, чтобы animTimersRef cleanup при следующем
+      // round_start не убил setOvertimeAnnounce(false) и модалка не зависла на весь овертайм.
+      overtimeTimersRef.current.forEach((t) => clearTimeout(t));
+      overtimeTimersRef.current = [];
+      overtimeTimersRef.current.push(setTimeout(() => {
         setOvertimeAnnounce(true);
         setSuddenDeath(true);
         setSuddenDeathStartRound(overtimeStartRound);
         if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('warning');
-        // Скрываем овертайм через 2.5 сек
-        animTimersRef.current.push(setTimeout(() => {
+        overtimeTimersRef.current.push(setTimeout(() => {
           setOvertimeAnnounce(false);
-          // Сбрасываем результат раунда чтобы разблокировать для следующего
           setShowingResult(false);
           setResultMessage(null);
-        }, 2500));
-      }, 1500));
+        }, 2000));
+      }, 1200));
     }
 
-    // Safety timeout: если застряли на результате - разблокируем
-    // ИСПРАВЛЕНИЕ: Одинаковый таймаут для всех случаев (2.5 сек)
-    // Модалка овертайма показывается 2.5 сек, бэкенд переходит в turn_input через 800мс
-    // Анимация удара/сейва занимает 1.8 сек. После её завершения снимаем флаг showingResult,
-    // чтобы applyPvpRoomState мог обработать переход на новый раунд (round_start). Остальные
-    // сбросы (zoneLocked, role, keeper position) сделает обработчик round_start.
-    const safetyTimeout = 1800;
+    // Fix #3: ускорено с 1800ms до 1500ms. Анимация удара (0.4с) + текст GOAL/SAVED
+    // успевают прочитаться, потом сразу запрашиваем next state. Синхронизировано с
+    // серверным round_result→turn_input transition (тоже 1500ms).
+    const safetyTimeout = 1500;
     roundStuckTimerRef.current = setTimeout(() => {
       if (!showingResultRef.current) return;
       setShowingResult(false);
@@ -1136,11 +1140,11 @@ const GamePage = () => {
     if (pvpPollFastModeRef.current) return; // Уже включен
     pvpPollFastModeRef.current = true;
     startPvpPolling(); // Перезапускаем с новым интервалом
-    // Автоматически выключаем через 10 секунд
+    // Fix #3/#4: продлили окно fast polling 10с -> 15с. Лаги сервера 5-7с накрываются с запасом.
     setTimeout(() => {
       pvpPollFastModeRef.current = false;
-      if (pvpPollTimerRef.current) startPvpPolling(); // Возвращаем нормальный интервал
-    }, 10000);
+      if (pvpPollTimerRef.current) startPvpPolling();
+    }, 15000);
   }, [startPvpPolling]);
 
   const applyPvpRoomState = useCallback((room) => {
@@ -1280,10 +1284,10 @@ const GamePage = () => {
         round: Number(rr.round || 0),
         kickerIndex: rrKickerIdx,
         history: Array.isArray(rr.history) ? rr.history : [],
-        startSuddenDeath: !!rr.startSuddenDeath, // NEW: pass overtime flag
-        // A6: передаём submitted-zone в handleRoundResult чтобы показать toast при mismatch
-        submittedZone: lastSubmittedZoneRef.current,
-        myZoneInResult,
+        startSuddenDeath: !!rr.startSuddenDeath,
+        // Fix #1: только серверный явный флаг — никаких сравнений зон.
+        autoFilledSides: Array.isArray(rr.autoFilledSides) ? rr.autoFilledSides : [],
+        mySide,
       });
       return;
     }

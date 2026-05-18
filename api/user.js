@@ -1822,8 +1822,10 @@ function pvpDefaultStateForGame(gameKey, player1Id, player2Id) {
 
 const PVP_BOT_WAIT_MIN_MS = 10_000; // 10 seconds minimum
 const PVP_BOT_WAIT_SPAN_MS = 5_000; // 10..15 sec range
-const PVP_BOT_MOVE_MIN_MS = 300;
-const PVP_BOT_MOVE_MAX_MS = 1000;
+// Fix #3/#4: ускорили задержку бота 300-1000 -> 150-450 мс. Бот всё ещё "думает" немного,
+// чтобы не казался роботом, но переходы между раундами заметно быстрее.
+const PVP_BOT_MOVE_MIN_MS = 150;
+const PVP_BOT_MOVE_MAX_MS = 450;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
@@ -2462,6 +2464,10 @@ function pvpResolveSuperPenaltyRound(state) {
   s.choices = { p1: null, p2: null };
   // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy для следующего раунда
   s.moveSubmittedBy = { p1: null, p2: null };
+  // Фикс #1: пробрасываем список сторон, которым сервер сам заполнил ход (через transient
+  // pendingAutoFilledSides из pvpAdvanceByTime). Клиент покажет toast только при honest
+  // auto-resolve, без false positive из сравнения зон.
+  const autoFilledSides = Array.isArray(s.pendingAutoFilledSides) ? s.pendingAutoFilledSides : [];
   s.lastRoundResult = {
     marker: Number(asObj(s.markers).round || 0) + 1,
     kickerIndex: kickerSide === "p1" ? 0 : 1,
@@ -2476,8 +2482,11 @@ function pvpResolveSuperPenaltyRound(state) {
     startSuddenDeath,
     gameOver,
     winnerSide,
+    autoFilledSides,
   };
   s.markers = { ...asObj(s.markers), round: s.lastRoundResult.marker };
+  // Чистим transient после того как пробросили в lastRoundResult
+  delete s.pendingAutoFilledSides;
   s.updatedAt = new Date().toISOString();
   return s;
 }
@@ -2826,19 +2835,30 @@ function pvpAdvanceByTime(room) {
       // A5: 13с серверный auto-resolve + 11с клиентский таймер = буфер 2с под Vercel cold start
       // No random auto-moves until both humans have polled at least once (real PvP only).
       if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
-      const choices = { ...asObj(s.choices) };
-      if (!Number.isInteger(Number(choices.p1))) choices.p1 = Math.floor(Math.random() * 4);
-      if (!Number.isInteger(Number(choices.p2))) choices.p2 = Math.floor(Math.random() * 4);
+      const prevChoices = asObj(s.choices);
+      const choices = { ...prevChoices };
+      const autoFilledSides = [];
+      if (!Number.isInteger(Number(prevChoices.p1))) {
+        choices.p1 = Math.floor(Math.random() * 4);
+        autoFilledSides.push("p1");
+      }
+      if (!Number.isInteger(Number(prevChoices.p2))) {
+        choices.p2 = Math.floor(Math.random() * 4);
+        autoFilledSides.push("p2");
+      }
       next.choices = choices;
       // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при автоходе
       next.moveSubmittedBy = { p1: null, p2: null };
+      // Фикс #1: явный список сторон, для которых сервер заполнил ход случайно.
+      // Клиент покажет toast «не успел дойти» только этим сторонам.
+      next.pendingAutoFilledSides = autoFilledSides;
       const resolved = pvpResolveSuperPenaltyRound(next);
       resolved.updatedAt = new Date().toISOString();
       return { changed: true, state: resolved };
     }
-    if (s.phase === "round_result" && elapsed >= 1800) {
-      // 1800мс синхронизирует серверный переход с клиентской анимацией удара/сейва.
-      // Игроки видят результат удара отчётливо без затянутой паузы.
+    if (s.phase === "round_result" && elapsed >= 1500) {
+      // Fix #3: ускорено 1800ms -> 1500ms. Синхронизировано с клиентским safetyTimeout.
+      // Игроки видят результат удара (анимация 0.4с + текст ~1.1с) и сразу идут в следующий раунд.
       const rr = asObj(s.lastRoundResult);
       if (rr.gameOver) {
         next.phase = "match_over";
