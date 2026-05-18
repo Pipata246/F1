@@ -22,6 +22,10 @@ import { ConnectionErrorModal } from '../components/ConnectionErrorModal.jsx';
 import { WaitingScreen } from '../components/screens/WaitingScreen.jsx';
 import { StakeSelectScreen } from '../components/screens/StakeSelectScreen.jsx';
 import { ResultScreen } from '../components/screens/ResultScreen.jsx';
+import { useTelegramWebApp } from '../hooks/useTelegramWebApp.js';
+import { useMatchResume } from '../hooks/useMatchResume.js';
+import { apiPost } from '../lib/api.js';
+import { usePvpPolling } from '../hooks/usePvpPolling.js';
 
 const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
@@ -97,15 +101,16 @@ const GamePage = () => {
   const timerRef = useRef(null);
   const playerIndexRef = useRef(0);
   const matchRef = useRef(null);
-  const tgInitDataRef = useRef('');
+  const tgInitDataRef = useTelegramWebApp({
+    onDisplayName: (n) => setDisplayName(n),
+    onBalance: (b) => setBalanceTon(b),
+  });
   const matchSavedRef = useRef(false);
   /** Как в frog-hunt: только один из режимов — онлайн (pvp) или локальный бот, никогда оба сразу. */
   const playModeRef = useRef('idle');
   const pvpRoomIdRef = useRef(null);
   const pvpOpponentTgIdRef = useRef(null);
   const pvpOpponentIsBotRef = useRef(false);
-  const pvpPollTimerRef = useRef(null);
-  const pvpPollInFlightRef = useRef(false);
   const pvpLastRoundMarkerRef = useRef(0);
   const pvpLastStartKeyRef = useRef('');
   const pvpMoveCommittedRef = useRef(false);
@@ -113,12 +118,8 @@ const GamePage = () => {
   const selectedZoneRef = useRef(null);
   const matchEndedRef = useRef(false);
   const lastSubmittedZoneRef = useRef(null);
-  const PVP_POLL_MS = 800; // HTTP polling каждые 800мс как в Frog Hunt
-  const PVP_POLL_FAST_MS = 200; // Быстрый polling в критические моменты (ускорено с 300мс)
-  const pvpPollFastModeRef = useRef(false); // Флаг быстрого режима
   // A4: reconciliation против out-of-order ответов и stale poll'ов
   const lastAppliedUpdatedAtRef = useRef(0); // ms of room.updated_at
-  const pvpPollRequestIdRef = useRef(0); // монотонный id для каждого poll
   // A2: signature последнего запущенного round_result + список таймеров анимации.
   // Защищает от двойного запуска анимации одного хода (особенно в demo-bot, где marker check
   // в applyPvpRoomState не работает — там прямой handleServerMessage).
@@ -130,10 +131,6 @@ const GamePage = () => {
   const overtimeAnnounceRef = useRef(false);
   // A3: текущий turnId раунда, обновляется из poll. Привязывает submit к конкретному раунду.
   const turnIdRef = useRef('');
-  // Дельта между clock-ами клиента и сервера: clientNow - serverNow (мс).
-  // Позволяет вычислять "сколько на сервере уже прошло" с момента phaseAtMs не зависимо
-  // от разъезда системных часов клиента и сервера.
-  const serverClockOffsetMsRef = useRef(0);
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
@@ -142,8 +139,6 @@ const GamePage = () => {
   const roundStuckTimerRef = useRef(null);
   const waitingBotMoveTimerRef = useRef(null);
   const pvpMoveWatchdogTimerRef = useRef(null); // Watchdog: защита от зависания после хода
-  const connectionErrorTimerRef = useRef(null); // Таймер для показа ошибки соединения
-  const lastSuccessfulPollRef = useRef(Date.now()); // Время последнего успешного poll
   const waitingOpponentTimerRef = useRef(null); // Таймер для отслеживания долгого ожидания
   // Supabase Realtime - НЕ ИСПОЛЬЗУЕМ, только HTTP polling
   const realtimeChannelRef = useRef(null);
@@ -224,62 +219,45 @@ const GamePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingOpponent, screen]);
 
-  useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    tgInitDataRef.current = tg?.initData || '';
-    
-    // Скрываем кнопку "Назад" в Telegram - не используем её
-    if (tg?.BackButton) {
-      tg.BackButton.hide();
-    }
-    
-    // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ TELEGRAM
-    if (tg) {
-      tg.disableClosingConfirmation();
-    }
-    
-    const u = tg?.initDataUnsafe?.user;
-    const fallback = u?.first_name || 'Player';
-    const init = tgInitDataRef.current;
-    if (!init) {
-      setDisplayName(fallback);
-      return;
-    }
-    fetch('/api/user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'authSession', initData: init }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.ok && data.user?.display_name) {
-          setDisplayName(String(data.user.display_name).slice(0, 64));
-          setBalanceTon(Number(data.user.balance || 0));
-        } else {
-          setDisplayName(fallback);
-          setBalanceTon(0);
-        }
-      })
-      .catch(() => {
-        setDisplayName(fallback);
-        setBalanceTon(0);
-      });
-  }, []);
-  
   const showBottomNotice = useCallback((msg) => {
     setBottomNotice(String(msg || ''));
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = setTimeout(() => setBottomNotice(''), 2200);
   }, []);
-  
-  const apiPost = useCallback(async (payload) => {
-    const res = await fetch('/api/user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    });
-    return res.json();
-  }, []);
+
+  // Forward refs для разрыва циклической зависимости с usePvpPolling: хук объявляется
+  // выше, чем applyPvpRoomState/goHome/startSearchOnline (они зависят от polling-функций
+  // самого хука). useEffect ниже подсасывает свежие ссылки в refs на каждый рендер.
+  const applyPvpRoomStateRef = useRef(null);
+  const goHomeRef = useRef(null);
+  const startSearchOnlineRef = useRef(null);
+
+  const {
+    stopPvpPolling,
+    startPvpPolling,
+    pvpPollState,
+    enableFastPolling,
+    pvpPollInFlightRef,
+    serverClockOffsetMsRef,
+    connectionErrorTimerRef,
+  } = usePvpPolling({
+    initDataRef: tgInitDataRef,
+    pvpRoomIdRef,
+    matchEndedRef,
+    playModeRef,
+    screen,
+    acceptInfo,
+    onApplyRoomState: (room) => applyPvpRoomStateRef.current?.(room),
+    onAcceptTimeout: () => goHomeRef.current?.(),
+    onRoomNotFoundAccept: () => {
+      pvpRoomIdRef.current = null;
+      setAcceptInfo(null);
+      setScreen('waiting');
+      showBottomNotice('Пользователь не принял матч');
+      startSearchOnlineRef.current?.();
+    },
+    onShowConnectionError: setShowConnectionError,
+  });
   
   const goHome = useCallback(() => {
     // Очищаем состояние игры и отправляем на бэкенд что вышли
@@ -307,25 +285,21 @@ const GamePage = () => {
       }).catch(() => {});
     }
     
-    // Останавливаем polling
-    if (pvpPollTimerRef.current) {
-      clearInterval(pvpPollTimerRef.current);
-      pvpPollTimerRef.current = null;
-    }
-    
+    // Останавливаем polling через хук
+    stopPvpPolling();
+
     playModeRef.current = 'idle';
     pvpRoomIdRef.current = null;
-    
+
     // ОТКЛЮЧАЕМ ВСЕ УВЕДОМЛЕНИЯ перед переходом
     const tg = window.Telegram?.WebApp;
     if (tg) {
       tg.disableClosingConfirmation();
     }
-    
+
     // Переходим на ГЛАВНУЮ СТРАНИЦУ (не игры, а сайта) БЕЗ ЗАДЕРЖКИ
-    // Используем replace чтобы не добавлять в историю
     window.location.replace('/');
-  }, []);
+  }, [stopPvpPolling]);
 
   // Обработка браузерной кнопки "Назад"
   useEffect(() => {
@@ -346,134 +320,25 @@ const GamePage = () => {
   // УБИРАЕМ ВСЕ УВЕДОМЛЕНИЯ - удаляем beforeunload полностью
   // useEffect для beforeunload УДАЛЁН
 
-  // A7: при mount проверяем sessionStorage на наличие активного матча и пробуем переподключиться.
-  // Если матч ещё активен на сервере — восстанавливаем UI и polling. Иначе чистим storage.
-  useEffect(() => {
-    const stored = (() => { try { return sessionStorage.getItem('sp_active_room'); } catch { return null; } })();
-    if (!stored) return;
-    const storedRoomId = Number(stored);
-    if (!Number.isInteger(storedRoomId) || storedRoomId <= 0) {
-      try { sessionStorage.removeItem('sp_active_room'); } catch {}
-      return;
-    }
-    // Ждём, пока tgInitData загрузится (он set'ится в другом useEffect)
-    const tryReconnect = () => {
-      const init = tgInitDataRef.current;
-      if (!init) {
-        setTimeout(tryReconnect, 200);
-        return;
-      }
-      fetch('/api/user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pvpGetMyActiveRoom', initData: init, gameKey: 'super_penalty' }),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (!data?.ok || !data.room) {
-            try { sessionStorage.removeItem('sp_active_room'); } catch {}
-            return;
-          }
-          if (Number(data.room.id) !== storedRoomId) {
-            try { sessionStorage.removeItem('sp_active_room'); } catch {}
-            return;
-          }
-          // Восстанавливаем матч
-          pvpRoomIdRef.current = Number(data.room.id);
-          playModeRef.current = 'pvp';
-          matchEndedRef.current = false;
-          // Сразу запускаем polling — он принесёт актуальный state и applyPvpRoomState разрулит UI
-          startPvpPolling();
-        })
-        .catch(() => { try { sessionStorage.removeItem('sp_active_room'); } catch {} });
-    };
-    tryReconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // A7: resume после refresh + сохранение/очистка sessionStorage + cancel-queue на pagehide.
+  useMatchResume({
+    screen,
+    initDataRef: tgInitDataRef,
+    pvpRoomIdRef,
+    playModeRef,
+    onResume: (room) => {
+      pvpRoomIdRef.current = Number(room.id);
+      playModeRef.current = 'pvp';
+      matchEndedRef.current = false;
+      startPvpPolling();
+    },
+  });
 
-  // A7: при входе в активный матч сохраняем roomId, при выходе — чистим
-  useEffect(() => {
-    if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && screen === 'game') {
-      try { sessionStorage.setItem('sp_active_room', String(pvpRoomIdRef.current)); } catch {}
-    } else if (screen === 'result' || screen === 'stake-online' || screen === 'menu') {
-      try { sessionStorage.removeItem('sp_active_room'); } catch {}
-    }
-  }, [screen]);
-
-
+  // Тикер для обратного отсчёта в accept-модалке.
   useEffect(() => {
     if (screen !== 'accept') return undefined;
     const id = setInterval(() => setAcceptTick((v) => v + 1), 500);
     return () => clearInterval(id);
-  }, [screen]);
-
-  useEffect(() => {
-    const ping = () => {
-      const init = tgInitDataRef.current;
-      if (!init) return;
-      fetch('/api/user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'presenceHeartbeat', initData: init }),
-      }).catch(() => {});
-    };
-    ping();
-    const id = setInterval(ping, 9000);
-    const onVis = () => { if (document.visibilityState === 'visible') ping(); };
-    document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('focus', ping);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('focus', ping);
-    };
-  }, []);
-
-  useEffect(() => {
-    const leave = () => {
-      const init = tgInitDataRef.current;
-      if (!init) return;
-      const payload = JSON.stringify({ action: 'presenceLeave', initData: init });
-      try {
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' }));
-        }
-      } catch {}
-      fetch('/api/user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-        keepalive: true,
-      }).catch(() => {});
-    };
-    window.addEventListener('pagehide', leave);
-    return () => {
-      window.removeEventListener('pagehide', leave);
-      leave();
-    };
-  }, []);
-
-  // A7: убрали авто-отправку pvpLeaveRoom на pagehide и pvpCancelQueue на visibility=hidden
-  // в активном матче. Refresh/сворачивание Telegram больше не приводит к мгновенной потере
-  // ставки. Сервер сам объявит leave по stale presence (через 45с) если игрок не вернётся.
-  // При входе в waiting (поиск) на pagehide всё ещё отменяем очередь — отдельная логика.
-  useEffect(() => {
-    const onPageHide = () => {
-      // Отменяем поиск только если игрок не в активном матче (screen === 'waiting' и ещё нет roomId с активной фазой)
-      if (playModeRef.current !== 'pvp') return;
-      const init = tgInitDataRef.current;
-      const rid = pvpRoomIdRef.current;
-      if (!init || !rid) return;
-      // В waiting (accept / matchmaking) отменяем — иначе оппонент будет ждать в зомби-комнате
-      if (screen !== 'game') {
-        const payload = JSON.stringify({ action: 'pvpCancelQueue', initData: init, roomId: rid });
-        try { if (navigator.sendBeacon) navigator.sendBeacon('/api/user', new Blob([payload], { type: 'application/json' })); } catch {}
-        fetch('/api/user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
-      }
-      // В активном матче — НЕ leave. Сервер сам разберётся через stale presence.
-    };
-    window.addEventListener('pagehide', onPageHide);
-    return () => window.removeEventListener('pagehide', onPageHide);
   }, [screen]);
 
   useEffect(() => {
@@ -498,13 +363,12 @@ const GamePage = () => {
       }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       if (timerRef.current) clearInterval(timerRef.current);
-      if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
+      // pvpPollTimer и connectionErrorTimer чистятся auto-cleanup'ом в usePvpPolling
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
       if (roundStuckTimerRef.current) clearTimeout(roundStuckTimerRef.current);
       if (waitingBotMoveTimerRef.current) clearTimeout(waitingBotMoveTimerRef.current);
       if (pvpMoveWatchdogTimerRef.current) clearTimeout(pvpMoveWatchdogTimerRef.current);
-      if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
       if (waitingOpponentTimerRef.current) clearTimeout(waitingOpponentTimerRef.current);
       if (realtimeChannelRef.current) {
         supabaseClient.removeChannel(realtimeChannelRef.current);
@@ -894,42 +758,10 @@ const GamePage = () => {
     }
   };
 
-  // ==================== HTTP POLLING (КАК В FROG HUNT) ====================
-  const stopRealtimeSubscription = useCallback(() => {
-    // Пустая функция - не используем WebSocket
-  }, []);
-
-  const startRealtimeSubscription = useCallback((roomId) => {
-    // Пустая функция - не используем WebSocket
-  }, []);
-
-  const stopPvpPolling = useCallback(() => {
-    if (pvpPollTimerRef.current) {
-      clearInterval(pvpPollTimerRef.current);
-      pvpPollTimerRef.current = null;
-    }
-    pvpPollInFlightRef.current = false;
-  }, []);
-
-  const startPvpPolling = useCallback(() => {
-    stopPvpPolling();
-    const interval = pvpPollFastModeRef.current ? PVP_POLL_FAST_MS : PVP_POLL_MS;
-    pvpPollTimerRef.current = setInterval(() => {
-      pvpPollState();
-    }, interval);
-    pvpPollState(); // Сразу первый запрос
-  }, [stopPvpPolling]); // eslint-disable-line
-
-  const enableFastPolling = useCallback(() => {
-    if (pvpPollFastModeRef.current) return; // Уже включен
-    pvpPollFastModeRef.current = true;
-    startPvpPolling(); // Перезапускаем с новым интервалом
-    // Fix #3/#4: продлили окно fast polling 10с -> 15с. Лаги сервера 5-7с накрываются с запасом.
-    setTimeout(() => {
-      pvpPollFastModeRef.current = false;
-      if (pvpPollTimerRef.current) startPvpPolling();
-    }, 15000);
-  }, [startPvpPolling]);
+  // ==================== HTTP POLLING ====================
+  // Сетевой слой polling-а вынесен в usePvpPolling. applyPvpRoomState остаётся здесь как
+  // callback, потому что глубоко связан с UI-state и handleServerMessage.
+  const stopRealtimeSubscription = useCallback(() => {}, []);
 
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
@@ -1119,88 +951,11 @@ const GamePage = () => {
     }
   }, [handleServerMessage, stopPvpPolling, stopRealtimeSubscription]);
 
-  const pvpPollState = useCallback(() => {
-    if (!pvpRoomIdRef.current || !tgInitDataRef.current || pvpPollInFlightRef.current) return;
-    pvpPollInFlightRef.current = true;
-    // A4: монотонный id — ответы с устаревшим id игнорируются (если успел уйти более новый запрос)
-    const requestId = ++pvpPollRequestIdRef.current;
-
-    if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
-    connectionErrorTimerRef.current = setTimeout(() => {
-      if (playModeRef.current === 'pvp' && screen === 'game') {
-        setShowConnectionError(true);
-      }
-    }, 3000);
-
-    const controller = (typeof AbortController === 'function') ? new AbortController() : null;
-    const abortTimer = setTimeout(() => {
-      if (controller) {
-        try { controller.abort(); } catch (e) {}
-      }
-    }, 10000);
-
-    fetch('/api/user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'pvpGetRoomState',
-        initData: tgInitDataRef.current,
-        roomId: pvpRoomIdRef.current,
-      }),
-      signal: controller ? controller.signal : undefined,
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        // A4: stale-guard — если за время этого fetch уже улетел более новый poll, игнорируем ответ
-        if (requestId !== pvpPollRequestIdRef.current) return;
-        if (connectionErrorTimerRef.current) clearTimeout(connectionErrorTimerRef.current);
-        setShowConnectionError(false);
-        lastSuccessfulPollRef.current = Date.now();
-        // Server clock offset для синхронизации таймера с серверным auto-resolve.
-        if (data && Number.isFinite(Number(data.serverNowMs))) {
-          serverClockOffsetMsRef.current = Date.now() - Number(data.serverNowMs);
-        }
-
-        if (!data?.ok) {
-          const err = String(data?.error || '');
-          if (err === 'ACCEPT_TIMEOUT') {
-            stopPvpPolling();
-            pvpRoomIdRef.current = null;
-            goHome();
-            return;
-          }
-          if (err === 'Room not found') {
-            // A8: после завершения матча сервер чистит комнату через pvpDeleteRoomAfterDone.
-            // Это НЕ accept-timeout — это нормальный cleanup. Не показываем «не принял матч»
-            // и не запускаем новый поиск.
-            if (matchEndedRef.current || screen === 'result') {
-              stopPvpPolling();
-              pvpRoomIdRef.current = null;
-              return;
-            }
-            if (acceptInfo) {
-              pvpRoomIdRef.current = null;
-              setAcceptInfo(null);
-              setScreen('waiting');
-              showBottomNotice('Пользователь не принял матч');
-              startSearchOnline();
-            }
-          }
-          return;
-        }
-        if (data.room) applyPvpRoomState(data.room);
-      })
-      .catch(() => {
-        const timeSinceLastSuccess = Date.now() - lastSuccessfulPollRef.current;
-        if (timeSinceLastSuccess > 3000 && playModeRef.current === 'pvp' && screen === 'game') {
-          setShowConnectionError(true);
-        }
-      })
-      .finally(() => {
-        clearTimeout(abortTimer);
-        pvpPollInFlightRef.current = false;
-      });
-  }, [applyPvpRoomState, goHome, stopPvpPolling, acceptInfo, screen]);
+  // Polling infra переехала в usePvpPolling. stopPvpPolling/startPvpPolling/pvpPollState/enableFastPolling
+  // (плюс serverClockOffsetMsRef и pvpPollInFlightRef) разворачиваются из хука ниже, перед
+  // useEffect-ами и handler-ами которые ими пользуются. Forward-ref pvpPollingApiRef нужен потому,
+  // что usePvpPolling требует applyPvpRoomState / goHome как callbacks, а они объявлены ВЫШЕ
+  // самого вызова хука и держат ссылку через ref для разрыва циклической зависимости.
 
   const sendMessage = (type, data = {}) => {
     if (playModeRef.current === 'pvp') {
@@ -1576,6 +1331,13 @@ const GamePage = () => {
     }, 500);
   };
 
+  // Подсасываем актуальные ссылки в forward-refs для usePvpPolling. Без этого хук видит
+  // только начальные null, а нам нужно вызывать свежие applyPvpRoomState/goHome/startSearchOnline.
+  useEffect(() => {
+    applyPvpRoomStateRef.current = applyPvpRoomState;
+    goHomeRef.current = goHome;
+    startSearchOnlineRef.current = startSearchOnline;
+  });
 
   const handleCancelWait = () => {
     if (pvpFindRetryTimerRef.current) {
