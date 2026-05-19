@@ -1646,30 +1646,38 @@ function localResolveRound() {
 
 function startTimer(phaseAtMs) {
     const fill = $('timer-fill');
+    const text = $('timer-text');
     fill.style.width = '100%';
     fill.classList.remove('urgent');
+    if (text) text.classList.remove('urgent');
     clearInterval(timerInterval);
     const nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
     const durationMs = isBotMode ? 10_000 : TURN_MS;
     const startAt = Number(phaseAtMs || 0) > 0 ? Number(phaseAtMs || 0) : nowServer;
     const endAt = startAt + durationMs;
+    if (text) text.textContent = Math.ceil(durationMs / 1000) + 'с';
     timerInterval = setInterval(() => {
         const nowS = Date.now() - (Number(pvpServerSkewMs || 0));
         const left = Math.max(0, endAt - nowS);
         const pct = Math.max(0, (left / durationMs) * 100);
         fill.style.width = pct + '%';
-        if (pct < 30) fill.classList.add('urgent');
+        if (text) {
+            const secLeft = Math.max(0, Math.ceil(left / 1000));
+            text.textContent = secLeft + 'с';
+        }
+        if (pct < 30) {
+            fill.classList.add('urgent');
+            if (text) text.classList.add('urgent');
+        }
         if (pct <= 0) {
             clearInterval(timerInterval);
+            if (text) text.textContent = '0с';
             if (!moveChosen) {
                 if (xrayScanMode) exitXrayScanMode();
                 abilityActive = false;
-                // В боте — делаем авто-ход локально
-                // В PvP — бэкенд сам сделает авто-ход по таймауту, просто блокируем UI
                 if (isBotMode) {
                     makeMove(Math.random() < 0.5 ? 'run' : 'jump');
                 } else {
-                    // Блокируем кнопки — ждём бэкенд
                     $('btn-run').disabled = true;
                     $('btn-jump').disabled = true;
                     $('move-wait').classList.remove('hidden');
