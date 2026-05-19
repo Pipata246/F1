@@ -30,7 +30,6 @@ export function useMatchLifecycle(deps) {
     animTimersRef,
     pvpFindRetryTimerRef,
     localFindTimerRef,
-    wsRef,
     playModeRef,
     playerIndexRef,
     // setters UI
@@ -57,7 +56,6 @@ export function useMatchLifecycle(deps) {
     stopPvpPolling,
     applyPvpRoomState,
     handleServerMessage,
-    stopRealtimeSubscription,
   } = deps;
 
   // Сбрасывает все state'ы и refs к чистому состоянию перед началом нового матча.
@@ -207,19 +205,14 @@ export function useMatchLifecycle(deps) {
       }
       stopPvpPolling();
     }
-    if (mode === 'bot') {
-      matchRef.current = null;
-    }
     playModeRef.current = 'idle';
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    stopRealtimeSubscription?.();
     const tg = window.Telegram?.WebApp;
     if (tg) tg.disableClosingConfirmation();
     window.location.replace('/');
   }, [
-    initDataRef, pvpRoomIdRef, matchRef, playModeRef, wsRef,
+    initDataRef, pvpRoomIdRef, playModeRef,
     pvpFindRetryTimerRef, localFindTimerRef,
-    stopPvpPolling, stopRealtimeSubscription,
+    stopPvpPolling,
   ]);
 
   const handlePlayAgain = useCallback(() => {
@@ -245,12 +238,11 @@ export function useMatchLifecycle(deps) {
     setHistory([]);
     stopPvpPolling();
     pvpRoomIdRef.current = null;
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     const tg = window.Telegram?.WebApp;
     if (tg) tg.disableClosingConfirmation();
     window.location.replace('/');
   }, [
-    playModeRef, matchRef, pvpRoomIdRef, wsRef,
+    playModeRef, matchRef, pvpRoomIdRef,
     pvpFindRetryTimerRef, localFindTimerRef,
     stopPvpPolling, setMatchResult, setHistory,
   ]);
