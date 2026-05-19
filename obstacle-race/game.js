@@ -1064,6 +1064,13 @@ function confirmTraps() {
 
 function stopTrapsCheck() {}
 
+function setDotLabel(dot, text) {
+    if (!dot) return;
+    var label = dot.querySelector('.track-dot-num');
+    if (label) label.textContent = String(text);
+    else dot.textContent = String(text);
+}
+
 function generateGameTracks(n) {
     trackDots = n;
     for (let t = 0; t < 2; t++) {
@@ -1071,8 +1078,15 @@ function generateGameTracks(n) {
         for (let i = 0; i < n; i++) {
             const d = document.createElement('div');
             d.className = 'track-dot' + (n <= OT_ROUNDS ? ' ot-dot' : '');
-            d.textContent = (i + 1);
             d.id = 'dot-' + t + '-' + i;
+            const label = document.createElement('span');
+            label.className = 'track-dot-num';
+            label.textContent = String(i + 1);
+            d.appendChild(label);
+            const barrier = document.createElement('span');
+            barrier.className = 'barrier-marker';
+            barrier.textContent = '🚧';
+            d.appendChild(barrier);
             c.appendChild(d);
         }
         // Show player's mines on opponent's track
@@ -1105,7 +1119,7 @@ function applyRevealedPoints() {
         var dot = $('dot-0-' + key);
         if (dot) {
             dot.classList.add(revealedPoints[key] ? 'xray-trap' : 'xray-safe');
-            if (!revealedPoints[key]) dot.textContent = '\u2713';
+            if (!revealedPoints[key]) setDotLabel(dot, '\u2713');
         }
     }
 }
@@ -1279,7 +1293,7 @@ function onXrayResult(msg) {
         var dot = $('dot-0-' + msg.point);
         if (dot) {
             dot.classList.add(msg.hasTrap ? 'xray-trap' : 'xray-safe');
-            if (!msg.hasTrap) dot.textContent = '\u2713';
+            if (!msg.hasTrap) setDotLabel(dot, '\u2713');
         }
         $('action-btns').classList.remove('hidden');
         $('ability-zone').classList.add('hidden');
@@ -1792,14 +1806,14 @@ async function onRoundResult(msg) {
         myDot.classList.remove('current', 'xray-trap', 'xray-safe', 'xray-scannable');
         if (my.hasTrap && my.reason === 'hit_trap') {
             myDot.classList.add('fail', 'mine-hit');
-            myDot.textContent = dotIcon(my, false);
+            setDotLabel(myDot, dotIcon(my, false));
         } else if (my.hasTrap && my.reason === 'dodged_trap') {
             myDot.classList.add('success', 'mine-dodged');
-            myDot.textContent = dotIcon(my, false);
+            setDotLabel(myDot, dotIcon(my, false));
         } else {
             const myOk = my.points > 0 && !my.sabotaged;
             myDot.classList.add(myOk ? 'success' : 'fail');
-            myDot.textContent = dotIcon(my, false);
+            setDotLabel(myDot, dotIcon(my, false));
         }
     }
     if (oppDot) {
@@ -1807,16 +1821,16 @@ async function onRoundResult(msg) {
         if (opp.hasTrap && opp.reason === 'hit_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('fail', 'mine-exploded');
-            oppDot.textContent = dotIcon(opp, true);
+            setDotLabel(oppDot, dotIcon(opp, true));
         } else if (opp.hasTrap && opp.reason === 'dodged_trap') {
             oppDot.classList.remove('mine-placed');
             oppDot.classList.add('mine-safe');
-            oppDot.textContent = dotIcon(opp, true);
+            setDotLabel(oppDot, dotIcon(opp, true));
         } else {
             oppDot.classList.remove('mine-placed');
             const oppOk = opp.points > 0 && !opp.sabotaged;
             oppDot.classList.add(oppOk ? 'success' : 'fail');
-            oppDot.textContent = dotIcon(opp, true);
+            setDotLabel(oppDot, dotIcon(opp, true));
         }
     }
 
