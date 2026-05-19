@@ -3815,9 +3815,10 @@ async function pvpBroadcastRoomUpdate(room) {
   if (!room || !room.id) return;
 
   const gameKey = String(room.game_key || "");
-  // Super Penalty работает через HTTP-polling и НЕ слушает Supabase Realtime —
-  // broadcast'ить туда нет смысла, это просто лишняя задержка ~200ms на каждый submit.
-  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race" && gameKey !== "basketball") return;
+  // Super Penalty и Obstacle Race работают через HTTP-polling и НЕ слушают Supabase Realtime —
+  // broadcast туда не имеет смысла, это лишняя задержка ~200ms на каждый submit.
+  // Подписчики Realtime: frog_hunt и basketball.
+  if (gameKey !== "frog_hunt" && gameKey !== "basketball") return;
   
   const channelName = `${gameKey}_room_${room.id}`;
   const p1TgId = String(room.player1_tg_user_id || "");

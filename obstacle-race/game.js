@@ -1,22 +1,8 @@
-// ==================== HTTP POLLING (КАК В FROG HUNT) ====================
-var supabase = null; // Не используем
-var supabaseChannel = null; // Не используем
-
-// Убираем WebSocket, используем только HTTP polling как в Frog Hunt
-function initSupabase() {
-  // Пустая функция - не нужен WebSocket
-}
-
-function stopRealtimeSubscription() {
-  // Пустая функция - не нужен WebSocket
-}
-
-function startRealtimeSubscription(roomId) {
-  // Пустая функция - не нужен WebSocket
-}
+// ==================== HTTP POLLING ====================
+// PvP работает через HTTP polling /api/user (каждые 800мс, или 400мс в fast-mode после
+// submit). WebSocket / Supabase Realtime НЕ используется — соответствующий код удалён.
 
 // ==================== GAME VARIABLES ==================
-let ws = null;
 let playerIndex = -1;
 let opponentName = '';
 let myName = '';
@@ -60,7 +46,6 @@ const TURN_MS = 15_000;
 let onlineModeSelected = false;
 let pvpAcceptDeadlineMs = 0;
 let pvpAcceptTickInterval = null;
-let pvpWaitingFallbackTimer = null;
 let pvpRoomId = null;
 let pvpPollTimer = null;
 let pvpPollInFlight = false;
@@ -71,10 +56,17 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 let pvpMoveWatchdogTimer = null;
 let pvpLastProcessedStateHash = '';
+// Stale-guard: incoming room.updated_at должен быть строго новее последнего применённого.
+// Иначе медленный poll-ответ может перетереть свежий state и UI «откатится».
+let pvpLastAppliedUpdatedAtMs = 0;
 let pvpProcessingRoundResult = false;
-const PVP_POLL_MS = 800; // Polling каждые 800мс как в Frog Hunt
-let pvpHeartbeatTimer = null;
-const PVP_HEARTBEAT_MS = 2000;
+const PVP_POLL_MS = 800; // Обычный polling
+// Fast-mode: чаще опрашиваем сразу после хода/выхода из placing — серверу нужно не больше
+// 1-2 тиков чтобы вернуть round_result. Раньше всегда polling 800мс => лишние ~600мс задержки.
+const PVP_POLL_FAST_MS = 400;
+const PVP_POLL_FAST_DURATION_MS = 6000;
+let pvpPollFastModeUntilMs = 0;
+const POLL_ABORT_TIMEOUT_MS = 10000; // обрываем висящий fetch через 10с
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 
 const OT_ROUNDS = 30; // Увеличено до 30 чтобы точно не дошли до конца
@@ -121,9 +113,6 @@ function playSound(name) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize Supabase Realtime
-    initSupabase();
-    
     initSounds();
     if (window.Telegram && window.Telegram.WebApp) {
         const tg = window.Telegram.WebApp;
@@ -244,11 +233,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function openDemoIntro() {
     showScreen('demo');
-}
-
-function connect(cb) {
-    // WebSocket connection is handled by Supabase Realtime, no need for manual connection
-    if (cb) cb();
 }
 
 function apiPost(payload) {
@@ -417,50 +401,39 @@ function beaconPvpLeaveRoom(roomId) {
 }
 
 function stopPvpPolling() {
-    stopRealtimeSubscription();
     if (pvpPollTimer) clearInterval(pvpPollTimer);
     pvpPollTimer = null;
     pvpPollInFlight = false;
     stopMoveWatchdog();
-    stopWaitingCheck();
-    stopTrapsCheck();
 }
-
-function stopWaitingFallbackPolling() {}
-function stopTrapsWaitPolling() {}
-function startWaitingFallbackPolling() {}
-function startTrapsWaitPolling() {}
 
 function stopMoveWatchdog() {
     if (pvpMoveWatchdogTimer) { clearInterval(pvpMoveWatchdogTimer); pvpMoveWatchdogTimer = null; }
 }
 
-function startMoveWatchdog() {
-    stopMoveWatchdog();
-    var ticks = 0;
-    pvpMoveWatchdogTimer = setInterval(function() {
-        if (!moveChosen || !pvpRoomId || !tgInitData) { stopMoveWatchdog(); return; }
-        ticks++;
-        // Каждые 3 сек делаем fallback запрос пока ждём round_result (на случай если WebSocket не работает)
-        if (ticks % 3 === 0) {
-            pvpPollState();
-        }
-        // После 30 сек (10 тиков) — переключаемся на нормальный режим
-        if (ticks >= 10) stopMoveWatchdog();
-    }, 3000);
-}
-
 function startPvpPolling() {
     stopPvpPolling();
+    var interval = (Date.now() < pvpPollFastModeUntilMs) ? PVP_POLL_FAST_MS : PVP_POLL_MS;
     pvpPollTimer = setInterval(function() {
         pvpPollState();
-    }, PVP_POLL_MS);
+        // Когда fast-mode истёк — перезапускаем с обычным интервалом
+        if (interval === PVP_POLL_FAST_MS && Date.now() >= pvpPollFastModeUntilMs) {
+            startPvpPolling();
+        }
+    }, interval);
     pvpPollState(); // Сразу первый запрос
 }
 
-function startPvpPollingFast() {
-    // Не нужно - используем один интервал
-    startPvpPolling();
+// Ускорить polling на N секунд (после submit/round transition). Идемпотентно — если уже
+// в fast-mode и срок не истёк, просто продляем срок без переподнятия интервала.
+function enableFastPolling() {
+    var newUntil = Date.now() + PVP_POLL_FAST_DURATION_MS;
+    var wasFast = Date.now() < pvpPollFastModeUntilMs;
+    pvpPollFastModeUntilMs = Math.max(pvpPollFastModeUntilMs, newUntil);
+    if (!wasFast && pvpPollTimer) {
+        // Переподнимаем интервал чтобы взять PVP_POLL_FAST_MS
+        startPvpPolling();
+    }
 }
 
 function resetPvpMarkers() {
@@ -468,6 +441,7 @@ function resetPvpMarkers() {
     pvpLastXrayMarker = 0;
     pvpLastStartKey = '';
     pvpLastProcessedStateHash = ''; // Сбрасываем хеш при новой игре
+    pvpLastAppliedUpdatedAtMs = 0;
 }
 
 function getPvpSides(room) {
@@ -515,17 +489,33 @@ function applyPvpRoomState(room) {
     var status = String(room.status || '');
     var phase = String((s || {}).phase || '');
 
-    // ДЕДУПЛИКАЦИЯ: создаём хеш состояния для защиты от повторной обработки
-    var stateHash = status + ':' + phase + ':' + 
+    // STALE-GUARD: если room.updated_at не новее последнего применённого — out-of-order ответ
+    // или дубликат. Полл может прийти после submit-ответа с тем же state, отбрасываем.
+    var incomingMs = Number(new Date(room.updated_at || 0).getTime()) || 0;
+    if (incomingMs > 0 && incomingMs < pvpLastAppliedUpdatedAtMs) return;
+
+    // ДЕДУПЛИКАЦИЯ: расширенный хеш — включает scores, traps-placement, pendingMoves,
+    // accept-deadline. Без этих полей stateHash мог пропускать важные изменения (счёт
+    // обновился, но фаза та же — UI не обновлялся).
+    var sc = s.scores || {};
+    var tr = s.traps || {};
+    var pm = s.pendingMoves || {};
+    var am = s.acceptMatch || {};
+    var stateHash = status + ':' + phase + ':' +
                     (s.currentStep || 0) + ':' + (s.overtimeRound || 0) + ':' +
                     ((s.lastRoundResult || {}).marker || 0) + ':' +
-                    ((s.lastXray || {}).marker || 0);
-    
-    // Если это точно такое же состояние — пропускаем (защита от дублей WebSocket + HTTP)
+                    ((s.lastXray || {}).marker || 0) + ':' +
+                    (sc.p1 || 0) + ':' + (sc.p2 || 0) + ':' +
+                    (Array.isArray(tr.p1) ? 1 : 0) + (Array.isArray(tr.p2) ? 1 : 0) + ':' +
+                    (pm.p1 ? 1 : 0) + (pm.p2 ? 1 : 0) + ':' +
+                    (am.deadlineMs || 0);
+
+    // Если это точно такое же состояние — пропускаем
     if (stateHash === pvpLastProcessedStateHash && phase !== 'accept_match') {
         return;
     }
     pvpLastProcessedStateHash = stateHash;
+    if (incomingMs > 0) pvpLastAppliedUpdatedAtMs = incomingMs;
 
     // ── ACCEPT MATCH ──────────────────────────────────────────────────────────
     if (status === 'active' && phase === 'accept_match') {
@@ -697,11 +687,25 @@ function applyPvpRoomState(room) {
 function pvpPollState() {
     if (!pvpRoomId || !tgInitData || pvpPollInFlight) return;
     pvpPollInFlight = true;
-    apiPost({
-        action: 'pvpGetRoomState',
-        initData: tgInitData,
-        roomId: pvpRoomId
-    }).then(function(data) {
+
+    // AbortController + 10-сек timeout: если fetch висит (плохая сеть, sleep'нувший Lambda),
+    // обрываем чтобы следующий polling tick мог стартовать. Без этого pvpPollInFlight=true
+    // блокировал бы все последующие тики на десятки секунд.
+    var controller = (typeof AbortController === 'function') ? new AbortController() : null;
+    var abortTimer = setTimeout(function() {
+        if (controller) { try { controller.abort(); } catch (e) {} }
+    }, POLL_ABORT_TIMEOUT_MS);
+
+    fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'pvpGetRoomState',
+            initData: tgInitData,
+            roomId: pvpRoomId
+        }),
+        signal: controller ? controller.signal : undefined
+    }).then(function(r) { return r.json(); }).then(function(data) {
         if (!data || !data.ok) {
             var err = String((data && data.error) || '');
             if (err === 'ACCEPT_TIMEOUT') {
@@ -725,8 +729,9 @@ function pvpPollState() {
         if (!data.room) return;
         applyPvpRoomState(data.room);
     }).catch(function() {
-        // При ошибке сети — не спамим, просто ждём следующего интервала
+        // При ошибке сети / abort — не спамим, просто ждём следующего интервала
     }).finally(function() {
+        clearTimeout(abortTimer);
         pvpPollInFlight = false;
     });
 }
@@ -747,50 +752,24 @@ function pvpFindMatch() {
     }).then(function(data) {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
-        // Подписываемся на WebSocket
         startPvpPolling();
         // Применяем начальное состояние сразу
         applyPvpRoomState(data.room);
-        // Если комната в статусе waiting — запускаем watchdog:
-        // проверяем состояние через 1.5с, 3с, 6с пока не выйдем из waiting
-        // (на случай если broadcast пришёл до подключения WebSocket)
+        // Если комната в статусе waiting — ускоряем polling на 6 сек чтобы быстро поймать
+        // accept_match. Раньше тут был отдельный scheduleWaitingCheck, который дублировал
+        // основной polling — удалили, enableFastPolling эффективнее.
         if (String(data.room.status || '') === 'waiting') {
-            scheduleWaitingCheck(1500);
+            enableFastPolling();
         }
     }).catch(function() {
         showScreen('start');
     });
 }
 
-// Одноразовые проверки состояния пока в статусе waiting
-// Не polling — просто несколько retry с задержкой
-var waitingCheckTimer = null;
-var waitingCheckCount = 0;
-var MAX_WAITING_CHECKS = 20; // до 20 проверок (покрывает 25-40 сек бот-фоллбэка)
-
-function scheduleWaitingCheck(delayMs) {
-    if (waitingCheckTimer) clearTimeout(waitingCheckTimer);
-    waitingCheckTimer = setTimeout(function() {
-        waitingCheckTimer = null;
-        if (!pvpRoomId || !tgInitData) return;
-        // Если уже вышли из waiting — останавливаемся
-        var waitingScreen = document.getElementById('screen-waiting');
-        if (!waitingScreen || !waitingScreen.classList.contains('active')) return;
-        waitingCheckCount++;
-        pvpPollState();
-        // Продолжаем если ещё не достигли лимита
-        if (waitingCheckCount < MAX_WAITING_CHECKS) {
-            // Интервал: 1.5с → 2с → 2.5с → ... → 3с (стабилизируется)
-            var nextDelay = Math.min(1500 + waitingCheckCount * 200, 3000);
-            scheduleWaitingCheck(nextDelay);
-        }
-    }, delayMs);
-}
-
-function stopWaitingCheck() {
-    if (waitingCheckTimer) { clearTimeout(waitingCheckTimer); waitingCheckTimer = null; }
-    waitingCheckCount = 0;
-}
+// scheduleWaitingCheck/stopWaitingCheck/scheduleTrapsCheck/stopTrapsCheck удалены — они
+// дублировали основной polling, который уже работает каждые 800мс (или 400мс в fast-mode).
+// Stub-функции оставляем чтобы не падать на старых call-site'ах.
+function stopWaitingCheck() {}
 
 function pvpLeaveRoomSafe() {
     if (!pvpRoomId || !tgInitData) {
@@ -806,6 +785,48 @@ function pvpLeaveRoomSafe() {
     }).catch(function() {});
 }
 
+// Exponential backoff: 400, 800, 1600мс. На загруженном сервере не давим, на быстром
+// почти то же. Раньше был фиксированный 800мс на все retry — это просто бомбардировка.
+var SUBMIT_RETRY_DELAYS_MS = [400, 800, 1600];
+var SUBMIT_MAX_ATTEMPTS = SUBMIT_RETRY_DELAYS_MS.length;
+
+// Универсальный submitMove helper. onOk вызывается с data.room. onFail — после всех retry.
+// onWaiting — если сервер вернул "Waiting for opponent" (не делаем retry, ждём polling).
+function submitMoveWithRetry(movePayload, onOk, onFail) {
+    var attempts = 0;
+    function go() {
+        var attemptIdx = attempts;
+        attempts++;
+        apiPost({
+            action: 'pvpSubmitMove',
+            initData: tgInitData,
+            roomId: pvpRoomId,
+            move: movePayload
+        }).then(function(data) {
+            if (data && data.ok && data.room) {
+                onOk(data.room);
+                return;
+            }
+            // Сервер сказал "Waiting for opponent" / "Room is not active" — это нормально,
+            // соперник ещё не подключился. НЕ ретраим submit'ом, сервер сам сделает auto-fill
+            // через таймаут (22с для placing_traps, 30с для overtime_placing). Polling
+            // подтянет state когда соперник появится.
+            var errStr = String((data && data.error) || '');
+            if (errStr.indexOf('Waiting for opponent') >= 0 || errStr.indexOf('Room is not active') >= 0) {
+                showBottomNotice('Ждём соперника...');
+                onOk(null); // Считаем за успех — сервер примет ход когда комната активна
+                return;
+            }
+            if (attempts < SUBMIT_MAX_ATTEMPTS) setTimeout(go, SUBMIT_RETRY_DELAYS_MS[attemptIdx] || 1600);
+            else onFail();
+        }).catch(function() {
+            if (attempts < SUBMIT_MAX_ATTEMPTS) setTimeout(go, SUBMIT_RETRY_DELAYS_MS[attemptIdx] || 1600);
+            else onFail();
+        });
+    }
+    go();
+}
+
 function sendMsg(m) {
     var msg = m || {};
     if (isBotMode) {
@@ -814,125 +835,45 @@ function sendMsg(m) {
     }
     if (!pvpRoomId || !tgInitData) return;
     if (msg.type === 'place_traps') {
-        var trapAttempts = 0;
         var trapData = msg.traps || [];
-        function submitTraps() {
-            trapAttempts++;
-            apiPost({
-                action: 'pvpSubmitMove',
-                initData: tgInitData,
-                roomId: pvpRoomId,
-                move: { traps: trapData }
-            }).then(function(data) {
-                if (data && data.ok && data.room) {
-                    applyPvpRoomState(data.room);
-                } else if (trapAttempts < 3) {
-                    setTimeout(submitTraps, 800);
-                } else {
-                    // После 3 попыток — разблокируем и показываем ошибку
-                    trapsConfirmed = false;
-                    $('btn-traps-ok').classList.remove('hidden');
-                    $('traps-wait').classList.add('hidden');
-                    showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
-                }
-            }).catch(function(err) {
-                var errorMsg = String((err && err.message) || '');
-                
-                // Check if error is about waiting for opponent
-                if (errorMsg.includes('Waiting for opponent') || errorMsg.includes('Room is not active')) {
-                    // Show waiting message and keep trying
-                    showBottomNotice('Ждем соперника...');
-                    if (trapAttempts < 10) { // Increase retry limit for waiting
-                        setTimeout(submitTraps, 2000); // Longer delay when waiting
-                    } else {
-                        trapsConfirmed = false;
-                        $('btn-traps-ok').classList.remove('hidden');
-                        $('traps-wait').classList.add('hidden');
-                        showBottomNotice('Соперник не подключился. Попробуй ещё раз.');
-                    }
-                } else {
-                    // Other errors - normal retry logic
-                    if (trapAttempts < 3) {
-                        setTimeout(submitTraps, 800);
-                    } else {
-                        trapsConfirmed = false;
-                        $('btn-traps-ok').classList.remove('hidden');
-                        $('traps-wait').classList.add('hidden');
-                        showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
-                    }
-                }
-            });
-        }
-        submitTraps();
+        submitMoveWithRetry({ traps: trapData },
+            function onOk(room) {
+                if (room) applyPvpRoomState(room);
+                // Polling подтянет фазу 'running' когда соперник тоже поставит.
+                enableFastPolling();
+            },
+            function onFail() {
+                trapsConfirmed = false;
+                $('btn-traps-ok').classList.remove('hidden');
+                $('traps-wait').classList.add('hidden');
+                showBottomNotice('Ошибка отправки ловушек. Попробуй ещё раз.');
+            }
+        );
         return;
     }
     if (msg.type === 'xray_scan') {
-        var xrayAttempts = 0;
         var xrayPoint = Number(msg.point || 0);
-        function submitXray() {
-            xrayAttempts++;
-            apiPost({
-                action: 'pvpSubmitMove',
-                initData: tgInitData,
-                roomId: pvpRoomId,
-                move: { type: 'xray_scan', point: xrayPoint }
-            }).then(function(data) {
-                if (data && data.ok && data.room) {
-                    applyPvpRoomState(data.room);
-                } else if (xrayAttempts < 3) {
-                    setTimeout(submitXray, 800);
-                }
-            }).catch(function() {
-                if (xrayAttempts < 3) setTimeout(submitXray, 800);
-            });
-        }
-        submitXray();
+        submitMoveWithRetry({ type: 'xray_scan', point: xrayPoint },
+            function onOk(room) { if (room) applyPvpRoomState(room); },
+            function onFail() {}
+        );
         return;
     }
     if (msg.type === 'make_move') {
-        var moveAction = msg.action;
-        var moveAbility = !!msg.useAbility;
-        var moveAttempts = 0;
-
-        function submitMove() {
-            moveAttempts++;
-            apiPost({
-                action: 'pvpSubmitMove',
-                initData: tgInitData,
-                roomId: pvpRoomId,
-                move: { action: moveAction, useAbility: moveAbility }
-            }).then(function(data) {
-                if (data && data.ok && data.room) {
-                    applyPvpRoomState(data.room);
-                } else if (moveAttempts < 3) {
-                    // Retry через 800мс если ответ не ok
-                    setTimeout(submitMove, 800);
-                } else {
-                    // После 3 попыток разблокируем кнопки
-                    moveChosen = false;
-                    $('btn-run').disabled = false;
-                    $('btn-jump').disabled = false;
-                    $('move-wait').classList.add('hidden');
-                }
-            }).catch(function() {
-                if (moveAttempts < 3) {
-                    setTimeout(submitMove, 800);
-                } else {
-                    moveChosen = false;
-                    $('btn-run').disabled = false;
-                    $('btn-jump').disabled = false;
-                    $('move-wait').classList.add('hidden');
-                }
-            });
-        }
-
-        submitMove();
-
-        // Переключаемся на WebSocket режим (уже активен)
-        // WebSocket обеспечивает моментальные обновления
-
-        // Watchdog: повторяем poll каждые 3 сек пока moveChosen=true
-        startMoveWatchdog();
+        submitMoveWithRetry({ action: msg.action, useAbility: !!msg.useAbility },
+            function onOk(room) {
+                if (room) applyPvpRoomState(room);
+                // Ускоряем polling — следующий round_result придёт за 150-450мс через бота,
+                // или через 1-2 такта через настоящего соперника.
+                enableFastPolling();
+            },
+            function onFail() {
+                moveChosen = false;
+                $('btn-run').disabled = false;
+                $('btn-jump').disabled = false;
+                $('move-wait').classList.add('hidden');
+            }
+        );
     }
 }
 
@@ -979,7 +920,11 @@ function startGame(vsBot) {
     pvpProcessingRoundResult = false; // Сбрасываем флаг обработки
     clearInterval(timerInterval);
     matchSaved = false;
-    stopMoveWatchdog();
+    // Полная зачистка PvP-таймеров на старте новой игры — защита от утечек если
+    // предыдущая сессия завершилась не через window.location.href.
+    stopPvpPolling();
+    stopAcceptTick();
+    pvpPollFastModeUntilMs = 0;
     isBotMode = !!vsBot;
     if (!isBotMode && !onlineModeSelected) {
         onlineModeSelected = true;
@@ -1001,18 +946,16 @@ function startGame(vsBot) {
     stopPvpPolling();
     pvpRoomId = null;
     syncMyNameFromServer(function() {
-        connect(function() {
-            if (isBotMode) {
-                sendMsg({
-                    type: 'find_bot',
-                    name: myName,
-                    tgUserId: window._tgUserId || null
-                });
-                showScreen('waiting');
-                return;
-            }
-            pvpFindMatch();
-        });
+        if (isBotMode) {
+            sendMsg({
+                type: 'find_bot',
+                name: myName,
+                tgUserId: window._tgUserId || null
+            });
+            showScreen('waiting');
+            return;
+        }
+        pvpFindMatch();
     });
 }
 
@@ -1028,9 +971,7 @@ function beginOnlineSearch() {
     pvpRoomId = null;
     // Сразу показываем экран ожидания — не ждём ответа от сервера
     showScreen('waiting');
-    syncMyNameFromServer(function() {
-        connect(function() { pvpFindMatch(); });
-    });
+    syncMyNameFromServer(function() { pvpFindMatch(); });
 }
 
 function cancelWait() {
@@ -1162,36 +1103,13 @@ function confirmTraps() {
         p.style.pointerEvents = 'none';
         p.style.opacity = '0.6';
     });
-    // После подтверждения ловушек ждём соперника.
-    // Если broadcast пропал — делаем retry запросы пока не выйдем с экрана ловушек
-    scheduleTrapsCheck(1500);
+    // После подтверждения ловушек ускоряем polling на 6 сек — должно успеть поймать
+    // переход в 'running' (даже если соперник ставит ловушки до 22с).
+    enableFastPolling();
 }
 
-var trapsCheckTimer = null;
-var trapsCheckCount = 0;
-var MAX_TRAPS_CHECKS = 15;
-
-function scheduleTrapsCheck(delayMs) {
-    if (trapsCheckTimer) clearTimeout(trapsCheckTimer);
-    trapsCheckTimer = setTimeout(function() {
-        trapsCheckTimer = null;
-        if (!pvpRoomId || !tgInitData) return;
-        // Если уже вышли с экрана ловушек — останавливаемся
-        var trapsScreen = document.getElementById('screen-traps');
-        if (!trapsScreen || !trapsScreen.classList.contains('active')) return;
-        trapsCheckCount++;
-        pvpPollState();
-        if (trapsCheckCount < MAX_TRAPS_CHECKS) {
-            var nextDelay = Math.min(1500 + trapsCheckCount * 300, 3000);
-            scheduleTrapsCheck(nextDelay);
-        }
-    }, delayMs);
-}
-
-function stopTrapsCheck() {
-    if (trapsCheckTimer) { clearTimeout(trapsCheckTimer); trapsCheckTimer = null; }
-    trapsCheckCount = 0;
-}
+// trapsCheck удалён — заменён на enableFastPolling в confirmTraps. Stub для backward-compat.
+function stopTrapsCheck() {}
 
 function generateGameTracks(n) {
     trackDots = n;
