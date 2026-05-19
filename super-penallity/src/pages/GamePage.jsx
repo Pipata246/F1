@@ -27,6 +27,10 @@ import { useMatchResume } from '../hooks/useMatchResume.js';
 import { apiPost } from '../lib/api.js';
 import { usePvpPolling } from '../hooks/usePvpPolling.js';
 import { useMatchLifecycle } from '../hooks/useMatchLifecycle.js';
+import { useGameTimer } from '../hooks/useGameTimer.js';
+import { useGameAnimation } from '../hooks/useGameAnimation.js';
+import { usePvpSubmit } from '../hooks/usePvpSubmit.js';
+import { useDemoBot } from '../hooks/useDemoBot.js';
 
 const SUPABASE_URL = 'https://eolycsnxboeobasolczb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbHljc254Ym9lb2Jhc29sY3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3Njg0NTQsImV4cCI6MjA5MTM0NDQ1NH0.EVU6xdTy1S_9y5fgq4-AJJQHO-WPlNu3bFHgG617eJA';
@@ -59,7 +63,6 @@ const GamePage = () => {
   const [suddenDeathStartRound, setSuddenDeathStartRound] = useState(0); // Раунд начала овертайма
   const [zoneLocked, setZoneLocked] = useState(false);
   const [waitingOpponent, setWaitingOpponent] = useState(false);
-  const [timer, setTimer] = useState(10);
   const [history, setHistory] = useState([]);
   const [selectedZone, setSelectedZone] = useState(null); // pending — локальный выбор до подтверждения сервером
   // A1: confirmedZone из server (room.state_json.choices[mySide] или lastRoundResult).
@@ -67,26 +70,11 @@ const GamePage = () => {
   // мишень мгновенно переключается на серверную зону — невозможен рассинхрон с мячом.
   const [confirmedZone, setConfirmedZone] = useState(null);
 
-  // Animation state
-  const [ballVisible, setBallVisible] = useState(true);
-  const [ballStyle, setBallStyle] = useState({});
-  const [keeperState, setKeeperState] = useState('idle');
-  const [isKeeperMirrored, setIsKeeperMirrored] = useState(false);
-  const [keeperX, setKeeperX] = useState(0);
-  const [keeperBottom, setKeeperBottom] = useState('4');
-  const [resultMessage, setResultMessage] = useState(null);
-  const [showingResult, setShowingResult] = useState(false);
-  // Когда true — у keeper-<div> и <img> transition='none'. Используется для мгновенного
-  // сброса позиции/текстуры/высоты вратаря без обратной анимации (которая воспринимается
-  // игроками как «вторая анимация» одного и того же хода).
-  const [keeperTransitionDisabled, setKeeperTransitionDisabled] = useState(false);
+  // Animation state — owned by useGameAnimation hook.
 
   // Role announcement
   const [roleAnnounce, setRoleAnnounce] = useState(null);
   const [inputBlocked, setInputBlocked] = useState(false);
-
-  // Overtime announcement
-  const [overtimeAnnounce, setOvertimeAnnounce] = useState(false);
 
   // Match result
   const [matchResult, setMatchResult] = useState(null);
@@ -99,7 +87,6 @@ const GamePage = () => {
   const [showConnectionError, setShowConnectionError] = useState(false);
 
   const wsRef = useRef(null);
-  const timerRef = useRef(null);
   const playerIndexRef = useRef(0);
   const matchRef = useRef(null);
   const tgInitDataRef = useTelegramWebApp({
@@ -121,34 +108,26 @@ const GamePage = () => {
   const lastSubmittedZoneRef = useRef(null);
   // A4: reconciliation против out-of-order ответов и stale poll'ов
   const lastAppliedUpdatedAtRef = useRef(0); // ms of room.updated_at
-  // A2: signature последнего запущенного round_result + список таймеров анимации.
-  // Защищает от двойного запуска анимации одного хода (особенно в demo-bot, где marker check
-  // в applyPvpRoomState не работает — там прямой handleServerMessage).
-  const lastAnimSignatureRef = useRef('');
-  const animTimersRef = useRef([]);
-  // Fix #2: отдельный список таймеров overtime modal'и. НЕ чистится при новом раунде
-  // (иначе скрывающий setTimeout не успеет сработать и модалка висит весь овертайм).
-  const overtimeTimersRef = useRef([]);
-  const overtimeAnnounceRef = useRef(false);
   // A3: текущий turnId раунда, обновляется из poll. Привязывает submit к конкретному раунду.
   const turnIdRef = useRef('');
   const localFindTimerRef = useRef(null);
   const pvpFindRetryTimerRef = useRef(null);
   const noticeTimerRef = useRef(null);
   const launchHandledRef = useRef(false);
-  const showingResultRef = useRef(false);
-  const roundStuckTimerRef = useRef(null);
-  const waitingBotMoveTimerRef = useRef(null);
-  const pvpMoveWatchdogTimerRef = useRef(null); // Watchdog: защита от зависания после хода
+  // pvpMoveWatchdogTimerRef живёт в usePvpSubmit (auto-cleanup на unmount).
   const waitingOpponentTimerRef = useRef(null); // Таймер для отслеживания долгого ожидания
   // Supabase Realtime - НЕ ИСПОЛЬЗУЕМ, только HTTP polling
   const realtimeChannelRef = useRef(null);
 
+  // Snapshots для финального watchdog в useGameAnimation (он зовёт onMatchResultFallback,
+  // и нужно знать актуальный screen/matchResult без пересоздания handleRoundResult).
+  const screenRef = useRef(screen);
+  const matchResultRef = useRef(null);
+
   useEffect(() => { playerIndexRef.current = playerIndex; }, [playerIndex]);
-  useEffect(() => { showingResultRef.current = showingResult; }, [showingResult]);
   useEffect(() => { selectedZoneRef.current = selectedZone; }, [selectedZone]);
-  // Fix #2: синхронный ref для overtimeAnnounce — round_start handler читает его без React batch-задержки
-  useEffect(() => { overtimeAnnounceRef.current = overtimeAnnounce; }, [overtimeAnnounce]);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
+  useEffect(() => { matchResultRef.current = matchResult; }, [matchResult]);
 
   useEffect(() => {
     ['keeper_idle', 'keeper_save', 'keeper_green', 'keeper_red', 'ball', 'gate'].forEach((name) => {
@@ -232,6 +211,15 @@ const GamePage = () => {
   const applyPvpRoomStateRef = useRef(null);
   const goHomeRef = useRef(null);
   const startSearchOnlineRef = useRef(null);
+  // sendMessage определяется ниже useGameTimer, который зовёт его из таймера. Forward-ref
+  // разрывает цикличность; useGameTimer на каждом тике обращается к свежей ссылке через .current.
+  const sendMessageRef = useRef(null);
+  // useGameAnimation зовёт stopTimer (вверху раунда), но useGameTimer объявлен ниже и
+  // зависит от showingResultRef (владеет useGameAnimation). Forward-ref снимает цикл.
+  const stopTimerRef = useRef(null);
+  // matchResult-fallback handler из useGameAnimation: завершение матча обрабатывает
+  // handleServerMessage ниже, ссылка прокидывается через ref.
+  const onMatchResultFallbackRef = useRef(null);
 
   const {
     stopPvpPolling,
@@ -259,7 +247,58 @@ const GamePage = () => {
     },
     onShowConnectionError: setShowConnectionError,
   });
-  
+
+  // Стабильные wrappers вокруг forward-ref'ов, чтобы передавать в хуки без пересоздания ссылок.
+  const stopTimerForwarded = useCallback(() => stopTimerRef.current?.(), []);
+  const onMatchResultFallbackForwarded = useCallback((arg) => onMatchResultFallbackRef.current?.(arg), []);
+  const sendMessageForwarded = useCallback((...args) => sendMessageRef.current?.(...args), []);
+
+  // Анимация раунда — owns анимационный state и handleRoundResult. Зовёт stopTimer через
+  // forward-ref (useGameTimer объявлен ниже) и onMatchResultFallback (handleServerMessage ниже).
+  const animation = useGameAnimation({
+    pvpRoomIdRef,
+    matchEndedRef,
+    playerIndexRef,
+    playModeRef,
+    pvpPollInFlightRef,
+    setWaitingOpponent,
+    setInputBlocked,
+    setScores,
+    setHistory,
+    setSuddenDeath,
+    setSuddenDeathStartRound,
+    stopTimer: stopTimerForwarded,
+    enableFastPolling,
+    pvpPollState,
+    showBottomNotice,
+    onMatchResultFallback: onMatchResultFallbackForwarded,
+    screenRef,
+    matchResultRef,
+  });
+
+  const {
+    ballVisible, ballStyle, keeperState, isKeeperMirrored, keeperX, keeperBottom,
+    keeperTransitionDisabled, resultMessage, showingResult, overtimeAnnounce,
+    showingResultRef, overtimeAnnounceRef, lastAnimSignatureRef, animTimersRef,
+    overtimeTimersRef, roundStuckTimerRef, waitingBotMoveTimerRef,
+    setShowingResult, setResultMessage, setOvertimeAnnounce,
+    handleRoundResult, clearRoundStuckTimer, clearWaitingBotMoveTimer,
+    resetForNewRound, resetAll: resetAnimationAll,
+  } = animation;
+
+  // Timer раунда — отделён от анимации/sendMessage чтобы избежать stale-state в setInterval.
+  // sendMessage передаётся через sendMessageRef (forward-ref), потому что определяется ниже.
+  const { timer, startTimer, stopTimer } = useGameTimer({
+    lastSubmittedZoneRef,
+    selectedZoneRef,
+    showingResultRef,
+    setSelectedZone,
+    sendMessage: sendMessageForwarded,
+  });
+
+  // Подсасываем stopTimer в forward-ref для useGameAnimation.
+  useEffect(() => { stopTimerRef.current = stopTimer; }, [stopTimer]);
+
   const goHome = useCallback(() => {
     // Очищаем состояние игры и отправляем на бэкенд что вышли
     if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
@@ -363,13 +402,12 @@ const GamePage = () => {
         }).catch(() => {});
       }
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-      if (timerRef.current) clearInterval(timerRef.current);
+      // timer чистится auto-cleanup'ом в useGameTimer
       // pvpPollTimer и connectionErrorTimer чистятся auto-cleanup'ом в usePvpPolling
       if (localFindTimerRef.current) clearTimeout(localFindTimerRef.current);
       if (pvpFindRetryTimerRef.current) clearTimeout(pvpFindRetryTimerRef.current);
       if (roundStuckTimerRef.current) clearTimeout(roundStuckTimerRef.current);
       if (waitingBotMoveTimerRef.current) clearTimeout(waitingBotMoveTimerRef.current);
-      if (pvpMoveWatchdogTimerRef.current) clearTimeout(pvpMoveWatchdogTimerRef.current);
       if (waitingOpponentTimerRef.current) clearTimeout(waitingOpponentTimerRef.current);
       if (realtimeChannelRef.current) {
         supabaseClient.removeChannel(realtimeChannelRef.current);
@@ -400,10 +438,8 @@ const GamePage = () => {
         clearRoundStuckTimer();
         clearMoveWatchdog();
         clearWaitingBotMoveTimer();
-        // A2: сбрасываем signature + чистим зависшие анимационные таймеры предыдущего раунда
-        lastAnimSignatureRef.current = '';
-        animTimersRef.current.forEach((t) => clearTimeout(t));
-        animTimersRef.current = [];
+        // A2 + animation state cleanup: сигнатура, anim-таймеры, ball/keeper в idle, showingResult сброшен.
+        resetForNewRound();
         // Fix #2: страховка от зависшей overtime модалки.
         // Если показалась — снимаем при входе в следующий раунд, даже если timer'ы потерялись.
         if (overtimeAnnounce) setOvertimeAnnounce(false);
@@ -415,14 +451,6 @@ const GamePage = () => {
         if (msg.history) setHistory(msg.history);
         setZoneLocked(false);
         setWaitingOpponent(false);
-        setShowingResult(false);
-        setResultMessage(null);
-        setBallVisible(true);
-        setBallStyle({});
-        setKeeperState('idle');
-        setIsKeeperMirrored(false);
-        setKeeperX(0);
-        setKeeperBottom('4');
         setSelectedZone(null);
         selectedZoneRef.current = null;
         setConfirmedZone(null); // A1: новый раунд — сбрасываем серверно-подтверждённую зону
@@ -489,9 +517,8 @@ const GamePage = () => {
           pvpRoomIdRef.current = null;
           try { sessionStorage.removeItem('sp_active_room'); } catch {}
         }
-        // Чистим все остаточные анимационные таймеры финального раунда
-        animTimersRef.current.forEach((t) => clearTimeout(t));
-        animTimersRef.current = [];
+        // Чистим все остаточные анимационные таймеры финального раунда + сбрасываем showingResult/overtime.
+        resetAnimationAll();
         playSound('whistle_end');
         setTimeout(() => {
           setMatchResult({ youWon: msg.youWon, scores: msg.scores });
@@ -518,246 +545,7 @@ const GamePage = () => {
     }
   }, [history, overtimeAnnounce]);
 
-  const startTimer = (initialSecondsParam) => {
-    stopTimer();
-    // Серверный auto-resolve срабатывает через 17с от phaseAtMs. Если знаем сколько уже
-    // прошло на сервере (через serverNowMs - phaseAtMs), стартуем таймер с реального
-    // остатка минус 1с safety buffer. Игрок не «оторвётся» от сервера.
-    const SERVER_AUTO_RESOLVE_S = 17;
-    const SAFETY_BUFFER_S = 1;
-    let initialSeconds = 11; // дефолт — для demo-bot или если sync не доступен
-    if (Number.isFinite(initialSecondsParam) && initialSecondsParam > 0) {
-      initialSeconds = Math.max(2, Math.min(SERVER_AUTO_RESOLVE_S - SAFETY_BUFFER_S, Math.ceil(initialSecondsParam)));
-    }
-    setTimer(initialSeconds);
-    timerRef.current = setInterval(() => {
-      setTimer(prev => {
-        const next = prev - 1;
-        if (prev <= 1) {
-          stopTimer();
-          // Refs синхронны и не stale в setInterval-замыкании, в отличие от zoneLocked/showingResult state.
-          // Это снимает рассинхрон, когда игрок успел тапнуть в последнюю секунду, а таймер
-          // не «увидел» этого и автозаполнил случайной зоной поверх его выбора.
-          const alreadySubmitted = (lastSubmittedZoneRef.current !== null && lastSubmittedZoneRef.current !== undefined);
-          if (!alreadySubmitted && !showingResultRef.current) {
-            const pending = selectedZoneRef.current;
-            const autoZone = (pending !== null && pending !== undefined && [0, 1, 2, 3].includes(Number(pending)))
-              ? Number(pending)
-              : Math.floor(Math.random() * 4);
-            if (selectedZoneRef.current === null || selectedZoneRef.current === undefined) {
-              selectedZoneRef.current = autoZone;
-              setSelectedZone(autoZone);
-            }
-            sendMessage('choose_zone', { zone: autoZone });
-          }
-          return 0;
-        }
-        if (next > 0 && next <= 3 && (lastSubmittedZoneRef.current === null || lastSubmittedZoneRef.current === undefined) && !showingResultRef.current) {
-          playSound('tick');
-        }
-        return next;
-      });
-    }, 1000);
-  };
-
-  const stopTimer = () => {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-  };
-  const clearRoundStuckTimer = () => {
-    if (roundStuckTimerRef.current) {
-      clearTimeout(roundStuckTimerRef.current);
-      roundStuckTimerRef.current = null;
-    }
-  };
-  const clearWaitingBotMoveTimer = () => {
-    if (waitingBotMoveTimerRef.current) {
-      clearTimeout(waitingBotMoveTimerRef.current);
-      waitingBotMoveTimerRef.current = null;
-    }
-  };
-  const clearMoveWatchdog = () => {
-    if (pvpMoveWatchdogTimerRef.current) {
-      clearTimeout(pvpMoveWatchdogTimerRef.current);
-      pvpMoveWatchdogTimerRef.current = null;
-    }
-  };
-
-  const handleRoundResult = (msg) => {
-    // A2: signature-guard — defensive против повторного вызова handleRoundResult для одного хода.
-    // Marker check в applyPvpRoomState уже защищает PvP-путь, но demo-bot путь вызывает
-    // handleServerMessage напрямую (без marker) — это страховка против дублей анимации.
-    const sig = `${msg.round ?? 0}:${msg.kickerIndex ?? -1}:${msg.kickerZone ?? -1}:${msg.keeperZone ?? -1}:${msg.isGoal ? 1 : 0}`;
-    if (sig === lastAnimSignatureRef.current) return; // тот же ход — игнор
-    lastAnimSignatureRef.current = sig;
-
-    // A2: чистим таймеры предыдущего раунда — невозможно, чтобы их setState'ы перебили текущий
-    animTimersRef.current.forEach((t) => clearTimeout(t));
-    animTimersRef.current = [];
-
-    clearRoundStuckTimer();
-    clearMoveWatchdog();
-    stopTimer();
-    setWaitingOpponent(false);
-    setShowingResult(true);
-    setInputBlocked(true);
-    setScores(msg.scores);
-    if (msg.history) setHistory(msg.history);
-
-    // КРИТИЧЕСКИЙ МОМЕНТ: Включаем быстрый polling
-    // Может начаться овертайм или закончиться игра
-    enableFastPolling();
-
-    const { kickerZone, keeperZone, isGoal, kickerIndex } = msg;
-    const iAmKicker = playerIndexRef.current === kickerIndex;
-
-    // Fix #1: toast показывается ТОЛЬКО когда сервер явно сообщил, что my side был auto-resolved
-    // (флаг autoFilledSides от server pvpAdvanceByTime). Сравнение зон давало false positive
-    // при overtime/role swap, где kicker/keeper менялись и нумерация выглядела как mismatch.
-    if (playModeRef.current === 'pvp' && Array.isArray(msg.autoFilledSides) && msg.mySide && msg.autoFilledSides.includes(msg.mySide)) {
-      showBottomNotice('Ход не успел дойти, авто-выбор сервера');
-    }
-
-    // Ball flies to kicker's zone
-    const target = targetPositions[kickerZone];
-    setBallVisible(true);
-    setBallStyle({
-      transform: `translate(${target.x}px, ${target.y}px) scale(0.55)`,
-      transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-    });
-    playSound('kick');
-
-    // Keeper moves to their chosen zone
-    const kpos = keeperZonePos[keeperZone];
-    setIsKeeperMirrored(keeperZone === 0 || keeperZone === 2);
-
-    animTimersRef.current.push(setTimeout(() => {
-      setKeeperX(kpos.x);
-      setKeeperBottom(String(kpos.bottom));
-      // Save sprite ONLY when keeper actually catches the ball
-      if (!isGoal) {
-        setKeeperState('save');
-      } else {
-        // Keeper missed — stays idle sprite, just moves to position
-        setKeeperState('moved');
-      }
-    }, 150));
-
-    // If saved, hide the flying ball after it "reaches" the keeper.
-    animTimersRef.current.push(setTimeout(() => {
-      if (!isGoal) setBallVisible(false);
-    }, 420));
-
-    // Result text
-    animTimersRef.current.push(setTimeout(() => {
-      if (isGoal) {
-        playSound('goal');
-        if (iAmKicker) {
-          setResultMessage({ text: 'GOAL!', type: 'win' });
-          confetti({ particleCount: 25, spread: 40, origin: { y: 0.6 }, ticks: 40 });
-          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
-        } else {
-          setResultMessage({ text: 'GOAL!', type: 'loss' });
-          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
-        }
-      } else {
-        playSound('save');
-        if (iAmKicker) {
-          setResultMessage({ text: 'SAVED!', type: 'loss' });
-          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
-        } else {
-          setResultMessage({ text: 'SAVED!', type: 'win' });
-          confetti({ particleCount: 25, spread: 40, origin: { y: 0.6 }, ticks: 40 });
-          if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
-        }
-      }
-    }, 400));
-
-    // Мгновенный (без обратной анимации) сброс вратаря в idle-позицию ВНУТРИ окна показа
-    // результата. Без флага keeperTransitionDisabled <div> и <img> вратаря плавно
-    // откатываются за 0.45s — игроки видят это как «вторую анимацию» одного хода.
-    // С флагом — keeper моментально телепортируется на стартовую позицию (transition: none),
-    // потом флаг снимается, чтобы будущие прыжки снова были плавные.
-    animTimersRef.current.push(setTimeout(() => {
-      if (!showingResultRef.current) return; // если раунд уже сменился — пусть round_start решит
-      setBallVisible(false);
-      setKeeperTransitionDisabled(true);
-      setKeeperX(0);
-      setKeeperBottom('4');
-      setIsKeeperMirrored(false);
-      setKeeperState('idle');
-      // Восстанавливаем transition после применения сброса (двойной rAF для надёжности на iOS)
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setKeeperTransitionDisabled(false);
-        });
-      });
-    }, 1100));
-
-    // Если начинается овертайм - показываем уведомление ПЕРЕД следующим раундом
-    if (msg.startSuddenDeath) {
-      const overtimeStartRound = msg.round || 0;
-      // Fix #2: overtime таймеры в ОТДЕЛЬНОМ ref'е, чтобы animTimersRef cleanup при следующем
-      // round_start не убил setOvertimeAnnounce(false) и модалка не зависла на весь овертайм.
-      overtimeTimersRef.current.forEach((t) => clearTimeout(t));
-      overtimeTimersRef.current = [];
-      overtimeTimersRef.current.push(setTimeout(() => {
-        setOvertimeAnnounce(true);
-        setSuddenDeath(true);
-        setSuddenDeathStartRound(overtimeStartRound);
-        if (appSettings().haptic) window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('warning');
-        overtimeTimersRef.current.push(setTimeout(() => {
-          setOvertimeAnnounce(false);
-          setShowingResult(false);
-          setResultMessage(null);
-        }, 2000));
-      }, 1200));
-    }
-
-    // Fix #3: ускорено с 1800ms до 1500ms. Анимация удара (0.4с) + текст GOAL/SAVED
-    // успевают прочитаться, потом сразу запрашиваем next state. Синхронизировано с
-    // серверным round_result→turn_input transition (тоже 1500ms).
-    const safetyTimeout = 1500;
-    roundStuckTimerRef.current = setTimeout(() => {
-      if (!showingResultRef.current) return;
-      setShowingResult(false);
-      setResultMessage(null);
-      if (playModeRef.current === 'pvp') {
-        // Форсируем poll — server только что транзитнулся в turn_input, надо подхватить состояние
-        pvpPollInFlightRef.current = false;
-        pvpPollState();
-        // Если первый poll попал в момент когда сервер ещё не дотранзитнулся,
-        // догоняем ещё одним через 400мс. updated_at-guard отбросит, если ответ stale.
-        animTimersRef.current.push(setTimeout(() => {
-          if (!matchEndedRef.current && pvpRoomIdRef.current) {
-            pvpPollInFlightRef.current = false;
-            pvpPollState();
-          }
-        }, 400));
-      } else {
-        setInputBlocked(false);
-      }
-    }, safetyTimeout);
-
-    // Финальный раунд (gameOver=true): гарантированный watchdog. Если по какой-то причине
-    // никто не довёл матч до result-экрана за 2.5 секунды после анимации удара, форсим
-    // match_result сами. Покрывает: оборванное polling-окно в PvP, потерянный setTimeout
-    // в demo-bot, любой другой race в цепочке завершения.
-    if (msg.gameOver) {
-      animTimersRef.current.push(setTimeout(() => {
-        if (matchEndedRef.current) return;
-        if (screen === 'result' || matchResult) return;
-        // Считаем результат по серверной стороне-победителю если есть, иначе по счёту
-        let youWon = false;
-        if (msg.winnerSide && msg.mySide) {
-          youWon = msg.winnerSide === msg.mySide;
-        } else if (Array.isArray(msg.scores) && msg.scores.length === 2) {
-          const myIdx = playerIndexRef.current;
-          youWon = myIdx === 0 ? msg.scores[0] > msg.scores[1] : msg.scores[1] > msg.scores[0];
-        }
-        handleServerMessage({ type: 'match_result', youWon, scores: msg.scores || [0, 0] });
-      }, 2500));
-    }
-  };
+  // clearMoveWatchdog приходит из usePvpSubmit (см. ниже).
 
   // ==================== HTTP POLLING ====================
   // Сетевой слой polling-а вынесен в usePvpPolling. applyPvpRoomState остаётся здесь как
@@ -952,258 +740,73 @@ const GamePage = () => {
     }
   }, [handleServerMessage, stopPvpPolling, stopRealtimeSubscription]);
 
-  // Polling infra переехала в usePvpPolling. stopPvpPolling/startPvpPolling/pvpPollState/enableFastPolling
-  // (плюс serverClockOffsetMsRef и pvpPollInFlightRef) разворачиваются из хука ниже, перед
-  // useEffect-ами и handler-ами которые ими пользуются. Forward-ref pvpPollingApiRef нужен потому,
-  // что usePvpPolling требует applyPvpRoomState / goHome как callbacks, а они объявлены ВЫШЕ
-  // самого вызова хука и держат ссылку через ref для разрыва циклической зависимости.
+  // PvP submit-ветка: pvpSubmitMove + retry + watchdog. Зависит от applyPvpRoomState (выше).
+  const { submitPvpZone, cancelPvpWait, clearMoveWatchdog, pvpMoveWatchdogTimerRef } = usePvpSubmit({
+    pvpRoomIdRef,
+    initDataRef: tgInitDataRef,
+    pvpMoveCommittedRef,
+    lastSubmittedZoneRef,
+    selectedZoneRef,
+    turnIdRef,
+    setSelectedZone,
+    setZoneLocked,
+    setWaitingOpponent,
+    stopTimer,
+    enableFastPolling,
+    pvpPollState,
+    applyPvpRoomState,
+    showBottomNotice,
+  });
 
-  const sendMessage = (type, data = {}) => {
-    if (playModeRef.current === 'pvp') {
-      if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
-      if (type === 'cancel_wait') {
-        const rid = pvpRoomIdRef.current;
-        pvpRoomIdRef.current = null;
-        apiPost({
-          action: 'pvpLeaveRoom',
-          initData: tgInitDataRef.current,
-          roomId: rid,
-        }).catch(() => {});
-        return;
-      }
-      if (type === 'choose_zone') {
-        const zone = Number(data.zone);
-        if (![0, 1, 2, 3].includes(zone)) return;
+  // Demo-bot ветка: локальная игра без сети. Снапшоты round/scores/history/suddenDeath
+  // передаются getter'ом — иначе chooseDemoZone пересоздавался бы каждый рендер.
+  const demoSnapshotRef = useRef({ round, scores, history, suddenDeath, suddenDeathStartRound });
+  useEffect(() => {
+    demoSnapshotRef.current = { round, scores, history, suddenDeath, suddenDeathStartRound };
+  }, [round, scores, history, suddenDeath, suddenDeathStartRound]);
 
-        // Atomic anti-duplicate через ref. React state-flag zoneLocked в этой же transaction
-        // может быть stale, если функция вызвана из setInterval-замыкания или batched click.
-        if (lastSubmittedZoneRef.current !== null && lastSubmittedZoneRef.current !== undefined) return;
-        lastSubmittedZoneRef.current = zone;
-        // Синхронизируем selectedZoneRef — мишень и серверная зона должны указывать на одно
-        if (selectedZoneRef.current === null || selectedZoneRef.current === undefined) {
-          selectedZoneRef.current = zone;
-          setSelectedZone(zone);
-        }
+  const getDemoSnapshot = useCallback(() => demoSnapshotRef.current, []);
+  const { chooseDemoZone } = useDemoBot({
+    lastSubmittedZoneRef,
+    selectedZoneRef,
+    setSelectedZone,
+    setZoneLocked,
+    setWaitingOpponent,
+    setSuddenDeathStartRound,
+    stopTimer,
+    handleServerMessage,
+    getDemoSnapshot,
+  });
 
-        setZoneLocked(true);
-        setWaitingOpponent(true);
-        stopTimer();
-        enableFastPolling(); // ускоряем polling до 300мс чтобы быстрее получить round_result
-
-        let penAttempts = 0;
-
-        const submitPenMove = () => {
-          if (pvpMoveCommittedRef.current) return;
-          penAttempts++;
-          apiPost({
-            action: 'pvpSubmitMove',
-            initData: tgInitDataRef.current,
-            roomId: pvpRoomIdRef.current,
-            // A3: turnId связывает submit с конкретным раундом — сервер отвергнет stale
-            move: { zone, turnId: turnIdRef.current || undefined },
-          }).then((data2) => {
-            if (pvpMoveCommittedRef.current) return;
-            if (data2?.ok) {
-              pvpMoveCommittedRef.current = true;
-              if (data2.room) {
-                applyPvpRoomState(data2.room);
-              }
-              setTimeout(() => pvpPollState(), 200);
-            } else {
-              const err = String(data2?.error || '');
-              if (err === 'STALE_TURN') {
-                // A3: submit пришёл уже после смены раунда — тихо игнорируем, poll принесёт актуальный state
-                pvpMoveCommittedRef.current = true;
-                pvpPollState();
-                return;
-              }
-              if (penAttempts < 3) {
-                setTimeout(submitPenMove, 400);
-              } else {
-                showBottomNotice('Сервер обрабатывает... Подожди соперника.');
-              }
-            }
-          }).catch(() => {
-            if (pvpMoveCommittedRef.current) return;
-            if (penAttempts < 3) {
-              setTimeout(submitPenMove, 400);
-            } else {
-              showBottomNotice('Сервер обрабатывает... Подожди соперника.');
-            }
-          });
-        };
-        submitPenMove();
-
-        clearMoveWatchdog();
-        pvpMoveWatchdogTimerRef.current = setTimeout(() => {
-          if (!pvpMoveCommittedRef.current && pvpRoomIdRef.current && tgInitDataRef.current) {
-            pvpPollState();
-            setTimeout(() => pvpPollState(), 400);
-            setTimeout(() => {
-              if (!pvpMoveCommittedRef.current) {
-                showBottomNotice('Сервер не отвечает... Ждём.');
-              }
-            }, 2000);
-          }
-        }, 4000);
-
-        // Обычный polling 800мс уже работает - не нужны дополнительные интервалы
-      }
+  // Тонкий диспетчер: маршрутизирует тип сообщения и playMode в соответствующий хук.
+  // Сохраняет ту же сигнатуру что и старый sendMessage, чтобы handleChooseZone/useGameTimer
+  // могли звать sendMessage(type, data) без изменений.
+  const sendMessage = useCallback((type, data = {}) => {
+    const mode = playModeRef.current;
+    if (mode === 'pvp') {
+      if (type === 'cancel_wait') { cancelPvpWait(); return; }
+      if (type === 'choose_zone') { submitPvpZone(data.zone); return; }
       return;
     }
-    
-    // DEMO BOT MODE - локальная игра с ботом (полноценная игра как PvP)
-    if (playModeRef.current === 'demo-bot') {
-      if (type === 'choose_zone') {
-        const playerZone = Number(data.zone);
-        if (![0, 1, 2, 3].includes(playerZone)) return;
-
-        // Atomic anti-duplicate через ref (как в PvP-ветке)
-        if (lastSubmittedZoneRef.current !== null && lastSubmittedZoneRef.current !== undefined) return;
-        lastSubmittedZoneRef.current = playerZone;
-        if (selectedZoneRef.current === null || selectedZoneRef.current === undefined) {
-          selectedZoneRef.current = playerZone;
-          setSelectedZone(playerZone);
-        }
-
-        setZoneLocked(true);
-        setWaitingOpponent(true);
-        stopTimer();
-        
-        // Бот делает случайный ход мгновенно
-        setTimeout(() => {
-          const botZone = Math.floor(Math.random() * 4);
-          
-          // Определяем кто кикер в этом раунде (игрок = 0, бот = 1)
-          const currentRound = round;
-          const kickerIndex = (currentRound - 1) % 2 === 0 ? 0 : 1;
-          const keeperIndex = 1 - kickerIndex;
-          
-          const kickerZone = kickerIndex === 0 ? playerZone : botZone;
-          const keeperZone = keeperIndex === 0 ? playerZone : botZone;
-          const isGoal = kickerZone !== keeperZone;
-          
-          // Обновляем счёт
-          const newScores = [...scores];
-          if (isGoal) newScores[kickerIndex]++;
-          
-          // Обновляем историю
-          const newHistory = [...history, { kickerIndex, kickerZone, keeperZone, isGoal }];
-          
-          // ИСПРАВЛЕНИЕ: Проверяем по количеству ходов в истории, а не по номеру раунда
-          // 5 раундов = 10 ходов (каждый игрок делает по 5 ударов)
-          const totalMoves = newHistory.length;
-          const maxMoves = 10; // 5 раундов × 2 хода
-          
-          // Проверяем нужен ли овертайм
-          let needsOvertime = false;
-          let startingSuddenDeath = false;
-          let overtimeStartRound = suddenDeathStartRound;
-          
-          if (totalMoves >= maxMoves && !suddenDeath) {
-            // Основная игра закончена (10 ходов) - проверяем счёт
-            if (newScores[0] === newScores[1]) {
-              needsOvertime = true;
-              startingSuddenDeath = true;
-              overtimeStartRound = totalMoves; // Запоминаем ход начала овертайма
-            }
-          }
-          
-          // Проверяем конец овертайма (кто-то забил больше в текущем цикле)
-          let gameEnded = false;
-          if (suddenDeath && totalMoves > maxMoves) {
-            // В овертайме проверяем после каждых 2 ходов (1 цикл)
-            const overtimeMoves = totalMoves - suddenDeathStartRound;
-            if (overtimeMoves % 2 === 0) {
-              // Цикл завершён - проверяем счёт последних 2 ходов
-              const lastTwoMoves = newHistory.slice(-2);
-              const p1Goals = lastTwoMoves.filter(h => h.kickerIndex === 0 && h.isGoal).length;
-              const p2Goals = lastTwoMoves.filter(h => h.kickerIndex === 1 && h.isGoal).length;
-              
-              if (p1Goals !== p2Goals) {
-                // Кто-то выиграл овертайм
-                gameEnded = true;
-              }
-            }
-          }
-          
-          // Показываем результат раунда.
-          // gameOver передаётся для watchdog'а в handleRoundResult — на случай если
-          // setTimeout match_result потерялся (animTimersRef cleanup и т.п.).
-          const endsBasic = (totalMoves >= maxMoves && !needsOvertime && !suddenDeath);
-          const gameOverFlag = endsBasic || gameEnded;
-          handleServerMessage({
-            type: 'round_result',
-            kickerZone,
-            keeperZone,
-            isGoal,
-            scores: newScores,
-            round: currentRound,
-            kickerIndex,
-            history: newHistory,
-            startSuddenDeath: startingSuddenDeath,
-            gameOver: gameOverFlag,
-            winnerSide: gameOverFlag ? (newScores[0] > newScores[1] ? 'p1' : 'p2') : null,
-            mySide: 'p1', // в demo игрок всегда p1
-          });
-          
-          // Устанавливаем suddenDeathStartRound если начинается овертайм
-          if (startingSuddenDeath) {
-            setTimeout(() => {
-              setSuddenDeathStartRound(overtimeStartRound);
-            }, 100);
-          }
-          
-          // Проверяем конец игры
-          if (totalMoves >= maxMoves && !needsOvertime && !suddenDeath) {
-            // Основная игра закончена, есть победитель
-            setTimeout(() => {
-              const youWon = newScores[0] > newScores[1];
-              handleServerMessage({
-                type: 'match_result',
-                youWon,
-                scores: newScores,
-              });
-            }, 1500);
-          } else if (gameEnded) {
-            // Овертайм закончен
-            setTimeout(() => {
-              const youWon = newScores[0] > newScores[1];
-              handleServerMessage({
-                type: 'match_result',
-                youWon,
-                scores: newScores,
-              });
-            }, 1500);
-          } else {
-            // Следующий раунд
-            setTimeout(() => {
-              const nextRound = currentRound + 1;
-              const nextKickerIndex = (nextRound - 1) % 2 === 0 ? 0 : 1;
-              const inSuddenDeath = needsOvertime || suddenDeath;
-              
-              handleServerMessage({
-                type: 'round_start',
-                round: nextRound,
-                maxRounds: inSuddenDeath ? nextRound : 5,
-                role: nextKickerIndex === 0 ? 'kicker' : 'keeper',
-                scores: newScores,
-                suddenDeath: inSuddenDeath,
-                history: newHistory,
-              });
-            }, startingSuddenDeath ? 4000 : 1500); // Больше времени если показываем овертайм
-          }
-        }, 100); // Минимальная задержка для плавности UI
-      }
+    if (mode === 'demo-bot') {
+      if (type === 'choose_zone') { chooseDemoZone(data.zone); return; }
       return;
     }
-    
-    // Bot mode removed - all games go through backend now
-    if (playModeRef.current === 'bot') {
+    if (mode === 'bot') {
       showBottomNotice('Режим бота больше не поддерживается. Используй PvP.');
-      return;
     }
-  };
+  }, [playModeRef, cancelPvpWait, submitPvpZone, chooseDemoZone, showBottomNotice]);
+
+  // Подсасываем sendMessage в forward-ref для useGameTimer.
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
+  // onMatchResultFallback — финальный watchdog в useGameAnimation зовёт handleServerMessage
+  // через ref, потому что handleServerMessage определена ниже useGameAnimation.
+  useEffect(() => {
+    onMatchResultFallbackRef.current = ({ youWon, scores }) => {
+      handleServerMessage({ type: 'match_result', youWon, scores: scores || [0, 0] });
+    };
+  }, [handleServerMessage]);
 
   const askStakeOptions = () => {
     if (!selectedStakeOptions.length) {
