@@ -2,7 +2,9 @@ import { useRef, useCallback, useEffect } from 'react';
 import { apiPost } from '../lib/api.js';
 
 const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 400;
+// H: exponential backoff — 400, 800, 1600мс. На загруженном сервере не давим, на быстром
+// почти то же. Раньше был фиксированный 400мс на каждый retry.
+const RETRY_DELAYS_MS = [400, 800, 1600];
 const WATCHDOG_DELAY_MS = 4000;
 const WATCHDOG_NOTICE_DELAY_MS = 2000;
 
@@ -76,6 +78,7 @@ export function usePvpSubmit({
 
     const submit = () => {
       if (pvpMoveCommittedRef.current) return;
+      const attemptIdx = attempts;
       attempts++;
       apiPost({
         action: 'pvpSubmitMove',
@@ -87,8 +90,11 @@ export function usePvpSubmit({
         if (pvpMoveCommittedRef.current) return;
         if (data2?.ok) {
           pvpMoveCommittedRef.current = true;
+          // C: НЕ делаем дополнительный poll через 200мс — enableFastPolling уже запустил
+          // interval 400мс, первый poll принесёт ход бота в обычном темпе. Старый extra-poll
+          // создавал лишний запрос в первые ~400мс после submit (вместе с handleRoundResult
+          // safetyTimeout, watchdog'ом и интервалом получалось 3-4 polls в первые 600мс).
           if (data2.room) applyPvpRoomState(data2.room);
-          setTimeout(() => pvpPollState(), 200);
           return;
         }
         const err = String(data2?.error || '');
@@ -98,11 +104,11 @@ export function usePvpSubmit({
           pvpPollState();
           return;
         }
-        if (attempts < MAX_ATTEMPTS) setTimeout(submit, RETRY_DELAY_MS);
+        if (attempts < MAX_ATTEMPTS) setTimeout(submit, RETRY_DELAYS_MS[attemptIdx] || 1600);
         else showBottomNotice('Сервер обрабатывает... Подожди соперника.');
       }).catch(() => {
         if (pvpMoveCommittedRef.current) return;
-        if (attempts < MAX_ATTEMPTS) setTimeout(submit, RETRY_DELAY_MS);
+        if (attempts < MAX_ATTEMPTS) setTimeout(submit, RETRY_DELAYS_MS[attemptIdx] || 1600);
         else showBottomNotice('Сервер обрабатывает... Подожди соперника.');
       });
     };

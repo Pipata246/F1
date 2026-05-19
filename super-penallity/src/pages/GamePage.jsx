@@ -154,35 +154,46 @@ const GamePage = () => {
 
     const timers = [];
 
-    // Нормальный flow: бот 0.3-1с + poll 0.8с + анимация 2.5с ≈ 4.6с висит waitingOpponent.
+    // Нормальный flow: бот 0.3-1с + poll 0.4с + анимация 2.5с ≈ 4с висит waitingOpponent.
     // Recovery таймеры начинаются ПОСЛЕ этого окна, чтобы не мешать обычной игре.
+    //
+    // D: все recovery'и теперь учитывают pvpMoveCommittedRef. Если submit подтверждён сервером
+    // (committed=true), значит ход уже у сервера, и долгое ожидание — это бот думает или
+    // анимация раунда. Лишние forced polls в этом случае только давят сервер.
+    // Recovery нужно ТОЛЬКО когда submit потерялся (network drop), т.е. committed=false.
 
     // 8 сек: force poll (тикнет pvpAdvanceByTime, бот сходит если завис)
     timers.push(setTimeout(() => {
-      if (!waitingOpponent || matchEndedRef.current) return;
+      if (!waitingOpponent || matchEndedRef.current || pvpMoveCommittedRef.current) return;
       pvpPollInFlightRef.current = false;
       pvpPollState();
     }, 8000));
 
     // 14 сек: forced poll, чтобы подтянуть актуальный state.
-    // Раньше тут был ВТОРОЙ submit без turnId — это создавало баг: за 14 сек раунд мог
-    // смениться, ретрай записывал зону прошлого раунда в новый. Удалили retry.
-    // Если первый submit не прошёл по сети — fast polling + серверный auto-resolve справятся.
     timers.push(setTimeout(() => {
-      if (!waitingOpponent || matchEndedRef.current) return;
+      if (!waitingOpponent || matchEndedRef.current || pvpMoveCommittedRef.current) return;
       pvpPollInFlightRef.current = false;
       pvpPollState();
     }, 14000));
 
-    // 22 сек: модалка с выходом
+    // 22 сек: модалка с выходом — показываем только если submit реально не дошёл.
     timers.push(setTimeout(() => {
-      if (!waitingOpponent || matchEndedRef.current) return;
+      if (!waitingOpponent || matchEndedRef.current || pvpMoveCommittedRef.current) return;
       setShowConnectionError(true);
     }, 22000));
 
     return () => { timers.forEach(clearTimeout); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingOpponent, screen]);
+
+  // G: auto-hide connection-error через 10 сек после показа. Polling всё равно продолжает
+  // ретраить в фоне (interval 800мс не останавливается), так что модалка-блокер ни к чему —
+  // если сеть восстановится, успешный poll сбросит её сам ([usePvpPolling onShowConnectionError(false)]).
+  useEffect(() => {
+    if (!showConnectionError) return undefined;
+    const t = setTimeout(() => setShowConnectionError(false), 10000);
+    return () => clearTimeout(t);
+  }, [showConnectionError]);
 
   const showBottomNotice = useCallback((msg) => {
     setBottomNotice(String(msg || ''));

@@ -1955,7 +1955,10 @@ function pvpHeartbeat(state, tgId) {
   const now = Date.now();
   const presence = { ...(next.presence || {}) };
   const prev = Number(presence[side] || 0);
-  if (now - prev < 8000) return { changed: false, state: next }; // было 8000
+  // 30s: heartbeat — это только detection «player ушёл», stale-leave threshold = 45s ниже
+  // ([pvpAdvanceByTime staleMs]), запас 15с достаточен. Раньше было 8с, что давало 4-7
+  // PATCH-запросов в БД на каждые 30с polling'а у обоих игроков. Снижение в ~4 раза.
+  if (now - prev < 30_000) return { changed: false, state: next };
   presence[side] = now;
   next.presence = presence;
   next.updatedAt = new Date().toISOString();
