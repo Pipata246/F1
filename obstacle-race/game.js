@@ -1,8 +1,3 @@
-// ==================== HTTP POLLING ====================
-// PvP работает через HTTP polling /api/user (каждые 800мс, или 400мс в fast-mode после
-// submit). WebSocket / Supabase Realtime НЕ используется — соответствующий код удалён.
-
-// ==================== GAME VARIABLES ==================
 let playerIndex = -1;
 let opponentName = '';
 let myName = '';
@@ -56,20 +51,16 @@ let pvpOpponentTgId = '';
 let pvpOpponentIsBot = false;
 let pvpMoveWatchdogTimer = null;
 let pvpLastProcessedStateHash = '';
-// Stale-guard: incoming room.updated_at должен быть строго новее последнего применённого.
-// Иначе медленный poll-ответ может перетереть свежий state и UI «откатится».
 let pvpLastAppliedUpdatedAtMs = 0;
 let pvpProcessingRoundResult = false;
-const PVP_POLL_MS = 800; // Обычный polling
-// Fast-mode: чаще опрашиваем сразу после хода/выхода из placing — серверу нужно не больше
-// 1-2 тиков чтобы вернуть round_result. Раньше всегда polling 800мс => лишние ~600мс задержки.
+const PVP_POLL_MS = 800;
 const PVP_POLL_FAST_MS = 400;
 const PVP_POLL_FAST_DURATION_MS = 6000;
 let pvpPollFastModeUntilMs = 0;
-const POLL_ABORT_TIMEOUT_MS = 10000; // обрываем висящий fetch через 10с
+const POLL_ABORT_TIMEOUT_MS = 10000;
 const SETTINGS_KEY = "f1duel_global_settings_v1";
 
-const OT_ROUNDS = 30; // Увеличено до 30 чтобы точно не дошли до конца
+const OT_ROUNDS = 3;
 
 const ABILITIES = {
     xray:     { icon: '\uD83D\uDC41', name: '\u0420\u0435\u043D\u0442\u0433\u0435\u043D', desc: '\u041F\u043E\u0434\u0441\u043C\u043E\u0442\u0440\u0438 \u043E\u0434\u043D\u0443 \u0442\u043E\u0447\u043A\u0443 \u043D\u0430 \u0434\u043E\u0440\u043E\u0436\u043A\u0435' },
@@ -305,29 +296,22 @@ function refreshBalanceForStakePicker() {
 }
 
 function ensureStakePicker() {
-    var mount = $('screen-start');
+    var mount = $('stake-picker-host');
     if (!mount || $('stakePickerObstacle')) return;
     var wrap = document.createElement('div');
     wrap.id = 'stakePickerObstacle';
-    wrap.style.marginTop = '12px';
-    wrap.style.maxWidth = '360px';
-    wrap.style.marginLeft = 'auto';
-    wrap.style.marginRight = 'auto';
     wrap.innerHTML =
-        '<div style="font-size:12px;color:#aab1bf;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
-        '<div id="stakeGridObstacle" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>' +
-        '<button type="button" id="stakePlayBtnObstacle" class="btn primary" style="margin-top:10px">Играть</button>';
+        '<p class="sp-stake-label">Выбери ставки TON</p>' +
+        '<div id="stakeGridObstacle" class="sp-stake-grid"></div>' +
+        '<button type="button" id="stakePlayBtnObstacle" class="sp-play-btn">Играть</button>' +
+        '<button type="button" id="stakeBackBtnObstacle" class="sp-back-btn">Назад</button>';
     mount.appendChild(wrap);
     var grid = $('stakeGridObstacle');
     ALLOWED_STAKES.forEach(function(stake) {
         var b = document.createElement('button');
         b.type = 'button';
-        b.className = 'btn ghost';
+        b.className = 'sp-stake-btn';
         b.dataset.stake = String(stake);
-        b.style.aspectRatio = '1/1';
-        b.style.padding = '0';
-        b.style.fontWeight = '900';
-        b.style.fontSize = '13px';
         b.textContent = stake + ' TON';
         b.onclick = function() {
             var n = Number(b.dataset.stake);
@@ -343,6 +327,8 @@ function ensureStakePicker() {
     });
     var playBtn = $('stakePlayBtnObstacle');
     if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
+    var backBtn = $('stakeBackBtnObstacle');
+    if (backBtn) backBtn.onclick = function(){ window.location.href = '/'; };
     renderStakePicker();
 }
 
@@ -361,10 +347,9 @@ function renderStakePicker() {
         var n = Number(b.dataset.stake);
         var on = selectedStakeOptions.indexOf(n) >= 0;
         var blocked = currentBalanceTon < n;
-        b.style.borderColor = blocked ? 'rgba(248,113,113,.8)' : (on ? '#8fd1ff' : 'rgba(255,255,255,.18)');
-        b.style.background = blocked ? 'rgba(239,68,68,.18)' : (on ? 'rgba(59,130,246,.25)' : 'rgba(255,255,255,.08)');
-        b.style.color = blocked ? '#fecaca' : (on ? '#e6f3ff' : '#fff');
-        b.style.opacity = blocked ? '0.85' : '1';
+        b.classList.remove('is-active', 'is-blocked');
+        if (blocked) b.classList.add('is-blocked');
+        else if (on) b.classList.add('is-active');
     }
 }
 
@@ -416,22 +401,18 @@ function startPvpPolling() {
     var interval = (Date.now() < pvpPollFastModeUntilMs) ? PVP_POLL_FAST_MS : PVP_POLL_MS;
     pvpPollTimer = setInterval(function() {
         pvpPollState();
-        // Когда fast-mode истёк — перезапускаем с обычным интервалом
         if (interval === PVP_POLL_FAST_MS && Date.now() >= pvpPollFastModeUntilMs) {
             startPvpPolling();
         }
     }, interval);
-    pvpPollState(); // Сразу первый запрос
+    pvpPollState();
 }
 
-// Ускорить polling на N секунд (после submit/round transition). Идемпотентно — если уже
-// в fast-mode и срок не истёк, просто продляем срок без переподнятия интервала.
 function enableFastPolling() {
     var newUntil = Date.now() + PVP_POLL_FAST_DURATION_MS;
     var wasFast = Date.now() < pvpPollFastModeUntilMs;
     pvpPollFastModeUntilMs = Math.max(pvpPollFastModeUntilMs, newUntil);
     if (!wasFast && pvpPollTimer) {
-        // Переподнимаем интервал чтобы взять PVP_POLL_FAST_MS
         startPvpPolling();
     }
 }
@@ -489,14 +470,9 @@ function applyPvpRoomState(room) {
     var status = String(room.status || '');
     var phase = String((s || {}).phase || '');
 
-    // STALE-GUARD: если room.updated_at не новее последнего применённого — out-of-order ответ
-    // или дубликат. Полл может прийти после submit-ответа с тем же state, отбрасываем.
     var incomingMs = Number(new Date(room.updated_at || 0).getTime()) || 0;
     if (incomingMs > 0 && incomingMs < pvpLastAppliedUpdatedAtMs) return;
 
-    // ДЕДУПЛИКАЦИЯ: расширенный хеш — включает scores, traps-placement, pendingMoves,
-    // accept-deadline. Без этих полей stateHash мог пропускать важные изменения (счёт
-    // обновился, но фаза та же — UI не обновлялся).
     var sc = s.scores || {};
     var tr = s.traps || {};
     var pm = s.pendingMoves || {};
@@ -510,7 +486,6 @@ function applyPvpRoomState(room) {
                     (pm.p1 ? 1 : 0) + (pm.p2 ? 1 : 0) + ':' +
                     (am.deadlineMs || 0);
 
-    // Если это точно такое же состояние — пропускаем
     if (stateHash === pvpLastProcessedStateHash && phase !== 'accept_match') {
         return;
     }
@@ -688,9 +663,6 @@ function pvpPollState() {
     if (!pvpRoomId || !tgInitData || pvpPollInFlight) return;
     pvpPollInFlight = true;
 
-    // AbortController + 10-сек timeout: если fetch висит (плохая сеть, sleep'нувший Lambda),
-    // обрываем чтобы следующий polling tick мог стартовать. Без этого pvpPollInFlight=true
-    // блокировал бы все последующие тики на десятки секунд.
     var controller = (typeof AbortController === 'function') ? new AbortController() : null;
     var abortTimer = setTimeout(function() {
         if (controller) { try { controller.abort(); } catch (e) {} }
@@ -729,7 +701,6 @@ function pvpPollState() {
         if (!data.room) return;
         applyPvpRoomState(data.room);
     }).catch(function() {
-        // При ошибке сети / abort — не спамим, просто ждём следующего интервала
     }).finally(function() {
         clearTimeout(abortTimer);
         pvpPollInFlight = false;
@@ -753,11 +724,7 @@ function pvpFindMatch() {
         if (!data || !data.ok || !data.room) throw new Error('Matchmaking failed');
         pvpRoomId = data.room.id;
         startPvpPolling();
-        // Применяем начальное состояние сразу
         applyPvpRoomState(data.room);
-        // Если комната в статусе waiting — ускоряем polling на 6 сек чтобы быстро поймать
-        // accept_match. Раньше тут был отдельный scheduleWaitingCheck, который дублировал
-        // основной polling — удалили, enableFastPolling эффективнее.
         if (String(data.room.status || '') === 'waiting') {
             enableFastPolling();
         }
@@ -766,9 +733,6 @@ function pvpFindMatch() {
     });
 }
 
-// scheduleWaitingCheck/stopWaitingCheck/scheduleTrapsCheck/stopTrapsCheck удалены — они
-// дублировали основной polling, который уже работает каждые 800мс (или 400мс в fast-mode).
-// Stub-функции оставляем чтобы не падать на старых call-site'ах.
 function stopWaitingCheck() {}
 
 function pvpLeaveRoomSafe() {
@@ -790,8 +754,6 @@ function pvpLeaveRoomSafe() {
 var SUBMIT_RETRY_DELAYS_MS = [400, 800, 1600];
 var SUBMIT_MAX_ATTEMPTS = SUBMIT_RETRY_DELAYS_MS.length;
 
-// Универсальный submitMove helper. onOk вызывается с data.room. onFail — после всех retry.
-// onWaiting — если сервер вернул "Waiting for opponent" (не делаем retry, ждём polling).
 function submitMoveWithRetry(movePayload, onOk, onFail) {
     var attempts = 0;
     function go() {
@@ -807,14 +769,10 @@ function submitMoveWithRetry(movePayload, onOk, onFail) {
                 onOk(data.room);
                 return;
             }
-            // Сервер сказал "Waiting for opponent" / "Room is not active" — это нормально,
-            // соперник ещё не подключился. НЕ ретраим submit'ом, сервер сам сделает auto-fill
-            // через таймаут (22с для placing_traps, 30с для overtime_placing). Polling
-            // подтянет state когда соперник появится.
             var errStr = String((data && data.error) || '');
             if (errStr.indexOf('Waiting for opponent') >= 0 || errStr.indexOf('Room is not active') >= 0) {
                 showBottomNotice('Ждём соперника...');
-                onOk(null); // Считаем за успех — сервер примет ход когда комната активна
+                onOk(null);
                 return;
             }
             if (attempts < SUBMIT_MAX_ATTEMPTS) setTimeout(go, SUBMIT_RETRY_DELAYS_MS[attemptIdx] || 1600);
@@ -839,7 +797,6 @@ function sendMsg(m) {
         submitMoveWithRetry({ traps: trapData },
             function onOk(room) {
                 if (room) applyPvpRoomState(room);
-                // Polling подтянет фазу 'running' когда соперник тоже поставит.
                 enableFastPolling();
             },
             function onFail() {
@@ -863,8 +820,6 @@ function sendMsg(m) {
         submitMoveWithRetry({ action: msg.action, useAbility: !!msg.useAbility },
             function onOk(room) {
                 if (room) applyPvpRoomState(room);
-                // Ускоряем polling — следующий round_result придёт за 150-450мс через бота,
-                // или через 1-2 такта через настоящего соперника.
                 enableFastPolling();
             },
             function onFail() {
@@ -920,8 +875,6 @@ function startGame(vsBot) {
     pvpProcessingRoundResult = false; // Сбрасываем флаг обработки
     clearInterval(timerInterval);
     matchSaved = false;
-    // Полная зачистка PvP-таймеров на старте новой игры — защита от утечек если
-    // предыдущая сессия завершилась не через window.location.href.
     stopPvpPolling();
     stopAcceptTick();
     pvpPollFastModeUntilMs = 0;
@@ -994,6 +947,7 @@ function onGameFound(msg) {
     selectedTraps = [];
     trapsConfirmed = false;
     overtimePlacing = false;
+    generateTrapTrack();
     updateTrapUI();
     $('btn-traps-ok').classList.remove('hidden');
     $('btn-traps-ok').disabled = true;
@@ -1108,7 +1062,6 @@ function confirmTraps() {
     enableFastPolling();
 }
 
-// trapsCheck удалён — заменён на enableFastPolling в confirmTraps. Stub для backward-compat.
 function stopTrapsCheck() {}
 
 function generateGameTracks(n) {
@@ -1613,6 +1566,22 @@ function localResolveRound() {
         } else if (m.currentStep >= MAIN_ROUNDS) {
             if (p0 === p1) startOvertime = true;
             else { gameOver = true; winner = p0 > p1 ? 'win' : 'lose'; }
+        } else {
+            const remainingRounds = MAIN_ROUNDS - m.currentStep;
+            const leaderIdx = p0 > p1 ? 0 : (p1 > p0 ? 1 : -1);
+            if (leaderIdx >= 0 && remainingRounds > 0) {
+                const leaderScore = leaderIdx === 0 ? p0 : p1;
+                const loserScore = leaderIdx === 0 ? p1 : p0;
+                const loserAbility = m.abilities[1 - leaderIdx];
+                const loserAbilityUsed = m.abilityUsed[1 - leaderIdx];
+                const canDoubleNext = m.currentStep <= 4;
+                const abilityBonus = (loserAbility === 'double' && !loserAbilityUsed && canDoubleNext) ? 1 : 0;
+                const maxLoserCanGain = remainingRounds + abilityBonus;
+                if (loserScore + maxLoserCanGain < leaderScore) {
+                    gameOver = true;
+                    winner = leaderIdx === 0 ? 'win' : 'lose';
+                }
+            }
         }
     }
 

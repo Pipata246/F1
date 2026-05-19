@@ -1955,9 +1955,6 @@ function pvpHeartbeat(state, tgId) {
   const now = Date.now();
   const presence = { ...(next.presence || {}) };
   const prev = Number(presence[side] || 0);
-  // 30s: heartbeat — это только detection «player ушёл», stale-leave threshold = 45s ниже
-  // ([pvpAdvanceByTime staleMs]), запас 15с достаточен. Раньше было 8с, что давало 4-7
-  // PATCH-запросов в БД на каждые 30с polling'а у обоих игроков. Снижение в ~4 раза.
   if (now - prev < 30_000) return { changed: false, state: next };
   presence[side] = now;
   next.presence = presence;
@@ -2237,6 +2234,23 @@ function pvpResolveObstacleRound(state) {
       if (p1 > p2) winnerSide = "p1";
       else if (p2 > p1) winnerSide = "p2";
       else startOvertime = true;
+    } else {
+      const remainingRounds = mainRounds - Number(s.currentStep || 0);
+      const leaderSide = p1 > p2 ? "p1" : (p2 > p1 ? "p2" : null);
+      if (leaderSide && remainingRounds > 0) {
+        const leaderScore = leaderSide === "p1" ? p1 : p2;
+        const loserScore = leaderSide === "p1" ? p2 : p1;
+        const loserSide = leaderSide === "p1" ? "p2" : "p1";
+        const loserAbility = asObj(s.abilities)[loserSide];
+        const loserAbilityUsed = !!asObj(s.abilityUsed)[loserSide];
+        const canDoubleNext = Number(s.currentStep || 0) <= 4;
+        const abilityBonus = (loserAbility === "double" && !loserAbilityUsed && canDoubleNext) ? 1 : 0;
+        const maxLoserCanGain = remainingRounds + abilityBonus;
+        if (loserScore + maxLoserCanGain < leaderScore) {
+          winnerSide = leaderSide;
+          s.earlyEnd = true;
+        }
+      }
     }
   }
 
@@ -3815,9 +3829,6 @@ async function pvpBroadcastRoomUpdate(room) {
   if (!room || !room.id) return;
 
   const gameKey = String(room.game_key || "");
-  // Super Penalty и Obstacle Race работают через HTTP-polling и НЕ слушают Supabase Realtime —
-  // broadcast туда не имеет смысла, это лишняя задержка ~200ms на каждый submit.
-  // Подписчики Realtime: frog_hunt и basketball.
   if (gameKey !== "frog_hunt" && gameKey !== "basketball") return;
   
   const channelName = `${gameKey}_room_${room.id}`;
