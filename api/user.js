@@ -3810,10 +3810,11 @@ async function pvpDeclineAccept(initData, roomId) {
 
 async function pvpBroadcastRoomUpdate(room) {
   if (!room || !room.id) return;
-  
+
   const gameKey = String(room.game_key || "");
-  // ✅ BROADCAST: добавлена поддержка Basketball для real-time обновлений
-  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race" && gameKey !== "super_penalty" && gameKey !== "basketball") return;
+  // Super Penalty работает через HTTP-polling и НЕ слушает Supabase Realtime —
+  // broadcast'ить туда нет смысла, это просто лишняя задержка ~200ms на каждый submit.
+  if (gameKey !== "frog_hunt" && gameKey !== "obstacle_race" && gameKey !== "basketball") return;
   
   const channelName = `${gameKey}_room_${room.id}`;
   const p1TgId = String(room.player1_tg_user_id || "");
