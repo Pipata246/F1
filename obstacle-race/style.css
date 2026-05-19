@@ -480,6 +480,46 @@ body.xray-mode .track-avatar {
 .track-dot.mine-safe .barrier-marker {
     opacity: 0.55;
 }
+
+.ability-marker {
+    display: none;
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 3;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+.ability-marker--double-fail,
+.ability-marker--double-success,
+.ability-marker--sabotage-success,
+.ability-marker--sabotage-backfire,
+.ability-marker--xray {
+    display: block;
+}
+.ability-marker--double-fail {
+    color: var(--danger);
+    filter: drop-shadow(0 0 4px rgba(255, 71, 87, 0.7));
+}
+.ability-marker--double-success {
+    color: var(--warn);
+    filter: drop-shadow(0 0 4px rgba(255, 196, 58, 0.7));
+}
+.ability-marker--sabotage-success {
+    color: var(--success);
+    filter: drop-shadow(0 0 4px rgba(77, 230, 128, 0.7));
+}
+.ability-marker--sabotage-backfire {
+    color: var(--text2);
+    opacity: 0.6;
+}
+.ability-marker--xray {
+    color: #6ab7ff;
+    filter: drop-shadow(0 0 4px rgba(106, 183, 255, 0.7));
+}
 @keyframes mineExplode {
     0% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 165, 2, 0); }
     15% { transform: scale(1.4); box-shadow: 0 0 30px rgba(255, 165, 2, 0.9); }

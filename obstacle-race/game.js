@@ -1071,6 +1071,14 @@ function setDotLabel(dot, text) {
     else dot.textContent = String(text);
 }
 
+function setDotAbility(dot, kind, icon) {
+    if (!dot) return;
+    var m = dot.querySelector('.ability-marker');
+    if (!m) return;
+    m.textContent = icon;
+    m.className = 'ability-marker ability-marker--' + kind;
+}
+
 function generateGameTracks(n) {
     trackDots = n;
     for (let t = 0; t < 2; t++) {
@@ -1087,6 +1095,9 @@ function generateGameTracks(n) {
             barrier.className = 'barrier-marker';
             barrier.textContent = '🚧';
             d.appendChild(barrier);
+            const ability = document.createElement('span');
+            ability.className = 'ability-marker';
+            d.appendChild(ability);
             c.appendChild(d);
         }
         // Show player's mines on opponent's track
@@ -1294,6 +1305,7 @@ function onXrayResult(msg) {
         if (dot) {
             dot.classList.add(msg.hasTrap ? 'xray-trap' : 'xray-safe');
             if (!msg.hasTrap) setDotLabel(dot, '\u2713');
+            setDotAbility(dot, 'xray', '\ud83d\udc41');
         }
         $('action-btns').classList.remove('hidden');
         $('ability-zone').classList.add('hidden');
@@ -1302,11 +1314,9 @@ function onXrayResult(msg) {
 }
 
 function onOppXray(msg) {
-    // Запоминаем что соперник использовал рентген — покажем на экране результата хода
     oppAbility = 'xray';
-    oppUsedXrayThisRound = true; // запоминаем для toast и dotIcon
+    oppUsedXrayThisRound = true;
 
-    // Scan sweep animation on opponent track (track 1)
     var trackLine = $('tpoints-1') ? $('tpoints-1').parentElement : null;
     if (trackLine) {
         var scanLine = document.createElement('div');
@@ -1314,7 +1324,11 @@ function onOppXray(msg) {
         trackLine.appendChild(scanLine);
         setTimeout(function() { scanLine.remove(); }, 700);
     }
-    // Не добавляем xray-scanned-opp на ячейку — иконка 👁 будет показана в dotIcon() при onRoundResult
+
+    if (msg && Number.isInteger(Number(msg.point))) {
+        var oppDot = $('dot-1-' + Number(msg.point));
+        if (oppDot) setDotAbility(oppDot, 'xray', '👁');
+    }
 }
 
 function toggleAbility() {
@@ -1868,10 +1882,18 @@ async function onRoundResult(msg) {
     if (my.usedAbility === 'double') {
         s0.classList.add('lightning-flash');
         setTimeout(function() { s0.classList.remove('lightning-flash'); }, 800);
+        setDotAbility(myDot, my.points > 0 ? 'double-success' : 'double-fail', '⚡');
     }
     if (opp.usedAbility === 'double') {
         s1.classList.add('lightning-flash');
         setTimeout(function() { s1.classList.remove('lightning-flash'); }, 800);
+        setDotAbility(oppDot, opp.points > 0 ? 'double-success' : 'double-fail', '⚡');
+    }
+    if (my.usedAbility === 'sabotage') {
+        setDotAbility(myDot, my.sabotageHit ? 'sabotage-success' : 'sabotage-backfire', '💀');
+    }
+    if (opp.usedAbility === 'sabotage') {
+        setDotAbility(oppDot, opp.sabotageHit ? 'sabotage-success' : 'sabotage-backfire', '💀');
     }
     if (my.sabotaged || opp.sabotaged) {
         showSabotageEffect();
