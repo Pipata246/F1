@@ -792,6 +792,10 @@ body.tg-theme {
     gap: 6px;
     margin-bottom: 10px;
 }
+#ability-zone.hidden {
+    display: flex !important;
+    visibility: hidden;
+}
 .ability-btn {
     background: var(--bg3) !important;
     border: 2px solid var(--accent) !important;
