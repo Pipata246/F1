@@ -1698,11 +1698,13 @@ async function onRoundResult(msg) {
         return;
     }
     pvpProcessingRoundResult = true;
-    
+    roundAnimating = true;
+
+    try {
+
     clearInterval(timerInterval);
     stopMoveWatchdog();
-    roundAnimating = true;
-    
+
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
     const my = msg.you;
@@ -1962,18 +1964,24 @@ async function onRoundResult(msg) {
             startTrapTimer();
         }
     } else {
-        roundAnimating = false;
-        pvpProcessingRoundResult = false;
         if (isBotMode) {
             currentStep = msg.round;
             highlightCurrentDot(msg.round);
             moveChosen = false;
             showActionButtons();
             startTimer(null);
-        } else if (pvpPendingRoundStart) {
-            var pending = pvpPendingRoundStart;
+        }
+    }
+
+    } catch (e) {
+        try { console.error('onRoundResult error:', e); } catch (_) {}
+    } finally {
+        roundAnimating = false;
+        pvpProcessingRoundResult = false;
+        if (!isBotMode && !msg.gameOver && !msg.startOvertime && pvpPendingRoundStart) {
+            var pending2 = pvpPendingRoundStart;
             pvpPendingRoundStart = null;
-            onRoundStart(pending);
+            try { onRoundStart(pending2); } catch (_) {}
         }
     }
 }

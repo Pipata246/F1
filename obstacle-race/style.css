@@ -185,10 +185,15 @@ body {
 .wait-msg {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 10px;
     color: var(--text2);
     font-size: 14px;
     margin-top: 12px;
+}
+#move-wait {
+    min-height: 84px;
+    margin-top: 0;
 }
 .wait-msg.hidden, .hidden { display: none !important; }
 
@@ -590,6 +595,7 @@ body.xray-mode .track-avatar {
 .action-btns {
     display: flex;
     gap: 12px;
+    min-height: 84px;
 }
 .btn.action {
     flex: 1;
@@ -667,9 +673,14 @@ body.xray-mode .track-avatar {
     min-width: 110px;
 }
 .reveal-label { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
-.reveal-action { font-size: 28px; margin-bottom: 6px; }
+.reveal-action { font-size: 28px; margin-bottom: 6px; min-height: 36px; line-height: 36px; }
 #reveal-opp .reveal-action { color: var(--opp); }
-.reveal-result { font-size: 13px; font-weight: 700; }
+.reveal-result {
+    font-size: 13px;
+    font-weight: 700;
+    min-height: 18px;
+    line-height: 18px;
+}
 .reveal-result.good { color: var(--success); }
 .reveal-result.bad { color: var(--danger); }
 .reveal-vs { font-size: 14px; color: var(--text2); font-weight: 700; }
