@@ -185,15 +185,10 @@ body {
 .wait-msg {
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: 10px;
     color: var(--text2);
     font-size: 14px;
     margin-top: 12px;
-}
-#move-wait {
-    min-height: 84px;
-    margin-top: 0;
 }
 .wait-msg.hidden, .hidden { display: none !important; }
 
@@ -327,6 +322,32 @@ body {
 /* Speed rays removed — too distracting */
 .track-header { margin-bottom: 10px; }
 .track-name { font-size: 13px; color: var(--text2); font-weight: 600; }
+.wait-msg-overlay {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 20px;
+    margin-bottom: 2px;
+    color: var(--text2);
+    font-size: 12px;
+    font-weight: 600;
+    pointer-events: none;
+}
+.wait-msg-overlay.hidden {
+    display: flex !important;
+    visibility: hidden;
+}
+.wait-msg-overlay .spinner.sm {
+    width: 14px;
+    height: 14px;
+    border-width: 2px;
+    margin: 0;
+}
 .track-line {
     position: relative;
     height: 48px;
@@ -595,7 +616,10 @@ body.xray-mode .track-avatar {
 .action-btns {
     display: flex;
     gap: 12px;
-    min-height: 84px;
+}
+.action-btns.hidden {
+    display: flex !important;
+    visibility: hidden;
 }
 .btn.action {
     flex: 1;
