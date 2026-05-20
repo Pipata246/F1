@@ -3070,7 +3070,7 @@ function pvpAdvanceByTime(room) {
       }
     }
 
-    if (s.phase === "round_result" && elapsed >= 1800) {
+    if (s.phase === "round_result" && elapsed >= 1300) {
       const rr = asObj(s.lastRoundResult);
       if (rr.gameOver) {
         next.phase = "match_over";

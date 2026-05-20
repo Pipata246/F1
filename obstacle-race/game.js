@@ -52,9 +52,10 @@ let pvpOpponentIsBot = false;
 let pvpMoveWatchdogTimer = null;
 let pvpLastProcessedStateHash = '';
 let pvpLastAppliedUpdatedAtMs = 0;
+let pvpPendingRoundStart = null;
 let pvpProcessingRoundResult = false;
 const PVP_POLL_MS = 800;
-const PVP_POLL_FAST_MS = 400;
+const PVP_POLL_FAST_MS = 300;
 const PVP_POLL_FAST_DURATION_MS = 6000;
 let pvpPollFastModeUntilMs = 0;
 const POLL_ABORT_TIMEOUT_MS = 10000;
@@ -421,8 +422,9 @@ function resetPvpMarkers() {
     pvpLastRoundMarker = 0;
     pvpLastXrayMarker = 0;
     pvpLastStartKey = '';
-    pvpLastProcessedStateHash = ''; // Сбрасываем хеш при новой игре
+    pvpLastProcessedStateHash = '';
     pvpLastAppliedUpdatedAtMs = 0;
+    pvpPendingRoundStart = null;
 }
 
 function getPvpSides(room) {
@@ -641,19 +643,22 @@ function applyPvpRoomState(room) {
         }
     }
 
-    // ── RUNNING (новый раунд) ─────────────────────────────────────────────────
     if (phase === 'running') {
         var step = s.overtime ? Number(s.overtimeRound || 0) : Number(s.currentStep || 0);
         var startKey = String(!!s.overtime) + ':' + String(step);
         if (startKey !== pvpLastStartKey) {
             pvpLastStartKey = startKey;
             moveChosen = false;
-            roundAnimating = false;
             var abilityForRound = s.overtime
                 ? ((s.overtimeAbilities || {})[sides.mySide] || null)
                 : ((s.abilities || {})[sides.mySide] || null);
-            
-            onRoundStart({ step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) });
+            var startMsg = { step: step, ability: abilityForRound, overtime: !!s.overtime, phaseAtMs: Number(s.phaseAtMs || 0) };
+            if (roundAnimating || pvpProcessingRoundResult) {
+                pvpPendingRoundStart = startMsg;
+            } else {
+                roundAnimating = false;
+                onRoundStart(startMsg);
+            }
         }
         return;
     }
@@ -1775,16 +1780,15 @@ async function onRoundResult(msg) {
     $('reveal-you').querySelector('.reveal-label').textContent = myName;
     $('reveal-opp').querySelector('.reveal-label').textContent = opponentName;
 
-    await delay(800);
+    await delay(500);
 
-    // Reveal traps on dots with bomb icon
     const myDot = $('dot-0-' + msg.step);
     const oppDot = $('dot-1-' + msg.step);
 
     if (myDot && my.hasTrap) { myDot.classList.add('trap-reveal'); }
     if (oppDot && opp.hasTrap) { oppDot.classList.add('trap-reveal'); }
 
-    await delay(500);
+    await delay(300);
 
     // Result text
     function resultStr(r) {
@@ -1867,12 +1871,12 @@ async function onRoundResult(msg) {
         if (opp.reason === 'dodged_trap') oppAv.classList.add('jump-anim');
     } else { oppAv.classList.add('shake'); }
 
-    await delay(300);
+    await delay(200);
 
     moveAvatar(myAv, msg.step + 1);
     moveAvatar(oppAv, msg.step + 1);
 
-    await delay(600);
+    await delay(400);
     myAv.classList.remove('shake', 'jump-anim');
     oppAv.classList.remove('shake', 'jump-anim');
 
@@ -1907,12 +1911,11 @@ async function onRoundResult(msg) {
         showSabotageEffect();
     }
 
-    await delay(800);
+    await delay(500);
     s0.classList.remove('score-pop'); s1.classList.remove('score-pop');
 
-    // Hide reveal with fade
     reveal.style.opacity = '0';
-    await delay(300);
+    await delay(250);
     reveal.classList.add('hidden');
     reveal.style.opacity = '';
 
@@ -1967,6 +1970,10 @@ async function onRoundResult(msg) {
             moveChosen = false;
             showActionButtons();
             startTimer(null);
+        } else if (pvpPendingRoundStart) {
+            var pending = pvpPendingRoundStart;
+            pvpPendingRoundStart = null;
+            onRoundStart(pending);
         }
     }
 }
