@@ -3719,8 +3719,8 @@ async function pvpGetRoomState(initData, roomId) {
     await pvpBroadcastRoomUpdate(nextRoom);
   }
   
-  const finalRoom = finalizePvpRoomIfNeeded(nextRoom);
-  
+  const finalRoom = await finalizePvpRoomIfNeeded(nextRoom);
+
   // ✅ ФИЛЬТРАЦИЯ: для Basketball возвращаем отфильтрованное состояние
   const gameKey = String(finalRoom?.game_key || "");
   const mySide = getPvpSide(finalRoom, tgId);
