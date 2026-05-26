@@ -1828,6 +1828,8 @@ const PVP_BOT_MOVE_MIN_MS = 150;
 const PVP_BOT_MOVE_MAX_MS = 450;
 const PVP_OBSTACLE_BOT_MIN_MS = 700;
 const PVP_OBSTACLE_BOT_MAX_MS = 5000;
+const PVP_BASKETBALL_BOT_MIN_MS = 700;
+const PVP_BASKETBALL_BOT_MAX_MS = 5000;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
@@ -1903,6 +1905,10 @@ function pvpBotMoveDelayMs() {
 
 function pvpObstacleBotDelayMs() {
   return PVP_OBSTACLE_BOT_MIN_MS + Math.floor(Math.random() * (PVP_OBSTACLE_BOT_MAX_MS - PVP_OBSTACLE_BOT_MIN_MS + 1));
+}
+
+function pvpBasketballBotDelayMs() {
+  return PVP_BASKETBALL_BOT_MIN_MS + Math.floor(Math.random() * (PVP_BASKETBALL_BOT_MAX_MS - PVP_BASKETBALL_BOT_MIN_MS + 1));
 }
 
 function pvpWrapWithAcceptPhase(state, roomLike) {
@@ -2558,7 +2564,7 @@ function pvpApplySuperPenaltyMove(room, tgId, move) {
 function pvpBasketballShot(distance) {
   const d = String(distance || "mid");
   if (d === "close") return { made: Math.random() < 0.85, pointsIfMade: 1 };
-  if (d === "far") return { made: Math.random() < 0.35, pointsIfMade: 3 };
+  if (d === "far") return { made: Math.random() < 0.30, pointsIfMade: 3 };
   return { made: Math.random() < 0.5, pointsIfMade: 2 };
 }
 
@@ -2657,7 +2663,7 @@ function pvpAdvanceByTime(room) {
           }
           next.botPending = {
             kind: "basketball_move",
-            dueAtMs: now + pvpBotMoveDelayMs(),
+            dueAtMs: now + pvpBasketballBotDelayMs(),
             value: smartDist,
           };
           next.updatedAt = new Date().toISOString();
@@ -3658,7 +3664,7 @@ async function pvpGetRoomState(initData, roomId) {
   // Пропускаем бот-фоллбэк и advance если комната уже завершена
   const roomStatus = String(room.status || "");
   if (roomStatus === "finished" || roomStatus === "cancelled") {
-    return room;
+    return { ...room, mySide: getPvpSide(room, tgId) };
   }
 
   let roomForTick = await pvpMaybeFallbackToBot(room, tgId);
@@ -3717,21 +3723,22 @@ async function pvpGetRoomState(initData, roomId) {
   
   // ✅ ФИЛЬТРАЦИЯ: для Basketball возвращаем отфильтрованное состояние
   const gameKey = String(finalRoom?.game_key || "");
+  const mySide = getPvpSide(finalRoom, tgId);
   if (gameKey === "basketball") {
     try {
       const filteredState = await sbRpc("pvp_get_filtered_room_state", {
         p_room_id: id,
         p_tg_user_id: tgId,
       });
-      return { ...finalRoom, state_json: filteredState };
+      return { ...finalRoom, state_json: filteredState, mySide };
     } catch (err) {
       console.error("Basketball filtering error:", err);
       // Fallback: return unfiltered if filtering fails
-      return finalRoom;
+      return { ...finalRoom, mySide };
     }
   }
-  
-  return finalRoom;
+
+  return { ...finalRoom, mySide };
 }
 
 async function pvpGetFilteredState(initData, roomId) {
@@ -3893,7 +3900,7 @@ async function pvpSubmitMove(initData, roomId, move) {
     const room = rows?.[0];
     if (!room) throw new Error("Room not found");
     if (!isPvpRoomParticipant(room, tgId)) throw new Error("Forbidden");
-    if (room.status !== "active") return room;
+    if (room.status !== "active") return { ...room, mySide: getPvpSide(room, tgId) };
 
     // Apply move + heartbeat, then immediately tick the engine by time.
     // This guarantees progression even if clients temporarily stop polling.
@@ -3924,8 +3931,9 @@ async function pvpSubmitMove(initData, roomId, move) {
       
       // Broadcast filtered state to both players via WebSocket
       await pvpBroadcastRoomUpdate(nextRoom);
-      
-      return finalizePvpRoomIfNeeded(nextRoom);
+
+      const finalRoom = await finalizePvpRoomIfNeeded(nextRoom);
+      return { ...finalRoom, mySide: getPvpSide(finalRoom, tgId) };
     }
   }
   throw new Error("Room update conflict");

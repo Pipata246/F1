@@ -45,7 +45,7 @@ const ST = { fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif" };
 const DISTS = [
   { key: 'close', label: 'БЛИЖНЯЯ', pts: '1 очко', pct: '~85%', bg: 'from-[#63e6be] to-[#8ff0cf]' },
   { key: 'mid',   label: 'СРЕДНЯЯ', pts: '2 очка', pct: '~50%', bg: 'from-[#48d2ac] to-[#63e6be]' },
-  { key: 'far',   label: 'ДАЛЬНЯЯ', pts: '3 очка', pct: '~35%', bg: 'from-[#30b89e] to-[#48d2ac]' },
+  { key: 'far',   label: 'ДАЛЬНЯЯ', pts: '3 очка', pct: '~30%', bg: 'from-[#30b89e] to-[#48d2ac]' },
 ];
 
 // ============ CSS-ONLY AMBIENT (zero JS cost) ============
@@ -103,7 +103,6 @@ const GamePage = () => {
   const [acceptInfo, setAcceptInfo] = useState(null);
   const [acceptTick, setAcceptTick] = useState(0);
 
-  const wsRef = useRef(null);
   const timerRef = useRef(null);
   const piRef = useRef(0);
   const scoresRef = useRef([0, 0]);
@@ -114,7 +113,7 @@ const GamePage = () => {
   const tgInitDataRef = useRef('');
   const matchSavedRef = useRef(false);
   const localMatchRef = useRef(null);
-  const playModeRef = useRef('idle'); // idle | bot | pvp
+  const playModeRef = useRef('idle');
   const pvpRoomIdRef = useRef(null);
   const pvpOpponentTgIdRef = useRef(null);
   const pvpOpponentIsBotRef = useRef(false);
@@ -124,8 +123,8 @@ const GamePage = () => {
   const pvpLastPhaseKeyRef = useRef('');
   const pvpLastStartKeyRef = useRef('');
   const choiceLockedRef = useRef(false);
+  const pvpMoveCommittedRef = useRef(false);
   const roundResolvingRef = useRef(false);
-  // Defer "round_start" UI until after post-round announcement.
   const roundStartDeferredRef = useRef(null);
   const matchResultDeferredRef = useRef(null);
   const allowRoundStartAtRef = useRef(0);
@@ -136,6 +135,18 @@ const GamePage = () => {
   const turnDeadlineMsRef = useRef(0);
   const autoFiredRef = useRef(false);
   const serverSkewMsRef = useRef(0);
+  const serverSkewSamplesRef = useRef([]);
+  const acceptInfoRef = useRef(null);
+  const myTgIdRef = useRef('');
+  const [gameDims, setGameDims] = useState({ W: 0, H: 0 });
+
+  function pushServerSkew(skewMs) {
+    const arr = serverSkewSamplesRef.current;
+    arr.push(Number(skewMs));
+    if (arr.length > 5) arr.shift();
+    const sorted = arr.slice().sort((a, b) => a - b);
+    serverSkewMsRef.current = sorted[Math.floor(sorted.length / 2)];
+  }
 
   useEffect(() => { piRef.current = playerIndex; }, [playerIndex]);
   useEffect(() => { choosingRef.current = choosing; }, [choosing]);
@@ -143,12 +154,28 @@ const GamePage = () => {
   useEffect(() => { scoresRef.current = scores; }, [scores]);
   useEffect(() => { nameRef.current = displayName; }, [displayName]);
   useEffect(() => { oppRef.current = opponent; }, [opponent]);
+  useEffect(() => { acceptInfoRef.current = acceptInfo; }, [acceptInfo]);
+  useEffect(() => {
+    if (screen !== 'game') return undefined;
+    const el = gameRef.current;
+    if (!el) return undefined;
+    const update = () => setGameDims({ W: el.offsetWidth, H: el.offsetHeight });
+    update();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [screen]);
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     tgInitDataRef.current = tg?.initData || '';
     if (tg?.BackButton) tg.BackButton.hide();
     preloadSounds();
     const u = tg?.initDataUnsafe?.user;
+    myTgIdRef.current = u?.id ? String(u.id) : '';
     const fallback = u?.first_name || 'Player';
     const init = tgInitDataRef.current;
     if (!init) {
@@ -277,7 +304,6 @@ const GamePage = () => {
         keepalive: true,
       }).catch(() => {});
     }
-    wsRef.current?.close();
     clearInterval(timerRef.current);
     if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
     pending.current.forEach(clearTimeout);
@@ -330,13 +356,21 @@ const GamePage = () => {
     timerRef.current = setInterval(tick, 200);
   };
   const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
-  const apiPost = useCallback(async (payload) => {
-    const res = await fetch('/api/user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    });
-    return res.json();
+  const apiPost = useCallback(async (payload, opts) => {
+    const timeoutMs = Number((opts || {}).timeoutMs) || 10_000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+        signal: controller.signal,
+      });
+      return res.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }, []);
 
   // ============ TRAJECTORY (pixels, GPU transforms) ============
@@ -448,23 +482,20 @@ const GamePage = () => {
         if(msg.phase===2) showAnnounce('GAME ON','7 раундов');
         else showAnnounce('OVERTIME','До разницы'); break;
       case 'round_start':
-        // Stage (4): do not start the next selection UI until "GAME ON" disappears.
         if (Date.now() < Number(allowRoundStartAtRef.current || 0)) {
           roundStartDeferredRef.current = msg;
           break;
         }
-        // Never show next-turn controls while previous round animations are still playing.
         if (roundResolvingRef.current) break;
         setAnnounce(null);
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        // В pvp передаём абсолютный deadlineMs — одинаковый у обоих игроков
+        setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
         startTimer(msg.timerSec != null ? msg.timerSec : 15, msg.deadlineMs || 0);
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
-      case 'opponent_locked': break;
       case 'round_result':
         // Ignore if already resolving (server sends multiple round_result messages)
         if (roundResolvingRef.current) return;
@@ -485,7 +516,7 @@ const GamePage = () => {
                 roomId: pvpRoomIdRef.current,
               }).then((d) => {
                 if (typeof d?.serverNowMs === 'number' && Number.isFinite(d.serverNowMs)) {
-                  serverSkewMsRef.current = Date.now() - Number(d.serverNowMs);
+                  pushServerSkew(Date.now() - Number(d.serverNowMs));
                 }
                 if (d?.ok && d.room) applyPvpRoomState(d.room);
               }).catch(() => {});
@@ -547,8 +578,6 @@ const GamePage = () => {
     const s = room.state_json || {};
     if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
       const am = s.acceptMatch || {};
-      const myTgAccept = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
-      const meIsP1Accept = String(room.player1_tg_user_id || '') === myTgAccept;
       setAcceptInfo({
         p1: room.player1_name || 'Игрок 1',
         p2: room.player2_name || 'Игрок 2',
@@ -565,10 +594,16 @@ const GamePage = () => {
     }
     if (String(room.status) === 'active' && !room.player2_tg_user_id) { setScreen('waiting'); return; }
 
-    const myTg = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
-    const meIsP1 = String(room.player1_tg_user_id || '') === myTg;
+    let mySide;
+    if (room.mySide === 'p1' || room.mySide === 'p2') {
+      mySide = room.mySide;
+    } else {
+      const myTgFallback = myTgIdRef.current || String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
+      mySide = myTgFallback && String(room.player1_tg_user_id || '') === myTgFallback ? 'p1' : 'p2';
+    }
+    const meIsP1 = mySide === 'p1';
     const myIdx = meIsP1 ? 0 : 1;
-    const mySide = meIsP1 ? 'p1' : 'p2';
+    const myTg = myTgIdRef.current || String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
     pvpOpponentTgIdRef.current = meIsP1 ? String(room.player2_tg_user_id || '') : String(room.player1_tg_user_id || '');
     pvpOpponentIsBotRef.current = pvpOpponentTgIdRef.current.startsWith('bot_fallback_');
     setScreen('game');
@@ -607,6 +642,7 @@ const GamePage = () => {
       if (roundResolvingRef.current) return;
       pvpLastStartKeyRef.current = startKey;
       choiceLockedRef.current = false;
+      pvpMoveCommittedRef.current = false;
       setSelectedDistance(null);
       // Считаем абсолютный дедлайн: phaseAtMs — серверное время старта раунда (UTC ms).
       // Оба клиента получают одинаковый phaseAtMs → одинаковый deadlineMs → синхронный таймер.
@@ -662,7 +698,7 @@ const GamePage = () => {
           goHome();
           return;
         }
-        if (err === 'Room not found' && acceptInfo) {
+        if (err === 'Room not found' && acceptInfoRef.current) {
           pvpRoomIdRef.current = null;
           setAcceptInfo(null);
           setScreen('waiting');
@@ -672,14 +708,13 @@ const GamePage = () => {
         return;
       }
       if (typeof data?.serverNowMs === 'number' && Number.isFinite(data.serverNowMs)) {
-        // skew = localNow - serverNow
-        serverSkewMsRef.current = Date.now() - Number(data.serverNowMs);
+        pushServerSkew(Date.now() - Number(data.serverNowMs));
       }
       if (data.room) applyPvpRoomState(data.room);
     }).catch(() => {}).finally(() => {
       pvpPollInFlightRef.current = false;
     });
-  }, [apiPost, applyPvpRoomState, stopPvpPolling, goHome, acceptInfo]);
+  }, [apiPost, applyPvpRoomState, stopPvpPolling, goHome]);
 
   const startPvpPolling = useCallback(() => {
     stopPvpPolling();
@@ -691,7 +726,7 @@ const GamePage = () => {
     const cfg = {
       close: { points: 1, baseChance: 0.85, variance: 0.1 },
       mid: { points: 2, baseChance: 0.5, variance: 0.1 },
-      far: { points: 3, baseChance: 0.35, variance: 0.1 },
+      far: { points: 3, baseChance: 0.30, variance: 0.1 },
     }[distance] || { points: 2, baseChance: 0.5, variance: 0.1 };
     const chance = cfg.baseChance + (Math.random() * 2 - 1) * cfg.variance;
     const made = Math.random() < chance;
@@ -780,7 +815,8 @@ const GamePage = () => {
       choiceLockedRef.current = true;
       handleMsg({ type: 'choice_locked' });
       m.choices[1] = botChooseDistance(m.scores[1], m.scores[0]);
-      sched(localResolveRound, 450);
+      const botThinkMs = 700 + Math.floor(Math.random() * 4301);
+      sched(localResolveRound, botThinkMs);
     }
   }
   const askStakeOptions = () => {
@@ -880,6 +916,7 @@ const GamePage = () => {
   const chooseDist = (d) => {
     if (locked || !choosing || choiceLockedRef.current || roundResolvingRef.current) return;
     choiceLockedRef.current = true;
+    pvpMoveCommittedRef.current = false;
     sfx('click');
     setChoosing(false);
     setSelectedDistance(d);
@@ -896,29 +933,29 @@ const GamePage = () => {
           initData: tgInitDataRef.current,
           roomId: pvpRoomIdRef.current,
           move: { distance: d },
-        }).then((data) => {
+        }, { timeoutMs: 5000 }).then((data) => {
+          if (pvpMoveCommittedRef.current) return;
           if (data?.ok && data.room) {
+            pvpMoveCommittedRef.current = true;
             applyPvpRoomState(data.room);
           } else if (basketAttempts < 3) {
             setTimeout(submitBasketMove, 800);
           } else {
-            setLocked(false);
-            choiceLockedRef.current = false;
-            setSelectedDistance(null);
+            showBottomNotice('Ошибка сети, ждём сервер...');
+            pvpPollState();
           }
         }).catch(() => {
+          if (pvpMoveCommittedRef.current) return;
           if (basketAttempts < 3) {
             setTimeout(submitBasketMove, 800);
           } else {
-            setLocked(false);
-            choiceLockedRef.current = false;
-            setSelectedDistance(null);
+            showBottomNotice('Ошибка сети, ждём сервер...');
+            pvpPollState();
           }
         });
       };
       submitBasketMove();
 
-      // Watchdog: если через 8 сек нет round_result — форсируем poll
       setTimeout(() => {
         if (choiceLockedRef.current && pvpRoomIdRef.current && tgInitDataRef.current) {
           apiPost({
@@ -1016,8 +1053,6 @@ const GamePage = () => {
 
   // ============ RENDER ============
   const myName=displayName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
-
-  if(screen==='menu') return null;
 
   if (screen==='demo-intro') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
@@ -1170,7 +1205,8 @@ const GamePage = () => {
             <div className="flex flex-col items-center px-4 gap-0.5">
               <span className="text-2xl text-white/80 tracking-widest">VS</span>
               {phaseLabel&&<span className="text-[9px] text-gray-500 uppercase">{phaseLabel}</span>}
-              {(gamePhase==='main'||gamePhase==='overtime')&&<span className="text-base text-emerald-400">{round}/{maxRounds}</span>}
+              {gamePhase==='main'&&<span className="text-base text-emerald-400">{round}/{maxRounds}</span>}
+              {gamePhase==='overtime'&&<span className="text-base text-emerald-400">Раунд {round}</span>}
               {choosing&&!locked&&<span className={`text-sm ${timer<=3?'text-red-400 animate-pulse':'text-white/25'}`}>{timer}s</span>}
             </div>
             <div className="flex-1 text-center">
@@ -1194,30 +1230,32 @@ const GamePage = () => {
 
       {/* GAME AREA */}
       <div ref={gameRef} className="absolute inset-0 z-10">
-        {/* Players — CSS transitions, no framer-motion */}
-        {[0,1].map(idx => (
-          <div key={idx} className="absolute z-10" style={{
-            width:CHAR_W,height:CHAR_H,marginLeft:-CHAR_W/2,marginTop:-CHAR_H,
-            left:`${positions[idx].x}%`,top:`${positions[idx].y}%`,
-            transition:'left 0.3s ease-out, top 0.3s ease-out', willChange:'left,top',
-          }}>
-            <img src={`${ASSET_BASE}Subway_Homeless_2_48x48.gif`} alt="" draggable={false}
-              style={{width:CHAR_W,height:CHAR_H,imageRendering:'pixelated',transform:idx===1?'scaleX(-1)':'none'}} />
-            {/* idx=0 = визуально левый = Я (зелёный), idx=1 = соперник (красный) */}
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap"
-              style={{color: idx===0 ? P_GREEN : P_RED, textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
-              {idx===0 ? p0Name : p1Name}
+        {gameDims.W > 0 && [0,1].map(idx => {
+          const tx = (positions[idx].x / 100) * gameDims.W - CHAR_W / 2;
+          const ty = (positions[idx].y / 100) * gameDims.H - CHAR_H;
+          return (
+            <div key={idx} className="absolute z-10" style={{
+              width: CHAR_W, height: CHAR_H, top: 0, left: 0,
+              transform: `translate3d(${tx}px, ${ty}px, 0)`,
+              transition: 'transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              willChange: 'transform',
+            }}>
+              <img src={`${ASSET_BASE}Subway_Homeless_2_48x48.gif`} alt="" draggable={false}
+                style={{width:CHAR_W,height:CHAR_H,imageRendering:'pixelated',transform:idx===1?'scaleX(-1)':'none'}} />
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-wider whitespace-nowrap"
+                style={{color: idx===0 ? P_GREEN : P_RED, textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
+                {idx===0 ? p0Name : p1Name}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
-        {/* Ball — framer-motion only for the arc (GPU transforms) */}
         {ballAnim && (
           <motion.img key={ballAnim.id} src={`${ASSET_BASE}Ball.png`} alt="" draggable={false} className="absolute z-20"
             style={{left:0,top:0,width:BALL_SIZE,height:BALL_SIZE,imageRendering:'pixelated',willChange:'transform'}}
             initial={{x:ballAnim.kf.x[0],y:ballAnim.kf.y[0],opacity:1,scale:1,rotate:0}}
             animate={{x:ballAnim.kf.x,y:ballAnim.kf.y,opacity:ballAnim.kf.opacity,scale:ballAnim.kf.scale,rotate:ballAnim.kf.rotate}}
-            transition={{duration:ballAnim.duration,times:[0,0.38,0.72,1],ease:'easeInOut'}}
+            transition={{duration:ballAnim.duration,times:[0,0.35,0.75,1],ease:['easeOut','easeIn','easeOut']}}
           />
         )}
 
