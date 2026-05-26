@@ -1084,6 +1084,15 @@ function setDotAbility(dot, kind, icon) {
     m.className = 'ability-marker ability-marker--' + kind;
 }
 
+function playAbilityBurst(dot, icon, kind) {
+    if (!dot) return;
+    var burst = document.createElement('div');
+    burst.className = 'ability-burst ability-burst--' + kind;
+    burst.textContent = icon;
+    dot.appendChild(burst);
+    setTimeout(function() { if (burst && burst.parentNode) burst.parentNode.removeChild(burst); }, 1500);
+}
+
 function generateGameTracks(n) {
     trackDots = n;
     for (let t = 0; t < 2; t++) {
@@ -1254,7 +1263,7 @@ async function showAbilityReveal() {
 function enterXrayScanMode() {
     xrayScanMode = true;
     document.body.classList.add('xray-mode');
-    for (let i = currentStep; i < trackDots; i++) {
+    for (let i = currentStep + 1; i < trackDots; i++) {
         var dot = $('dot-0-' + i);
         if (dot && !revealedPoints.hasOwnProperty(String(i))) {
             dot.classList.add('xray-scannable');
@@ -1332,7 +1341,10 @@ function onOppXray(msg) {
 
     if (msg && Number.isInteger(Number(msg.point))) {
         var oppDot = $('dot-1-' + Number(msg.point));
-        if (oppDot) setDotAbility(oppDot, 'xray', '👁');
+        if (oppDot) {
+            setDotAbility(oppDot, 'xray', '👁');
+            playAbilityBurst(oppDot, '👁', 'xray');
+        }
     }
 }
 
@@ -1508,8 +1520,12 @@ function localServerOnClientMessage(msg) {
     if (msg.type === 'make_move') {
         if (localMatch.ended) return;
         localMatch.moves[0] = { action: msg.action, useAbility: !!msg.useAbility };
-        localChooseBotMove();
-        localResolveRound();
+        const botThinkDelay = 700 + Math.floor(Math.random() * 4301);
+        setTimeout(function() {
+            if (!localMatch || localMatch.ended) return;
+            localChooseBotMove();
+            localResolveRound();
+        }, botThinkDelay);
     }
 }
 
@@ -1901,13 +1917,17 @@ async function onRoundResult(msg) {
     if (opp.usedAbility === 'double') {
         s1.classList.add('lightning-flash');
         setTimeout(function() { s1.classList.remove('lightning-flash'); }, 800);
-        setDotAbility(oppDot, opp.points > 0 ? 'double-success' : 'double-fail', '⚡');
+        var oppDoubleKind = opp.points > 0 ? 'double-success' : 'double-fail';
+        setDotAbility(oppDot, oppDoubleKind, '⚡');
+        playAbilityBurst(oppDot, '⚡', oppDoubleKind);
     }
     if (my.usedAbility === 'sabotage') {
-        setDotAbility(myDot, my.sabotageHit ? 'sabotage-success' : 'sabotage-backfire', '💀');
+        setDotAbility(oppDot, my.sabotageHit ? 'sabotage-success' : 'sabotage-backfire', '💀');
     }
     if (opp.usedAbility === 'sabotage') {
-        setDotAbility(oppDot, opp.sabotageHit ? 'sabotage-success' : 'sabotage-backfire', '💀');
+        var oppSabKind = opp.sabotageHit ? 'sabotage-victim' : 'sabotage-backfire';
+        setDotAbility(myDot, oppSabKind, '💀');
+        playAbilityBurst(myDot, '💀', oppSabKind);
     }
     if (my.sabotaged || opp.sabotaged) {
         showSabotageEffect();

@@ -301,8 +301,8 @@ body {
 .sb-player.you .sb-score { color: var(--accent); }
 .sb-player.opp .sb-score { color: var(--opp); }
 .sb-center { text-align: center; }
-.round-num { font-size: 11px; color: var(--text2); display: block; }
-.round-val { font-size: 20px; font-weight: 700; color: var(--accent2); }
+.round-num { font-size: 14px; color: var(--text2); display: block; letter-spacing: 0.03em; }
+.round-val { font-size: 28px; font-weight: 900; color: var(--accent2); line-height: 1.1; }
 
 /* TRACKS */
 .tracks-area {
@@ -522,6 +522,7 @@ body.xray-mode .track-avatar {
 .ability-marker--double-fail,
 .ability-marker--double-success,
 .ability-marker--sabotage-success,
+.ability-marker--sabotage-victim,
 .ability-marker--sabotage-backfire,
 .ability-marker--xray {
     display: block;
@@ -538,6 +539,10 @@ body.xray-mode .track-avatar {
     color: var(--success);
     filter: drop-shadow(0 0 4px rgba(77, 230, 128, 0.7));
 }
+.ability-marker--sabotage-victim {
+    color: var(--danger);
+    filter: drop-shadow(0 0 4px rgba(255, 71, 87, 0.7));
+}
 .ability-marker--sabotage-backfire {
     color: var(--text2);
     opacity: 0.6;
@@ -546,6 +551,29 @@ body.xray-mode .track-avatar {
     color: #6ab7ff;
     filter: drop-shadow(0 0 4px rgba(106, 183, 255, 0.7));
 }
+
+.ability-burst {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    font-size: 32px;
+    line-height: 1;
+    z-index: 10;
+    pointer-events: none;
+    animation: abilityBurst 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    transform-origin: center center;
+}
+@keyframes abilityBurst {
+    0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+    20% { transform: translate(-50%, -50%) scale(1.8); opacity: 1; }
+    55% { transform: translate(-50%, -60%) scale(1.4); opacity: 1; }
+    100% { transform: translate(-50%, -180%) scale(0.7); opacity: 0; }
+}
+.ability-burst--double-fail { color: var(--danger); filter: drop-shadow(0 0 8px rgba(255, 71, 87, 0.85)); }
+.ability-burst--double-success { color: var(--warn); filter: drop-shadow(0 0 8px rgba(255, 196, 58, 0.85)); }
+.ability-burst--sabotage-victim { color: var(--danger); filter: drop-shadow(0 0 8px rgba(255, 71, 87, 0.85)); }
+.ability-burst--sabotage-backfire { color: var(--text2); filter: drop-shadow(0 0 6px rgba(160, 160, 160, 0.6)); }
+.ability-burst--xray { color: #6ab7ff; filter: drop-shadow(0 0 8px rgba(106, 183, 255, 0.85)); }
 @keyframes mineExplode {
     0% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 165, 2, 0); }
     15% { transform: scale(1.4); box-shadow: 0 0 30px rgba(255, 165, 2, 0.9); }

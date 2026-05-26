@@ -1826,6 +1826,8 @@ const PVP_BOT_WAIT_SPAN_MS = 5_000; // 10..15 sec range
 // чтобы не казался роботом, но переходы между раундами заметно быстрее.
 const PVP_BOT_MOVE_MIN_MS = 150;
 const PVP_BOT_MOVE_MAX_MS = 450;
+const PVP_OBSTACLE_BOT_MIN_MS = 700;
+const PVP_OBSTACLE_BOT_MAX_MS = 5000;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
@@ -1897,6 +1899,10 @@ function pvpPickBotName() {
 
 function pvpBotMoveDelayMs() {
   return PVP_BOT_MOVE_MIN_MS + Math.floor(Math.random() * (PVP_BOT_MOVE_MAX_MS - PVP_BOT_MOVE_MIN_MS + 1));
+}
+
+function pvpObstacleBotDelayMs() {
+  return PVP_OBSTACLE_BOT_MIN_MS + Math.floor(Math.random() * (PVP_OBSTACLE_BOT_MAX_MS - PVP_OBSTACLE_BOT_MIN_MS + 1));
 }
 
 function pvpWrapWithAcceptPhase(state, roomLike) {
@@ -2918,7 +2924,7 @@ function pvpAdvanceByTime(room) {
           if (botPending.kind !== "obstacle_traps_main") {
             next.botPending = {
               kind: "obstacle_traps_main",
-              dueAtMs: now + pvpBotMoveDelayMs(),
+              dueAtMs: now + pvpObstacleBotDelayMs(),
               value: pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3)),
             };
             next.updatedAt = new Date().toISOString();
@@ -2944,7 +2950,7 @@ function pvpAdvanceByTime(room) {
           if (botPending.kind !== "obstacle_traps_ot") {
             next.botPending = {
               kind: "obstacle_traps_ot",
-              dueAtMs: now + pvpBotMoveDelayMs(),
+              dueAtMs: now + pvpObstacleBotDelayMs(),
               value: pvpRandomTraps(Number(s.overtimeRounds || 3), Number(s.trapsPerOvertime || 1)),
             };
             next.updatedAt = new Date().toISOString();
@@ -2982,7 +2988,7 @@ function pvpAdvanceByTime(room) {
             }
             next.botPending = {
               kind: "obstacle_move",
-              dueAtMs: now + pvpBotMoveDelayMs(),
+              dueAtMs: now + pvpObstacleBotDelayMs(),
               value: { action: smartAction, useAbility: false },
             };
             next.updatedAt = new Date().toISOString();
