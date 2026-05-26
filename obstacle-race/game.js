@@ -1154,7 +1154,15 @@ function highlightCurrentDot(step) {
     if (step < trackDots) {
         for (let t = 0; t < 2; t++) {
             const d = $('dot-' + t + '-' + step);
-            if (d) d.classList.add('current');
+            if (d) {
+                d.classList.add('current');
+                d.classList.remove('xray-trap', 'xray-safe', 'xray-scannable');
+                var marker = d.querySelector('.ability-marker');
+                if (marker && marker.className.indexOf('ability-marker--xray') !== -1) {
+                    marker.className = 'ability-marker';
+                    marker.textContent = '';
+                }
+            }
         }
     }
 }
