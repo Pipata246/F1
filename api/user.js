@@ -1967,7 +1967,7 @@ function pvpHeartbeat(state, tgId) {
   const now = Date.now();
   const presence = { ...(next.presence || {}) };
   const prev = Number(presence[side] || 0);
-  if (now - prev < 30_000) return { changed: false, state: next };
+  if (now - prev < 5_000) return { changed: false, state: next };
   presence[side] = now;
   next.presence = presence;
   next.updatedAt = new Date().toISOString();
@@ -2684,7 +2684,7 @@ function pvpAdvanceByTime(room) {
     }
 
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 45000;
+      const staleMs = 22000;
       const p1Stale = now - p1Beat > staleMs;
       const p2Stale = now - p2Beat > staleMs;
       if (p1Stale !== p2Stale && elapsed >= 3000) {
@@ -2714,7 +2714,10 @@ function pvpAdvanceByTime(room) {
       const p2 = Number(asObj(s.scores).p2 || 0);
       if (phaseNum === 2) {
         const maxRounds = Number(s.maxRounds || 7);
-        if (round >= Number(s.maxRounds || 7)) {
+        const remaining = Math.max(0, maxRounds - round);
+        const diff = Math.abs(p1 - p2);
+        const earlyEnd = remaining > 0 && diff > remaining * 3;
+        if (round >= maxRounds) {
           if (p1 !== p2) {
             next.phase = "match_over";
             next.phaseAtMs = now;
@@ -2727,15 +2730,19 @@ function pvpAdvanceByTime(room) {
             next.phase = "turn_input";
             next.phaseAtMs = now;
             next.choices = { p1: null, p2: null };
-            // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при переходе в овертайм
             next.moveSubmittedBy = { p1: null, p2: null };
             next.markers = { ...asObj(s.markers), phase: Number(asObj(s.markers).phase || 0) + 1 };
           }
+        } else if (earlyEnd) {
+          next.phase = "match_over";
+          next.phaseAtMs = now;
+          next.winnerSide = p1 > p2 ? "p1" : "p2";
+          next.earlyEnd = true;
+          next.markers = { ...asObj(s.markers), match: Number(asObj(s.markers).match || 0) + 1 };
         } else {
           next.phase = "turn_input";
           next.phaseAtMs = now;
           next.choices = { p1: null, p2: null };
-          // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy при переходе к новому раунду
           next.moveSubmittedBy = { p1: null, p2: null };
         }
         next.updatedAt = new Date().toISOString();

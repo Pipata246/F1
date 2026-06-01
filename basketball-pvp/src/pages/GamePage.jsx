@@ -16,19 +16,39 @@ function appSettings() {
 
 // ============ SOUNDS (pooled) ============
 const SFX_POOL = {};
+let audioUnlocked = false;
 function preloadSounds() {
   const vols = { click: 0.3, swoosh: 0.4, hit: 0.6, miss: 0.6, win: 0.6, lose: 0.6 };
   Object.entries(vols).forEach(([name, vol]) => {
-    // Pool of 3 audio elements per sound — no cloneNode overhead
-    SFX_POOL[name] = { pool: Array.from({ length: 3 }, () => { const a = new Audio(`${ASSET_BASE}${name}.mp3`); a.preload = 'auto'; a.volume = vol; return a; }), idx: 0 };
+    SFX_POOL[name] = { pool: Array.from({ length: 3 }, () => { const a = new Audio(`${ASSET_BASE}${name}.mp3`); a.preload = 'auto'; a.volume = vol; return a; }), idx: 0, vol };
+  });
+}
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  Object.values(SFX_POOL).forEach(({ pool, vol }) => {
+    pool.forEach((a) => {
+      try {
+        a.muted = true;
+        const p = a.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => { a.pause(); a.currentTime = 0; a.muted = false; a.volume = vol; }).catch(() => { a.muted = false; a.volume = vol; });
+        } else {
+          a.pause(); a.currentTime = 0; a.muted = false; a.volume = vol;
+        }
+      } catch {}
+    });
   });
 }
 function sfx(name) {
   try {
     if (!appSettings().sound) return;
+    if (!audioUnlocked) unlockAudio();
     const s = SFX_POOL[name]; if (!s) return;
     const a = s.pool[s.idx % s.pool.length]; s.idx++;
-    a.currentTime = 0; a.play().catch(() => {});
+    try { a.currentTime = 0; } catch {}
+    const p = a.play();
+    if (p && typeof p.then === 'function') p.catch(() => {});
   } catch {}
 }
 
@@ -156,6 +176,19 @@ const GamePage = () => {
   useEffect(() => { oppRef.current = opponent; }, [opponent]);
   useEffect(() => { acceptInfoRef.current = acceptInfo; }, [acceptInfo]);
   useEffect(() => {
+    const prime = () => {
+      unlockAudio();
+      document.removeEventListener('touchstart', prime);
+      document.removeEventListener('click', prime);
+    };
+    document.addEventListener('touchstart', prime, { once: true, passive: true });
+    document.addEventListener('click', prime, { once: true });
+    return () => {
+      document.removeEventListener('touchstart', prime);
+      document.removeEventListener('click', prime);
+    };
+  }, []);
+  useEffect(() => {
     if (screen !== 'game') return undefined;
     const el = gameRef.current;
     if (!el) return undefined;
@@ -174,6 +207,10 @@ const GamePage = () => {
     tgInitDataRef.current = tg?.initData || '';
     if (tg?.BackButton) tg.BackButton.hide();
     preloadSounds();
+    ['Ball.png', 'bg.webp', 'Subway_Homeless_2_48x48.gif'].forEach((name) => {
+      const img = new Image();
+      img.src = `${ASSET_BASE}${name}`;
+    });
     const u = tg?.initDataUnsafe?.user;
     myTgIdRef.current = u?.id ? String(u.id) : '';
     const fallback = u?.first_name || 'Player';
@@ -207,6 +244,13 @@ const GamePage = () => {
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = setTimeout(() => setBottomNotice(''), 2200);
   }, []);
+  useEffect(() => {
+    if (!locked || playModeRef.current !== 'pvp') return undefined;
+    const t = setTimeout(() => {
+      if (lockedRef.current) showBottomNotice('Соперник не отвечает...');
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [locked, showBottomNotice]);
   const goHome = useCallback(() => {
     window.location.href = '/';
   }, []);
@@ -331,9 +375,8 @@ const GamePage = () => {
       const leftMs = Math.max(0, Number(turnDeadlineMsRef.current || 0) - Date.now());
       const leftSec = Math.max(0, Math.min(15, Math.ceil(leftMs / 1000)));
       setTimer(leftSec);
-      if (leftMs <= 0 && !autoFiredRef.current) {
+      if (leftMs <= 0 && !autoFiredRef.current && !choiceLockedRef.current) {
         autoFiredRef.current = true;
-        // In online mode, auto-move must be server-authoritative to avoid clock skew issues.
         if (playModeRef.current === 'pvp') {
           if (choosingRef.current && !lockedRef.current) {
             choiceLockedRef.current = true;
@@ -373,16 +416,22 @@ const GamePage = () => {
     }
   }, []);
 
-  // ============ TRAJECTORY (pixels, GPU transforms) ============
   function buildKF(shooterIdx, distance, made) {
     const el = gameRef.current; if (!el) return null;
     const W = el.offsetWidth, H = el.offsetHeight;
     const sx = PLAYER_X[shooterIdx]/100*W, sy = ((DIST_Y[distance]||START_Y)-5)/100*H;
     const hx = HOOP.x/100*W, hy = HOOP.y/100*H;
-    const px = (sx+hx)/2, py = Math.min(sy,hy) - H*0.12;
+    const px = (sx+hx)/2, py = Math.min(sy,hy) - H*0.20;
     const [ex, ey] = made ? [hx, hy+H*0.12] : [hx+(shooterIdx===0?W*0.12:-W*0.12), hy+H*0.08];
     const o = BALL_SIZE/2;
-    return { x:[sx-o,px-o,hx-o,ex-o], y:[sy-o,py-o,hy-o,ey-o], opacity: made?[1,1,1,0]:[1,1,0.8,0.1], scale:[1,0.85,0.75,made?0.35:0.5], rotate: made?[0,0,0,0]:[0,0,0,180] };
+    const spinDir = shooterIdx === 0 ? 1 : -1;
+    return {
+      x:[sx-o,px-o,hx-o,ex-o],
+      y:[sy-o,py-o,hy-o,ey-o],
+      opacity: made?[1,1,1,0]:[1,1,0.85,0.1],
+      scale:[1,0.9,0.78,made?0.4:0.55],
+      rotate: made ? [0, 180*spinDir, 360*spinDir, 360*spinDir] : [0, 180*spinDir, 360*spinDir, 540*spinDir],
+    };
   }
 
   // ============ SHOT ANIMATION (sequential, minimal state updates) ============
@@ -492,7 +541,6 @@ const GamePage = () => {
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
         startTimer(msg.timerSec != null ? msg.timerSec : 15, msg.deadlineMs || 0);
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
@@ -773,7 +821,6 @@ const GamePage = () => {
     });
     m.round += 1;
     handleMsg({ type: 'round_result', shots, scores: [...m.scores], round: m.round, phase: m.phase });
-    // Prevent demo freeze: schedule next step after actual round animation + "GAME ON".
     const afterMs = roundAnimTotalMs(m.phase, 2) + 1650;
     if (m.phase === 2 && m.round >= 7) {
       if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), afterMs);
@@ -784,6 +831,14 @@ const GamePage = () => {
       if (m.scores[0] !== m.scores[1]) sched(() => localFinishMatch(), afterMs);
       else sched(localStartRound, afterMs);
       return;
+    }
+    if (m.phase === 2) {
+      const remaining = Math.max(0, 7 - m.round);
+      const diff = Math.abs(m.scores[0] - m.scores[1]);
+      if (remaining > 0 && diff > remaining * 3) {
+        sched(() => localFinishMatch(), afterMs);
+        return;
+      }
     }
     sched(localStartRound, afterMs);
   }
@@ -1251,11 +1306,13 @@ const GamePage = () => {
         })}
 
         {ballAnim && (
-          <motion.img key={ballAnim.id} src={`${ASSET_BASE}Ball.png`} alt="" draggable={false} className="absolute z-20"
-            style={{left:0,top:0,width:BALL_SIZE,height:BALL_SIZE,imageRendering:'pixelated',willChange:'transform'}}
+          <motion.img key={ballAnim.id} src={`${ASSET_BASE}Ball.png`} alt="" draggable={false}
+            decoding="async" fetchpriority="high"
+            className="absolute z-20"
+            style={{left:0,top:0,width:BALL_SIZE,height:BALL_SIZE,imageRendering:'pixelated',willChange:'transform,opacity'}}
             initial={{x:ballAnim.kf.x[0],y:ballAnim.kf.y[0],opacity:1,scale:1,rotate:0}}
             animate={{x:ballAnim.kf.x,y:ballAnim.kf.y,opacity:ballAnim.kf.opacity,scale:ballAnim.kf.scale,rotate:ballAnim.kf.rotate}}
-            transition={{duration:ballAnim.duration,times:[0,0.35,0.75,1],ease:['easeOut','easeIn','easeOut']}}
+            transition={{duration:ballAnim.duration,times:[0,0.32,0.78,1],ease:['easeOut','easeIn','easeOut']}}
           />
         )}
 
