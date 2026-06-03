@@ -162,6 +162,7 @@ const GamePage = () => {
   const animationGenRef = useRef(0);
   const screenRef = useRef('');
   const findInFlightRef = useRef(false);
+  const lockedMySideRef = useRef(null);
   const [gameDims, setGameDims] = useState({ W: 0, H: 0 });
 
   function pushServerSkew(skewMs) {
@@ -653,11 +654,18 @@ const GamePage = () => {
     if (String(room.status) === 'active' && !room.player2_tg_user_id) { setScreen('waiting'); return; }
 
     let mySide;
-    if (room.mySide === 'p1' || room.mySide === 'p2') {
+    if (lockedMySideRef.current === 'p1' || lockedMySideRef.current === 'p2') {
+      mySide = lockedMySideRef.current;
+      if ((room.mySide === 'p1' || room.mySide === 'p2') && room.mySide !== mySide) {
+        try { console.warn('[basketball] server mySide differs from locked', { server: room.mySide, locked: mySide, roomId: room.id }); } catch {}
+      }
+    } else if (room.mySide === 'p1' || room.mySide === 'p2') {
       mySide = room.mySide;
+      lockedMySideRef.current = mySide;
     } else {
       const myTgFallback = myTgIdRef.current || String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '');
       mySide = myTgFallback && String(room.player1_tg_user_id || '') === myTgFallback ? 'p1' : 'p2';
+      lockedMySideRef.current = mySide;
     }
     const meIsP1 = mySide === 'p1';
     const myIdx = meIsP1 ? 0 : 1;
@@ -915,6 +923,7 @@ const GamePage = () => {
     matchResultDeferredRef.current = null;
     allowRoundStartAtRef.current = 0;
     autoFiredRef.current = false;
+    lockedMySideRef.current = null;
     setSelectedDistance(null);
     setAnnounce(null);
     setBallAnim(null);
