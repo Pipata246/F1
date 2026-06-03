@@ -18,6 +18,7 @@ function appSettings() {
 const SFX_POOL = {};
 let audioUnlocked = false;
 function preloadSounds() {
+  audioUnlocked = false;
   const vols = { click: 0.3, swoosh: 0.4, hit: 0.6, miss: 0.6, win: 0.6, lose: 0.6 };
   Object.entries(vols).forEach(([name, vol]) => {
     SFX_POOL[name] = { pool: Array.from({ length: 3 }, () => { const a = new Audio(`${ASSET_BASE}${name}.mp3`); a.preload = 'auto'; a.volume = vol; return a; }), idx: 0, vol };
@@ -158,6 +159,9 @@ const GamePage = () => {
   const serverSkewSamplesRef = useRef([]);
   const acceptInfoRef = useRef(null);
   const myTgIdRef = useRef('');
+  const animationGenRef = useRef(0);
+  const screenRef = useRef('');
+  const findInFlightRef = useRef(false);
   const [gameDims, setGameDims] = useState({ W: 0, H: 0 });
 
   function pushServerSkew(skewMs) {
@@ -175,6 +179,7 @@ const GamePage = () => {
   useEffect(() => { nameRef.current = displayName; }, [displayName]);
   useEffect(() => { oppRef.current = opponent; }, [opponent]);
   useEffect(() => { acceptInfoRef.current = acceptInfo; }, [acceptInfo]);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
   useEffect(() => {
     const prime = () => {
       unlockAudio();
@@ -255,10 +260,10 @@ const GamePage = () => {
     window.location.href = '/';
   }, []);
   useEffect(() => {
-    if (screen !== 'accept') return undefined;
+    if (screen !== 'waiting' || !acceptInfo) return undefined;
     const id = setInterval(() => setAcceptTick((v) => v + 1), 500);
     return () => clearInterval(id);
-  }, [screen]);
+  }, [screen, acceptInfo]);
   useEffect(() => {
     const ping = () => {
       const init = tgInitDataRef.current;
@@ -300,7 +305,6 @@ const GamePage = () => {
     window.addEventListener('pagehide', leave);
     return () => {
       window.removeEventListener('pagehide', leave);
-      leave();
     };
   }, []);
   useEffect(() => {
@@ -323,7 +327,11 @@ const GamePage = () => {
       }).catch(() => {});
     };
     const onVis = () => {
-      if (document.visibilityState === 'hidden') postPvp('pvpCancelQueue');
+      if (document.visibilityState !== 'hidden') return;
+      const scr = screenRef.current;
+      if (scr === 'waiting' && !acceptInfoRef.current) {
+        postPvp('pvpCancelQueue');
+      }
     };
     const onPageHidePvp = () => postPvp('pvpLeaveRoom');
     document.addEventListener('visibilitychange', onVis);
@@ -463,6 +471,10 @@ const GamePage = () => {
 
   function animateRound(shotsRaw, phase, finalScores, onDone) {
     clearPending();
+    setBallAnim(null);
+    setShotResult(null);
+    const gen = ++animationGenRef.current;
+    const isCurrent = () => animationGenRef.current === gen;
     const shots = normalizeShotsForViewer(shotsRaw);
     const dur = phase === 1 ? 1.6 : 2.4, durMs = dur*1000;
     const moveMs = phase===1?100:400, showMs=1000, gap=300;
@@ -470,11 +482,9 @@ const GamePage = () => {
 
     shots.forEach((shot, i) => {
       const t0 = i*cycle;
-      // viewIndex уже правильно посчитан в normalizeShotsForViewer:
-      // 0 = левый (я), 1 = правый (соперник) — одинаково у обоих клиентов
       const shooterViewIdx = Number(shot.viewIndex ?? 0);
-      // Move player
       sched(() => {
+        if (!isCurrent()) return;
         if (phase !== 1) {
           setPositions((prev) => {
             const n = Array.isArray(prev)
@@ -486,18 +496,25 @@ const GamePage = () => {
         }
         setShotResult(null);
       }, t0);
-      // Ball
-      sched(() => { sfx('swoosh'); const kf=buildKF(shooterViewIdx,shot.distance,shot.made); if(kf)setBallAnim({id:Date.now()+i,kf,duration:dur}); }, t0+moveMs);
-      // Result: show per-shot only, no score updates mid-sequence.
+      sched(() => {
+        if (!isCurrent()) return;
+        sfx('swoosh');
+        const kf = buildKF(shooterViewIdx, shot.distance, shot.made);
+        if (kf) setBallAnim({ id: Date.now() + i, kf, duration: dur });
+      }, t0 + moveMs);
       const rimT = t0+moveMs+durMs*0.72;
-      sched(() => { sfx(shot.made?'hit':'miss'); setShotResult({made:shot.made,points:shot.points}); }, rimT);
-      sched(() => setBallAnim(null), t0+moveMs+durMs+200);
-      sched(() => setShotResult(null), rimT+showMs);
+      sched(() => {
+        if (!isCurrent()) return;
+        sfx(shot.made ? 'hit' : 'miss');
+        setShotResult({ made: shot.made, points: shot.points });
+      }, rimT);
+      sched(() => { if (isCurrent()) setBallAnim(null); }, t0+moveMs+durMs+200);
+      sched(() => { if (isCurrent()) setShotResult(null); }, rimT+showMs);
     });
     const endAt = shots.length * cycle + 200;
     sched(() => {
+      if (!isCurrent()) return;
       setShotResult(null);
-      // In online mode, scores are already updated by server
       if (playModeRef.current !== 'pvp') {
         setScores([...finalScores]);
       }
@@ -554,30 +571,23 @@ const GamePage = () => {
         setAnnounce(null);
         roundResolvingRef.current = true;
         setRoundResolving(true);
-        // Watchdog: if animation stalls, re-sync from server.
-        const rrWatchdog = setTimeout(() => {
-          if (roundResolvingRef.current) {
-            if (playModeRef.current === 'pvp' && pvpRoomIdRef.current && tgInitDataRef.current) {
-              apiPost({
-                action: 'pvpGetRoomState',
-                initData: tgInitDataRef.current,
-                roomId: pvpRoomIdRef.current,
-              }).then((d) => {
-                if (typeof d?.serverNowMs === 'number' && Number.isFinite(d.serverNowMs)) {
-                  pushServerSkew(Date.now() - Number(d.serverNowMs));
-                }
-                if (d?.ok && d.room) applyPvpRoomState(d.room);
-              }).catch(() => {});
+        sched(() => {
+          if (!roundResolvingRef.current) return;
+          if (playModeRef.current !== 'pvp' || !pvpRoomIdRef.current || !tgInitDataRef.current) return;
+          apiPost({
+            action: 'pvpGetRoomState',
+            initData: tgInitDataRef.current,
+            roomId: pvpRoomIdRef.current,
+          }).then((d) => {
+            if (typeof d?.serverNowMs === 'number' && Number.isFinite(d.serverNowMs)) {
+              pushServerSkew(Date.now() - Number(d.serverNowMs));
             }
-            roundResolvingRef.current = false;
-            setRoundResolving(false);
-          }
-        }, 12000);
+            if (d?.ok && d.room) applyPvpRoomState(d.room);
+          }).catch(() => {});
+        }, 15000);
         animateRound(msg.shots, msg.phase, msg.scores, () => {
-          clearTimeout(rrWatchdog);
           roundResolvingRef.current = false;
           setRoundResolving(false);
-          // Stage (2,3): only after BOTH throws.
           setScores(msg.scores);
           const pendingMatch = matchResultDeferredRef.current;
           if (pendingMatch) {
@@ -661,9 +671,7 @@ const GamePage = () => {
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
     setCurrentStakeTon(room.stake_ton != null ? Number(room.stake_ton) : null);
 
-    const phaseNum = Number(s.phaseNum || 1);
-    // Do not treat every phase transition (turn_input/round_result) as a "new phase" for UI.
-    // We only want phase notifications when phaseNum changes (main -> overtime).
+    const phaseNum = Number(s.phaseNum || 2);
     const phaseKey = String(phaseNum);
     if (phaseKey !== pvpLastPhaseKeyRef.current) {
       pvpLastPhaseKeyRef.current = phaseKey;
@@ -721,10 +729,13 @@ const GamePage = () => {
       let youWon = false;
       if (s.winnerSide) youWon = s.winnerSide === mySide;
       else if (arr[0] !== arr[1]) youWon = myIdx === 0 ? arr[0] > arr[1] : arr[1] > arr[0];
-      if (s.endedByLeave && s.leftBy && String(s.leftBy) !== myTg && String(s.leaveKind || '') === 'explicit') {
-        setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
-        setScreen('result');
-        return;
+      if (s.endedByLeave && s.leftBy && myTg && String(s.leftBy) !== myTg) {
+        const kind = String(s.leaveKind || '');
+        if (kind === 'explicit' || kind === 'stale_presence') {
+          setMatchResult({ youWon: true, scores: arr, opponentLeft: true });
+          setScreen('result');
+          return;
+        }
       }
       handleMsg({ type: 'match_result', youWon, scores: arr });
     }
@@ -892,7 +903,26 @@ const GamePage = () => {
     ));
   };
 
+  const resetMatchStateRefs = () => {
+    roundResolvingRef.current = false;
+    setRoundResolving(false);
+    choiceLockedRef.current = false;
+    pvpMoveCommittedRef.current = false;
+    pvpLastRoundMarkerRef.current = 0;
+    pvpLastPhaseKeyRef.current = '';
+    pvpLastStartKeyRef.current = '';
+    roundStartDeferredRef.current = null;
+    matchResultDeferredRef.current = null;
+    allowRoundStartAtRef.current = 0;
+    autoFiredRef.current = false;
+    setSelectedDistance(null);
+    setAnnounce(null);
+    setBallAnim(null);
+    setShotResult(null);
+  };
+
   const findGameOnline = () => {
+    if (findInFlightRef.current) return;
     sfx('click');
     const n = displayName.trim() || 'Player';
     const stakes = askStakeOptions();
@@ -902,9 +932,7 @@ const GamePage = () => {
     setCurrentStakeTon(null);
     matchSavedRef.current = false;
     clearPending();
-    pvpLastRoundMarkerRef.current = 0;
-    pvpLastPhaseKeyRef.current = '';
-    pvpLastStartKeyRef.current = '';
+    resetMatchStateRefs();
     stopPvpPolling();
     pvpRoomIdRef.current = null;
 
@@ -915,6 +943,7 @@ const GamePage = () => {
       setScreen('stake-online');
       return;
     }
+    findInFlightRef.current = true;
     setScreen('waiting');
     apiPost({
       action: 'pvpFindMatch',
@@ -923,11 +952,13 @@ const GamePage = () => {
       playerName: n,
       stakeOptions: stakes,
     }).then((data) => {
+      findInFlightRef.current = false;
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
       pvpRoomIdRef.current = data.room.id;
       startPvpPolling();
     }).catch((err) => {
+      findInFlightRef.current = false;
       playModeRef.current = 'idle';
       showBottomNotice(String(err?.message || '').trim() || 'Не удалось начать поиск. Попробуй снова.');
       setScreen('stake-online');
@@ -935,15 +966,19 @@ const GamePage = () => {
   };
 
   const findGameBot = () => {
+    if (findInFlightRef.current) return;
+    findInFlightRef.current = true;
     sfx('click');
     const n = displayName.trim() || 'Player';
     matchSavedRef.current = false;
     clearPending();
+    resetMatchStateRefs();
     stopPvpPolling();
     pvpRoomIdRef.current = null;
     setCurrentStakeTon(null);
     playModeRef.current = 'bot';
     localOnClientMessage('find_bot', { name: n, tgUserId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || null });
+    sched(() => { findInFlightRef.current = false; }, 600);
   };
 
 
@@ -970,13 +1005,16 @@ const GamePage = () => {
 
   const chooseDist = (d) => {
     if (locked || !choosing || choiceLockedRef.current || roundResolvingRef.current) return;
+    if (playModeRef.current === 'pvp' && (!pvpRoomIdRef.current || !tgInitDataRef.current)) {
+      showBottomNotice('Нет соединения. Попробуй ещё раз.');
+      return;
+    }
     choiceLockedRef.current = true;
     pvpMoveCommittedRef.current = false;
     sfx('click');
     setChoosing(false);
     setSelectedDistance(d);
     if (playModeRef.current === 'pvp') {
-      if (!pvpRoomIdRef.current || !tgInitDataRef.current) return;
       setLocked(true);
       stopTimer();
 
@@ -988,21 +1026,21 @@ const GamePage = () => {
           initData: tgInitDataRef.current,
           roomId: pvpRoomIdRef.current,
           move: { distance: d },
-        }, { timeoutMs: 5000 }).then((data) => {
+        }, { timeoutMs: 3000 }).then((data) => {
           if (pvpMoveCommittedRef.current) return;
           if (data?.ok && data.room) {
             pvpMoveCommittedRef.current = true;
             applyPvpRoomState(data.room);
-          } else if (basketAttempts < 3) {
-            setTimeout(submitBasketMove, 800);
+          } else if (basketAttempts < 2) {
+            sched(submitBasketMove, 800);
           } else {
             showBottomNotice('Ошибка сети, ждём сервер...');
             pvpPollState();
           }
         }).catch(() => {
           if (pvpMoveCommittedRef.current) return;
-          if (basketAttempts < 3) {
-            setTimeout(submitBasketMove, 800);
+          if (basketAttempts < 2) {
+            sched(submitBasketMove, 800);
           } else {
             showBottomNotice('Ошибка сети, ждём сервер...');
             pvpPollState();
@@ -1011,7 +1049,7 @@ const GamePage = () => {
       };
       submitBasketMove();
 
-      setTimeout(() => {
+      sched(() => {
         if (choiceLockedRef.current && pvpRoomIdRef.current && tgInitDataRef.current) {
           apiPost({
             action: 'pvpGetRoomState',

@@ -2684,7 +2684,7 @@ function pvpAdvanceByTime(room) {
     }
 
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 22000;
+      const staleMs = 35000;
       const p1Stale = now - p1Beat > staleMs;
       const p2Stale = now - p2Beat > staleMs;
       if (p1Stale !== p2Stale && elapsed >= 3000) {
@@ -2764,7 +2764,7 @@ function pvpAdvanceByTime(room) {
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
     }
-    if (s.phase === "turn_input" && elapsed >= 15000) {
+    if (s.phase === "turn_input" && elapsed >= 22000) {
       const choices = { ...asObj(s.choices) };
       const randDist = () => {
         const all = ["close", "mid", "far"];
