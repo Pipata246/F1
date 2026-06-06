@@ -559,12 +559,13 @@ const GamePage = () => {
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        startTimer(msg.timerSec != null ? msg.timerSec : 15, msg.deadlineMs || 0);
+        startTimer(15, Date.now() + 15_000);
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'round_result':
-        // Ignore if already resolving (server sends multiple round_result messages)
         if (roundResolvingRef.current) return;
+        if (lockedMySideRef.current === 'p1') piRef.current = 0;
+        else if (lockedMySideRef.current === 'p2') piRef.current = 1;
         stopTimer();
         setChoosing(false);
         setLocked(false);
@@ -708,23 +709,14 @@ const GamePage = () => {
       choiceLockedRef.current = false;
       pvpMoveCommittedRef.current = false;
       setSelectedDistance(null);
-      // Считаем абсолютный дедлайн: phaseAtMs — серверное время старта раунда (UTC ms).
-      // Оба клиента получают одинаковый phaseAtMs → одинаковый deadlineMs → синхронный таймер.
-      const phaseAtMs = Number(s.phaseAtMs || 0);
-      const serverSkew = Number(serverSkewMsRef.current || 0); // localNow - serverNow
-      // Переводим серверный phaseAtMs в локальное время и добавляем 12 секунд
-      const deadlineMs = phaseAtMs > 0
-        ? (phaseAtMs + serverSkew) + 15_000
-        : Date.now() + 15_000;
-      const remainMs = Math.max(0, deadlineMs - Date.now());
-      const timerSec = Math.max(0, Math.min(15, Math.ceil(remainMs / 1000)));
+      const deadlineMs = Date.now() + 15_000;
       handleMsg({
         type: 'round_start',
         round: Number(s.round || 0) + 1,
         maxRounds: Number(s.maxRounds || 7),
         phase: phaseNum,
         scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)],
-        timerSec,
+        timerSec: 15,
         deadlineMs,
       });
       return;

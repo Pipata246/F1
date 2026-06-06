@@ -2764,7 +2764,7 @@ function pvpAdvanceByTime(room) {
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
     }
-    if (s.phase === "turn_input" && elapsed >= 22000) {
+    if (s.phase === "turn_input" && elapsed >= 28000) {
       const choices = { ...asObj(s.choices) };
       const randDist = () => {
         const all = ["close", "mid", "far"];
