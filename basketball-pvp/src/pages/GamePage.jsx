@@ -553,7 +553,12 @@ const GamePage = () => {
           roundStartDeferredRef.current = msg;
           break;
         }
-        if (roundResolvingRef.current) break;
+        if (roundResolvingRef.current) {
+          roundStartDeferredRef.current = msg;
+          break;
+        }
+        if (lockedMySideRef.current === 'p1') piRef.current = 0;
+        else if (lockedMySideRef.current === 'p2') piRef.current = 1;
         setAnnounce(null);
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
@@ -952,7 +957,7 @@ const GamePage = () => {
       gameKey: 'basketball',
       playerName: n,
       stakeOptions: stakes,
-    }).then((data) => {
+    }, { timeoutMs: 30000 }).then((data) => {
       findInFlightRef.current = false;
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
@@ -961,7 +966,11 @@ const GamePage = () => {
     }).catch((err) => {
       findInFlightRef.current = false;
       playModeRef.current = 'idle';
-      showBottomNotice(String(err?.message || '').trim() || 'Не удалось начать поиск. Попробуй снова.');
+      const isAbort = err?.name === 'AbortError';
+      const msg = isAbort
+        ? 'Сервер не отвечает. Попробуй ещё раз.'
+        : (String(err?.message || '').trim() || 'Не удалось начать поиск. Попробуй снова.');
+      showBottomNotice(msg);
       setScreen('stake-online');
     });
   };
