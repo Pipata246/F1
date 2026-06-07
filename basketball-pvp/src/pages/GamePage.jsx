@@ -31,11 +31,20 @@ function unlockAudio() {
     pool.forEach((a) => {
       try {
         a.muted = true;
+        a.volume = 0;
         const p = a.play();
+        const restore = () => {
+          try {
+            a.pause();
+            a.currentTime = 0;
+            a.muted = false;
+            a.volume = vol;
+          } catch {}
+        };
         if (p && typeof p.then === 'function') {
-          p.then(() => { a.pause(); a.currentTime = 0; a.muted = false; a.volume = vol; }).catch(() => { a.muted = false; a.volume = vol; });
+          p.then(restore).catch(restore);
         } else {
-          a.pause(); a.currentTime = 0; a.muted = false; a.volume = vol;
+          restore();
         }
       } catch {}
     });
@@ -47,6 +56,8 @@ function sfx(name) {
     if (!audioUnlocked) unlockAudio();
     const s = SFX_POOL[name]; if (!s) return;
     const a = s.pool[s.idx % s.pool.length]; s.idx++;
+    a.muted = false;
+    a.volume = s.vol;
     try { a.currentTime = 0; } catch {}
     const p = a.play();
     if (p && typeof p.then === 'function') p.catch(() => {});
@@ -559,12 +570,19 @@ const GamePage = () => {
         }
         if (lockedMySideRef.current === 'p1') piRef.current = 0;
         else if (lockedMySideRef.current === 'p2') piRef.current = 1;
+        choiceLockedRef.current = false;
+        pvpMoveCommittedRef.current = false;
+        autoFiredRef.current = false;
+        setSelectedDistance(null);
         setAnnounce(null);
         setRound(msg.round);
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        startTimer(15, Date.now() + 15_000);
+        // Use server-anchored deadline from msg (set in applyPvpRoomState from
+        // phaseAtMs + skew). Fallback to local clock for bot/demo mode where
+        // applyPvpRoomState is not involved.
+        startTimer(15, Number(msg.deadlineMs) || (Date.now() + 15_000));
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'round_result':
@@ -709,13 +727,17 @@ const GamePage = () => {
     if (s.phase === 'turn_input') {
       const startKey = `${phaseNum}:${Number(s.round || 0)}`;
       if (startKey === pvpLastStartKeyRef.current) return;
-      if (roundResolvingRef.current) return;
       pvpLastStartKeyRef.current = startKey;
-      choiceLockedRef.current = false;
-      pvpMoveCommittedRef.current = false;
-      setSelectedDistance(null);
-      const deadlineMs = Date.now() + 15_000;
-      handleMsg({
+      // Anchor deadline to server-recorded phaseAtMs so both clients agree on the
+      // exact moment the round ends, independent of their poll cadence. Skew is
+      // (localNow - serverNow), so localDeadline = serverPhaseAtMs + 15s + skew.
+      // Fallback to local clock if phaseAtMs is missing (older state, reconnect).
+      const phaseAtMs = Number(s?.phaseAtMs || 0);
+      const skew = Number(serverSkewMsRef.current || 0);
+      const deadlineMs = phaseAtMs > 0
+        ? phaseAtMs + 15_000 + skew
+        : Date.now() + 15_000;
+      const msg = {
         type: 'round_start',
         round: Number(s.round || 0) + 1,
         maxRounds: Number(s.maxRounds || 7),
@@ -723,7 +745,8 @@ const GamePage = () => {
         scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)],
         timerSec: 15,
         deadlineMs,
-      });
+      };
+      handleMsg(msg);
       return;
     }
 

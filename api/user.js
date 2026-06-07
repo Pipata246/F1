@@ -4023,20 +4023,28 @@ async function pvpLeaveRoom(initData, roomId) {
   touchPresenceTgId(tgId);
   const id = Number(roomId);
   if (!Number.isInteger(id) || id <= 0) return { left: false };
-  const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
-  let room = rows?.[0];
-  if (!room) return { left: false };
-  if (!isPvpRoomParticipant(room, tgId)) {
-    throw new Error("Forbidden");
-  }
-  if (room.status === "waiting") {
-    await sb(`pvp_rooms?id=eq.${id}&status=eq.waiting`, {
-      method: "DELETE",
-      prefer: "return=minimal",
-    });
-    return { left: true };
-  }
-  if (room.status === "active") {
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const rows = await sb(`pvp_rooms?id=eq.${id}&select=*`);
+    let room = rows?.[0];
+    if (!room) return { left: false };
+    if (!isPvpRoomParticipant(room, tgId)) {
+      throw new Error("Forbidden");
+    }
+    if (room.status === "finished" || room.status === "cancelled") {
+      // Match already resolved by another path (natural conclusion, other leave,
+      // or queue cancel). Stake finalization is idempotent via stake_settled_at.
+      return { left: true };
+    }
+    if (room.status === "waiting") {
+      await sb(`pvp_rooms?id=eq.${id}&status=eq.waiting`, {
+        method: "DELETE",
+        prefer: "return=minimal",
+      });
+      return { left: true };
+    }
+    if (room.status !== "active") return { left: false };
+
     const roomState = asObj(room.state_json);
     if (String(roomState.phase || "") === "accept_match") {
       await pvpCancelRooms([id]);
@@ -4068,26 +4076,34 @@ async function pvpLeaveRoom(initData, roomId) {
       matchSavedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const patched = await sb(`pvp_rooms?id=eq.${id}&status=eq.active`, {
-      method: "PATCH",
-      body: {
-        status: "finished",
-        winner_tg_user_id: winner || null,
-        state_json: nextState,
-        updated_at: new Date().toISOString(),
-      },
-      prefer: "return=representation",
-    });
-    if (patched?.length) room = patched[0];
-    if (patched?.length) {
-      if (isBotFallback) {
-        // Player left a bot fallback TON match: treat as loss.
-        await pvpFinalizeBotStakeForRoom(room.id, room.player1_tg_user_id, false, "leave_or_forfeit");
-      } else {
-        await pvpFinalizeStakeForRoom(room.id, winner || null, "leave_or_forfeit");
+    // Optimistic lock on updated_at: if anyone else (auto-resolve, opponent submit,
+    // finalizePvpRoomIfNeeded) changed the row between our SELECT and PATCH, this
+    // returns zero rows and we re-read on next iteration. Without this lock two
+    // concurrent paths could disagree on the winner (forfeit vs score-based).
+    const lockedUpdatedAt = encodeURIComponent(String(room.updated_at || ""));
+    const patched = await sb(
+      `pvp_rooms?id=eq.${id}&status=eq.active&updated_at=eq.${lockedUpdatedAt}`,
+      {
+        method: "PATCH",
+        body: {
+          status: "finished",
+          winner_tg_user_id: winner || null,
+          state_json: nextState,
+          updated_at: new Date().toISOString(),
+        },
+        prefer: "return=representation",
       }
+    );
+    if (!patched?.length) continue;
+    room = patched[0];
+
+    if (isBotFallback) {
+      // Player left a bot fallback TON match: treat as loss.
+      await pvpFinalizeBotStakeForRoom(room.id, room.player1_tg_user_id, false, "leave_or_forfeit");
+    } else {
+      await pvpFinalizeStakeForRoom(room.id, winner || null, "leave_or_forfeit");
     }
-    if (patched?.length && winner) {
+    if (winner) {
       await persistMatchFromPayload({
         gameKey,
         mode: "pvp",
@@ -4118,12 +4134,11 @@ async function pvpLeaveRoom(initData, roomId) {
         ],
       });
     }
-    if (patched?.length) {
-      await pvpDeleteRoomAfterDone(id, "finished");
-    }
+    await pvpDeleteRoomAfterDone(id, "finished");
     return { left: true };
   }
-  return { left: false };
+  // Exhausted retries: another path likely already finalized the room.
+  return { left: true };
 }
 
 async function pvpCancelQueue(initData, roomId) {
