@@ -174,6 +174,10 @@ const GamePage = () => {
   const screenRef = useRef('');
   const findInFlightRef = useRef(false);
   const lockedMySideRef = useRef(null);
+  // turnId текущего раунда, синхронизируется из serverного state в applyPvpRoomState.
+  // Захватывается в момент тапа и передаётся в pvpSubmitMove, чтобы сервер отверг
+  // stale-submit из прошлого раунда (STALE_TURN) и не было «авто-броска».
+  const turnIdRef = useRef('');
   const [gameDims, setGameDims] = useState({ W: 0, H: 0 });
 
   function pushServerSkew(skewMs) {
@@ -659,6 +663,10 @@ const GamePage = () => {
   const applyPvpRoomState = useCallback((room) => {
     if (!room) return;
     const s = room.state_json || {};
+    // Синхронизируем turnId из серверного state. Обновляется на каждом poll, поэтому к
+    // моменту тапа в новом раунде ref уже содержит актуальный turnId. Stale-retry при этом
+    // использует turnId, захваченный в момент тапа (см. chooseDist), а не этот живой ref.
+    if (s.turnId) turnIdRef.current = String(s.turnId);
     if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
       const am = s.acceptMatch || {};
       setAcceptInfo({
@@ -944,6 +952,7 @@ const GamePage = () => {
     allowRoundStartAtRef.current = 0;
     autoFiredRef.current = false;
     lockedMySideRef.current = null;
+    turnIdRef.current = '';
     setSelectedDistance(null);
     setAnnounce(null);
     setBallAnim(null);
@@ -1051,20 +1060,34 @@ const GamePage = () => {
       setLocked(true);
       stopTimer();
 
+      // Захватываем turnId и roomId в МОМЕНТ тапа. Все retry используют эти снимки, а не
+      // живые ref'ы: если раунд сменится между попытками, retry понесёт turnId прошлого
+      // раунда и сервер отвергнет его (STALE_TURN) — ход не утечёт в новый раунд.
+      const capturedTurnId = turnIdRef.current || '';
+      const capturedRoomId = pvpRoomIdRef.current;
       let basketAttempts = 0;
       const submitBasketMove = () => {
         basketAttempts++;
         apiPost({
           action: 'pvpSubmitMove',
           initData: tgInitDataRef.current,
-          roomId: pvpRoomIdRef.current,
-          move: { distance: d },
+          roomId: capturedRoomId,
+          move: { distance: d, turnId: capturedTurnId || undefined },
         }, { timeoutMs: 3000 }).then((data) => {
           if (pvpMoveCommittedRef.current) return;
           if (data?.ok && data.room) {
             pvpMoveCommittedRef.current = true;
             applyPvpRoomState(data.room);
-          } else if (basketAttempts < 2) {
+            return;
+          }
+          // STALE_TURN: submit долетел уже после смены раунда — тихо игнорируем и
+          // подтягиваем актуальный state поллингом. Без retry и без notice.
+          if (String(data?.error || '') === 'STALE_TURN') {
+            pvpMoveCommittedRef.current = true;
+            pvpPollState();
+            return;
+          }
+          if (basketAttempts < 2) {
             sched(submitBasketMove, 800);
           } else {
             showBottomNotice('Ошибка сети, ждём сервер...');

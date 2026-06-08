@@ -1806,6 +1806,9 @@ function pvpDefaultBasketballState(player1Id, player2Id) {
     // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: инициализация moveSubmittedBy
     moveSubmittedBy: { p1: null, p2: null },
     markers: { round: 0, phase: 0, match: 0 },
+    // turnId связывает submit с конкретным раундом. Отвергает stale-retry, который
+    // долетел уже после смены раунда (иначе ход из прошлого раунда пишется в текущий).
+    turnId: pvpMakeTurnId(),
     players: { p1: String(player1Id), p2: String(player2Id) },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -2611,6 +2614,19 @@ function pvpApplyBasketballMove(room, tgId, move) {
   if (distance !== "close" && distance !== "mid" && distance !== "far") {
     throw new Error("Invalid basketball distance");
   }
+  // turnId-guard: ход привязан к конкретному раунду. Если у сервера уже есть turnId
+  // (все новые матчи и любой раунд после первого turn_input-перехода), клиент ОБЯЗАН
+  // передать совпадающий. Stale-retry из прошлого раунда несёт старый turnId и
+  // отвергается с STALE_TURN — иначе он записал бы дистанцию прошлого раунда в текущий
+  // choices и спровоцировал «авто-бросок» без участия игрока. Пустой storedTurnId
+  // (старые in-flight матчи до миграции) — обратная совместимость, проверка пропускается.
+  const incomingTurnId = String(asObj(move).turnId || "");
+  const storedTurnId = String(s.turnId || "");
+  if (storedTurnId) {
+    if (!incomingTurnId || incomingTurnId !== storedTurnId) {
+      throw new Error("STALE_TURN");
+    }
+  }
   const next = { ...s, choices: { ...asObj(s.choices) } };
   // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: moveSubmittedBy
   const submitted = asObj(s.moveSubmittedBy);
@@ -2731,6 +2747,7 @@ function pvpAdvanceByTime(room) {
             next.phaseAtMs = now;
             next.choices = { p1: null, p2: null };
             next.moveSubmittedBy = { p1: null, p2: null };
+            next.turnId = pvpMakeTurnId();
             next.markers = { ...asObj(s.markers), phase: Number(asObj(s.markers).phase || 0) + 1 };
           }
         } else if (earlyEnd) {
@@ -2744,6 +2761,7 @@ function pvpAdvanceByTime(room) {
           next.phaseAtMs = now;
           next.choices = { p1: null, p2: null };
           next.moveSubmittedBy = { p1: null, p2: null };
+          next.turnId = pvpMakeTurnId();
         }
         next.updatedAt = new Date().toISOString();
         return { changed: true, state: next };
@@ -2760,6 +2778,7 @@ function pvpAdvanceByTime(room) {
         next.choices = { p1: null, p2: null };
         // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy в овертайме
         next.moveSubmittedBy = { p1: null, p2: null };
+        next.turnId = pvpMakeTurnId();
       }
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
