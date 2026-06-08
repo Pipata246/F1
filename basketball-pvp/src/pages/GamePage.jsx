@@ -76,12 +76,14 @@ const ST = { fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif" };
 
 // ============ ТАЙМИНГ АНИМАЦИИ БРОСКА (фаза 2/3) ============
 // Единый источник для animateRound и roundAnimTotalMs — чтобы не разъезжались.
-// Ускорено, чтобы «загрузка» между раундами была короче (раньше 4100мс/бросок).
-const ANIM_FLIGHT_MS = 1500; // полёт мяча (framer-motion duration)
-const ANIM_MOVE_MS = 300;    // шаг игрока на точку броска
+// FLIGHT и MOVE — оригинальная скорость (полёт мяча и задержка под 0.4s CSS-переход
+// движения персонажа). Сокращены только SHOW и GAP — это не «скорость» анимаций,
+// а длительность показа результата и мёртвая пауза между бросками.
+const ANIM_FLIGHT_MS = 2400; // полёт мяча (framer-motion duration)
+const ANIM_MOVE_MS = 400;    // задержка до броска = длительность CSS-перехода движения (0.4s)
 const ANIM_SHOW_MS = 800;    // показ ✓/✗
 const ANIM_GAP_MS = 200;     // пауза между бросками
-const ANIM_CYCLE_MS = ANIM_MOVE_MS + ANIM_FLIGHT_MS + ANIM_SHOW_MS + ANIM_GAP_MS; // 2800мс/бросок
+const ANIM_CYCLE_MS = ANIM_MOVE_MS + ANIM_FLIGHT_MS + ANIM_SHOW_MS + ANIM_GAP_MS; // 3800мс/бросок
 
 const DISTS = [
   { key: 'close', label: 'БЛИЖНЯЯ', pts: '1 очко', pct: '~85%', bg: 'from-[#63e6be] to-[#8ff0cf]' },
