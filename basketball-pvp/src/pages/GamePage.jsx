@@ -74,6 +74,15 @@ const CHAR_H = Math.round(48 * 0.9 * 1.4 * 1.5 * 0.85);
 const BALL_SIZE = 34;
 const ST = { fontFamily: "'Nunito', 'Segoe UI', system-ui, sans-serif" };
 
+// ============ ТАЙМИНГ АНИМАЦИИ БРОСКА (фаза 2/3) ============
+// Единый источник для animateRound и roundAnimTotalMs — чтобы не разъезжались.
+// Ускорено, чтобы «загрузка» между раундами была короче (раньше 4100мс/бросок).
+const ANIM_FLIGHT_MS = 1500; // полёт мяча (framer-motion duration)
+const ANIM_MOVE_MS = 300;    // шаг игрока на точку броска
+const ANIM_SHOW_MS = 800;    // показ ✓/✗
+const ANIM_GAP_MS = 200;     // пауза между бросками
+const ANIM_CYCLE_MS = ANIM_MOVE_MS + ANIM_FLIGHT_MS + ANIM_SHOW_MS + ANIM_GAP_MS; // 2800мс/бросок
+
 const DISTS = [
   { key: 'close', label: 'БЛИЖНЯЯ', pts: '1 очко', pct: '~85%', bg: 'from-[#63e6be] to-[#8ff0cf]' },
   { key: 'mid',   label: 'СРЕДНЯЯ', pts: '2 очка', pct: '~50%', bg: 'from-[#48d2ac] to-[#63e6be]' },
@@ -479,10 +488,7 @@ const GamePage = () => {
   }
 
   function roundAnimTotalMs(phase, shotsCount) {
-    const dur = phase === 1 ? 1.6 : 2.4, durMs = dur * 1000;
-    const moveMs = phase === 1 ? 100 : 400, showMs = 1000, gap = 300;
-    const cycle = moveMs + durMs + showMs + gap;
-    return Math.max(0, Number(shotsCount || 0)) * cycle + 200;
+    return Math.max(0, Number(shotsCount || 0)) * ANIM_CYCLE_MS + 200;
   }
 
   function animateRound(shotsRaw, phase, finalScores, onDone) {
@@ -492,9 +498,9 @@ const GamePage = () => {
     const gen = ++animationGenRef.current;
     const isCurrent = () => animationGenRef.current === gen;
     const shots = normalizeShotsForViewer(shotsRaw);
-    const dur = phase === 1 ? 1.6 : 2.4, durMs = dur*1000;
-    const moveMs = phase===1?100:400, showMs=1000, gap=300;
-    const cycle = moveMs+durMs+showMs+gap;
+    const dur = ANIM_FLIGHT_MS / 1000, durMs = ANIM_FLIGHT_MS;
+    const moveMs = ANIM_MOVE_MS, showMs = ANIM_SHOW_MS, gap = ANIM_GAP_MS;
+    const cycle = ANIM_CYCLE_MS;
 
     shots.forEach((shot, i) => {
       const t0 = i*cycle;
@@ -583,10 +589,9 @@ const GamePage = () => {
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        // Use server-anchored deadline from msg (set in applyPvpRoomState from
-        // phaseAtMs + skew). Fallback to local clock for bot/demo mode where
-        // applyPvpRoomState is not involved.
-        startTimer(15, Number(msg.deadlineMs) || (Date.now() + 15_000));
+        // Свежие 15с от момента, когда раунд реально стартовал для игрока (после
+        // анимации прошлого раунда). Так у игрока всегда полное окно на выбор.
+        startTimer(15, Date.now() + 15_000);
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'round_result':
@@ -624,14 +629,15 @@ const GamePage = () => {
             finalizeMatchResult(pendingMatch);
             return;
           }
-          // Stage (4): now show GAME ON and delay next round UI until it disappears.
-          allowRoundStartAtRef.current = Date.now() + 1600;
-          showAnnounce('GAME ON', 'Следующий раунд');
+          // Короткий межраундовый маркер. Раньше 1600мс — это добавляло ~1с к «загрузке»
+          // каждый раунд. 700мс достаточно как визуальный переход.
+          allowRoundStartAtRef.current = Date.now() + 700;
+          showAnnounce('GAME ON', 'Следующий раунд', 700);
           sched(() => {
             const pendingStart = roundStartDeferredRef.current;
             roundStartDeferredRef.current = null;
             if (pendingStart) handleMsg(pendingStart);
-          }, 1610);
+          }, 710);
         });
         break;
       case 'match_result':
@@ -652,7 +658,7 @@ const GamePage = () => {
     }
   }, []);
 
-  function showAnnounce(t,s){setAnnounce({title:t,sub:s});sched(()=>setAnnounce(null),1600);}
+  function showAnnounce(t,s,ms=1600){setAnnounce({title:t,sub:s});sched(()=>setAnnounce(null),ms);}
 
   const stopPvpPolling = useCallback(() => {
     if (pvpPollTimerRef.current) clearInterval(pvpPollTimerRef.current);
@@ -736,15 +742,11 @@ const GamePage = () => {
       const startKey = `${phaseNum}:${Number(s.round || 0)}`;
       if (startKey === pvpLastStartKeyRef.current) return;
       pvpLastStartKeyRef.current = startKey;
-      // Anchor deadline to server-recorded phaseAtMs so both clients agree on the
-      // exact moment the round ends, independent of their poll cadence. Skew is
-      // (localNow - serverNow), so localDeadline = serverPhaseAtMs + 15s + skew.
-      // Fallback to local clock if phaseAtMs is missing (older state, reconnect).
-      const phaseAtMs = Number(s?.phaseAtMs || 0);
-      const skew = Number(serverSkewMsRef.current || 0);
-      const deadlineMs = phaseAtMs > 0
-        ? phaseAtMs + 15_000 + skew
-        : Date.now() + 15_000;
+      // Таймер НЕ привязываем к серверному phaseAtMs: между phaseAtMs и появлением
+      // кнопок выбора у клиента проходит ~8-10с анимации прошлого раунда, которые
+      // съели бы окно (игрок видел бы 3-7с вместо 15). Полные 15с отсчитываются от
+      // момента реальной обработки round_start (после анимации) в handleMsg через
+      // Date.now()+15000. Серверный auto-resolve (28с от phaseAtMs) даёт запас.
       const msg = {
         type: 'round_start',
         round: Number(s.round || 0) + 1,
@@ -752,7 +754,6 @@ const GamePage = () => {
         phase: phaseNum,
         scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)],
         timerSec: 15,
-        deadlineMs,
       };
       handleMsg(msg);
       return;

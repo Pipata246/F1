@@ -1831,8 +1831,10 @@ const PVP_BOT_MOVE_MIN_MS = 150;
 const PVP_BOT_MOVE_MAX_MS = 450;
 const PVP_OBSTACLE_BOT_MIN_MS = 700;
 const PVP_OBSTACLE_BOT_MAX_MS = 5000;
-const PVP_BASKETBALL_BOT_MIN_MS = 700;
-const PVP_BASKETBALL_BOT_MAX_MS = 5000;
+// Баскетбол: ускорено 700-5000 -> 500-1500. Раунд короткий (один бросок), долгое
+// «раздумье» бота добавляло до 5с к загрузке между ходами. Бот всё ещё не мгновенный.
+const PVP_BASKETBALL_BOT_MIN_MS = 500;
+const PVP_BASKETBALL_BOT_MAX_MS = 1500;
 const PVP_ACCEPT_WINDOW_MS = 5_000;
 const PVP_BOT_NAME_RECENT = new Set();
 const PVP_BOT_NAME_RECENT_LIMIT = 200;
